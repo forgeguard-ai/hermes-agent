@@ -43,14 +43,64 @@ flowchart TD
 
 - [x] Create `docs/agent-plans/` directory.
 - [x] Write this plan to `docs/agent-plans/2026-07-02-forgeguard-fork-consolidation-plan.md`.
-- [ ] Update `AGENTS.md` with two new "ForgeGuard fork only" sections: fork PR policy + plan-saving rule.
-- [ ] Create `CLAUDE.md` at repo root as a pointer to `AGENTS.md`.
-- [ ] Create `.github/copilot-instructions.md` as a pointer to `AGENTS.md`.
+- [x] Update `AGENTS.md` with two new "ForgeGuard fork only" sections: fork PR policy + plan-saving rule.
+- [x] Create `CLAUDE.md` at repo root as a pointer to `AGENTS.md`.
+- [x] Create `.github/copilot-instructions.md` as a pointer to `AGENTS.md`.
+
+All landed via [PR #3](https://github.com/ForgeGuard/hermes-agent/pull/3),
+merged into fork `main`.
+
+## Addendum (2026-07-02) — Runaway Actions runs from PR #2, found while starting Phase 1
+
+While starting Phase 1, the user reported ~167 queued-looking "Action
+required" workflow runs piling up in the fork's Actions tab. Root-caused and
+fixed as part of the same PR #3 branch before merging:
+
+- **Cause:** PR #2 (`ForgeGuard/hermes-agent#2`) had `head = NousResearch:main`
+  — the entire upstream branch, not a fork copy of it. Every commit pushed to
+  `NousResearch/hermes-agent:main` (upstream is extremely active) re-triggered
+  a `synchronize` event on that PR, creating a new blocked CI run each time.
+- **Actual cost:** Verified via the Actions API that all runs were already
+  `status: completed` with `conclusion: action_required` — GitHub's built-in
+  fork-PR / first-time-contributor approval gate blocked every one of them
+  *before* a runner was provisioned. **No billed Actions minutes were
+  consumed.** Nothing was left in a genuinely cancelable (`queued`/
+  `in_progress`) state at any point.
+- **Fix 1:** Closed PR #2 with an explanatory comment (see Phase 1 below —
+  this also completes that planned todo, just moved earlier/out of order).
+  The fork's run count immediately dropped from 167 to 46, then to single
+  digits as stale runs aged out.
+- **Fix 2 (found during the same audit):** three more jobs across the
+  inherited workflow set could fire *for real* on the fork despite the
+  `if: github.repository == 'NousResearch/hermes-agent'` convention already
+  used elsewhere (`docker.yml`, `contributor-check`) — all fixed in the same
+  PR #3:
+  - `upload_to_pypi.yml` (`build`/`publish`/`sign` jobs) — triggered by any
+    pushed tag matching `v20*`. This fork's own Phase 1 release automation
+    creates tags shaped like `v2026.7.1-forgeguard.N`, which match that glob.
+    Without this guard, a fork release would have attempted to publish to the
+    real `https://pypi.org/p/hermes-agent` via PyPI trusted publishing. Now
+    guarded on all three jobs (not just the first — `sign` has an explicit
+    `if:` that bypasses the default `needs:` success-skip-propagation, so a
+    single guard on `build` alone would not have been sufficient).
+  - `deploy-site.yml` (`deploy-vercel` job) — triggered on every GitHub
+    Release publish with no repository check; this fork's releases would
+    have curled an unset `VERCEL_DEPLOY_HOOK` secret. Now guarded.
+  - `skills-index.yml` (`trigger-deploy` job) — same explicit-`if`-bypasses-
+    `needs` issue; was dispatching `deploy-site.yml` on the fork's own daily
+    schedule even though its sibling `build-index` job was already correctly
+    upstream-gated. Now guarded.
+  - Left `osv-scanner.yml`'s weekly schedule scan **intentionally
+    unguarded** — it's a low-cost, generically useful security scan of the
+    fork's own lockfiles, not an upstream-only publish action. Revisit if
+    this should also be disabled.
+- Re-verified after merge: fork Actions run count settled at single digits,
+  only the fork's own legitimate push-to-main CI run present, and it passed.
 
 ## Phase 1 — Fix CI, merge the feature branch, add release automation
 
-- [ ] Close PR #2 on `ForgeGuard/hermes-agent` with an explanatory comment.
-- [ ] Gate `contributor-check` to upstream-only in `.github/workflows/ci.yml` (`if: github.repository == 'NousResearch/hermes-agent'`).
+- [x] Close PR #2 on `ForgeGuard/hermes-agent` with an explanatory comment. (Done ahead of schedule — see Addendum above.)
+- [x] Gate `contributor-check` to upstream-only in `.github/workflows/ci.yml` (`if: github.repository == 'NousResearch/hermes-agent'`). (Landed in PR #3.)
 - [ ] Open and merge a PR: `feature/adm-runtime-desktop-client` → fork `main` (merge commit, not squash/rebase). Confirm CI green.
 - [ ] Extend `build-desktop-client.yml` with a macOS job (unsigned `dist:mac`). No Windows job yet.
 - [ ] Create `release-on-merge.yml`: trigger on PR merged to `main`, build desktop (Linux+macOS) + ADM runtime image, version as `<upstream-tag>-forgeguard.<n>`, publish a GitHub Release with installers attached and image tags referenced.
