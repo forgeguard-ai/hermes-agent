@@ -25,6 +25,12 @@ concurrency:
 jobs:
   build:
     name: Build distribution 📦
+    # Only run on the upstream repository, not on forks. This fork's own
+    # release automation (release-on-merge.yml) creates tags shaped like
+    # v2026.7.1-forgeguard.N, which also match the "v20*" push trigger above
+    # — without this guard those fork releases would attempt to publish to
+    # the real https://pypi.org/p/hermes-agent project.
+    if: github.repository == 'NousResearch/hermes-agent'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -88,6 +94,9 @@ jobs:
 
   publish:
     name: Publish to PyPI
+    # Explicit guard (not just relying on `needs: build` skip-propagation) —
+    # see the note on the build job above.
+    if: github.repository == 'NousResearch/hermes-agent'
     needs: build
     runs-on: ubuntu-latest
     environment:
@@ -112,7 +121,10 @@ jobs:
     name: Sign and attach to GitHub Release
     # Only runs on tag pushes — release.py creates the GitHub Release,
     # and workflow_dispatch won't have a matching release to attach to.
-    if: startsWith(github.ref, 'refs/tags/')
+    # Repository guard is required here (not just the tag check) because
+    # this job's explicit `if:` already overrides the default `needs: publish`
+    # success-skip-propagation — see the note on the build job above.
+    if: startsWith(github.ref, 'refs/tags/') && github.repository == 'NousResearch/hermes-agent'
     needs: publish
     runs-on: ubuntu-latest
     permissions:
