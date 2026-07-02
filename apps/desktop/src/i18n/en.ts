@@ -169,6 +169,38 @@ export const en: Translations = {
     dismiss: 'Dismiss'
   },
 
+  connectionMode: {
+    title: 'Connection',
+    description: 'Choose how this app connects to a Hermes backend.',
+    localTitle: 'Local Runtime',
+    localDesc: 'Run a private Hermes backend on this machine. Works offline; the default.',
+    clientTitle: 'Client Mode',
+    clientDesc: 'Connect to an already-running Hermes backend on another machine or server.',
+    currentLocal: 'Using the local runtime on this machine.',
+    currentRemote: url => `Client mode — connected to ${url}.`,
+    urlTitle: 'Backend URL',
+    urlDesc: 'Base URL for the remote dashboard backend. Path prefixes are supported, for example /hermes.',
+    connect: 'Connect',
+    useLocal: 'Use Local Runtime',
+    switchToLocal: 'Switch to Local Runtime',
+    switchToClient: 'Switch to Client Mode',
+    reconnect: 'Reconnect',
+    advanced: 'Open full gateway settings',
+    connectedTitle: 'Client mode enabled',
+    connectedMessage: 'Hermes Desktop will reconnect to the remote backend.',
+    switchedLocalTitle: 'Local runtime enabled',
+    switchedLocalMessage: 'Hermes Desktop will restart its local backend.',
+    firstRunTitle: 'How would you like to use Hermes?',
+    firstRunDescription: 'Set up a private Hermes runtime on this machine, or connect to an existing Hermes backend.',
+    firstRunLocalDesc: 'Install and run Hermes on this machine. Works offline; recommended for most people.',
+    firstRunClientDesc: 'Skip the local install and connect to a Hermes backend that is already running elsewhere.',
+    firstRunSetUpLocal: 'Set up local Hermes',
+    firstRunLocalToastTitle: 'Setting up local Hermes',
+    firstRunLocalToastMessage: 'Hermes Desktop will install and start the local runtime.',
+    insecureCertTitle: 'Allow self-signed certificate',
+    insecureCertDesc: 'Skip TLS certificate checks for this gateway. Only enable for a server you trust and control.'
+  },
+
   titlebar: {
     hideSidebar: 'Hide sidebar',
     showSidebar: 'Show sidebar',
@@ -544,6 +576,9 @@ export const en: Translations = {
       authNeedsOauth: provider => `This gateway uses OAuth. Sign in with ${provider} to authorize this desktop app.`,
       tokenTitle: 'Session token',
       tokenDesc: 'The dashboard session token used for REST and WebSocket access. Leave blank to keep the saved token.',
+      insecureCertTitle: 'Allow self-signed certificate',
+      insecureCertDesc:
+        'Skip TLS certificate verification for this remote gateway. Use only for a server you control with a self-signed or otherwise untrusted certificate.',
       existingToken: value => `Existing token ${value}`,
       savedToken: 'saved',
       pasteSessionToken: 'Paste session token',

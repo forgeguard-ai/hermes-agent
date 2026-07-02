@@ -52,7 +52,10 @@ declare global {
       saveConnectionConfig: (payload: DesktopConnectionConfigInput) => Promise<DesktopConnectionConfig>
       applyConnectionConfig: (payload: DesktopConnectionConfigInput) => Promise<DesktopConnectionConfig>
       testConnectionConfig: (payload: DesktopConnectionConfigInput) => Promise<DesktopConnectionTestResult>
-      probeConnectionConfig: (remoteUrl: string) => Promise<DesktopConnectionProbeResult>
+      probeConnectionConfig: (
+        remoteUrl: string,
+        allowInvalidCertificate?: boolean
+      ) => Promise<DesktopConnectionProbeResult>
       oauthLoginConnectionConfig: (remoteUrl: string) => Promise<DesktopOauthLoginResult>
       oauthLogoutConnectionConfig: (remoteUrl?: string) => Promise<DesktopOauthLogoutResult>
       profile: {
@@ -61,6 +64,12 @@ declare global {
         // backend under the new HERMES_HOME (reloads the window). Pass null to
         // clear the preference.
         set: (name: string | null) => Promise<DesktopActiveProfile>
+      }
+      // First-run local-vs-remote choice. `get` reports whether the chooser
+      // should block boot; `complete` records the pick so the app stops asking.
+      firstRunChoice?: {
+        get: () => Promise<DesktopFirstRunChoiceStatus>
+        complete: (choice: DesktopFirstRunChoice) => Promise<DesktopFirstRunChoiceResult>
       }
       api: <T>(request: HermesApiRequest) => Promise<T>
       notify: (payload: HermesNotification) => Promise<boolean>
@@ -390,6 +399,9 @@ export interface DesktopConnectionConfig {
   // The profile this config describes, or null for the global/default
   // connection. Per-profile entries let a profile point at its own backend.
   profile: null | string
+  // Opt-in: skip TLS certificate verification for this remote gateway. For a
+  // self-signed / untrusted certificate on a server the user controls.
+  remoteAllowInvalidCertificate: boolean
   remoteAuthMode: 'oauth' | 'token'
   remoteOauthConnected: boolean
   remoteTokenPreview: string | null
@@ -397,11 +409,24 @@ export interface DesktopConnectionConfig {
   remoteUrl: string
 }
 
+export type DesktopFirstRunChoice = 'local' | 'remote'
+
+export interface DesktopFirstRunChoiceStatus {
+  required: boolean
+}
+
+export interface DesktopFirstRunChoiceResult {
+  ok: boolean
+  required: boolean
+}
+
 export interface DesktopConnectionConfigInput {
   mode: 'local' | 'remote'
   // When set, the save/apply/test targets this profile's per-profile remote
   // override instead of the global connection.
   profile?: null | string
+  // Opt-in TLS bypass for a self-signed / untrusted gateway certificate.
+  remoteAllowInvalidCertificate?: boolean
   remoteAuthMode?: 'oauth' | 'token'
   remoteToken?: string
   remoteUrl?: string

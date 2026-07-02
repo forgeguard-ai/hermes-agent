@@ -38,12 +38,20 @@ contextBridge.exposeInMainWorld('hermesDesktop', {
   saveConnectionConfig: payload => ipcRenderer.invoke('hermes:connection-config:save', payload),
   applyConnectionConfig: payload => ipcRenderer.invoke('hermes:connection-config:apply', payload),
   testConnectionConfig: payload => ipcRenderer.invoke('hermes:connection-config:test', payload),
-  probeConnectionConfig: remoteUrl => ipcRenderer.invoke('hermes:connection-config:probe', remoteUrl),
+  probeConnectionConfig: (remoteUrl, allowInvalidCertificate) =>
+    ipcRenderer.invoke('hermes:connection-config:probe', remoteUrl, allowInvalidCertificate),
   oauthLoginConnectionConfig: remoteUrl => ipcRenderer.invoke('hermes:connection-config:oauth-login', remoteUrl),
   oauthLogoutConnectionConfig: remoteUrl => ipcRenderer.invoke('hermes:connection-config:oauth-logout', remoteUrl),
   profile: {
     get: () => ipcRenderer.invoke('hermes:profile:get'),
     set: name => ipcRenderer.invoke('hermes:profile:set', name)
+  },
+  firstRunChoice: {
+    // `get` → { required } : whether to show the local-vs-remote chooser before
+    // connecting. `complete(choice)` records 'local' | 'remote' so the app stops
+    // asking; the renderer reloads afterwards so main starts the chosen backend.
+    get: () => ipcRenderer.invoke('hermes:first-run:get'),
+    complete: choice => ipcRenderer.invoke('hermes:first-run:complete', { choice })
   },
   api: request => ipcRenderer.invoke('hermes:api', request),
   notify: payload => ipcRenderer.invoke('hermes:notify', payload),
