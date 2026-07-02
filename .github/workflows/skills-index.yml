@@ -45,9 +45,14 @@ jobs:
   # Re-trigger the docs deploy so the refreshed index lands on the live site.
   # The deploy itself is owned by deploy-site.yml (which crawls and deploys
   # everything in one pipeline); we just kick it on a schedule.
+  #
+  # Repository guard: this job's explicit `if:` (event-name only) overrides
+  # the default `needs: build-index` success-skip-propagation, so without an
+  # explicit repository check here, a fork would still dispatch
+  # deploy-site.yml on schedule even though build-index above was skipped.
   trigger-deploy:
     needs: build-index
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.repository == 'NousResearch/hermes-agent' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     steps:
       - name: Trigger Deploy Site workflow
