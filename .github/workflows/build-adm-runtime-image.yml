@@ -13,6 +13,16 @@ name: Build ADM Runtime Image (GHCR)
 # per-arch digest + manifest-merge structure.
 
 on:
+  workflow_call:
+    inputs:
+      push:
+        description: "Push the built image to GHCR (otherwise build + test only)"
+        type: boolean
+        default: true
+      extra_tag:
+        description: "Optional additional image tag to publish alongside adm-<sha>/adm-latest (e.g. adm-v2026.7.1-forgeguard.1)"
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       push:
@@ -109,20 +119,34 @@ jobs:
         run: |
           scripts/run_tests.sh tests/docker/ --file-timeout 600
 
-      # Publish only on push-to-main or an explicit workflow_dispatch with
-      # push=true. Tags: adm-<sha> (immutable, traceable) + adm-latest
-      # (rolling). Release/date tags are deferred until the spike is stable.
+      # Publish only on push-to-main, an explicit workflow_dispatch with
+      # push=true, or a workflow_call (release-on-merge.yml) with push=true.
+      # Base tags: adm-<sha> (immutable, traceable) + adm-latest (rolling).
+      # A release-on-merge call also passes extra_tag, e.g.
+      # adm-v2026.7.1-forgeguard.1, so the exact fork release version is
+      # pullable without relying on adm-latest drifting forward.
+      - name: Compute image tags
+        id: tags
+        run: |
+          {
+            echo "list<<TAGEOF"
+            echo "${{ steps.image.outputs.name }}:adm-${{ github.sha }}"
+            echo "${{ steps.image.outputs.name }}:adm-latest"
+            if [ -n "${{ inputs.extra_tag }}" ]; then
+              echo "${{ steps.image.outputs.name }}:${{ inputs.extra_tag }}"
+            fi
+            echo "TAGEOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Push image to GHCR
-        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.push)
+        if: github.event_name == 'push' || ((github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.push)
         uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
         with:
           context: .
           file: Dockerfile
           push: true
           platforms: linux/amd64
-          tags: |
-            ${{ steps.image.outputs.name }}:adm-${{ github.sha }}
-            ${{ steps.image.outputs.name }}:adm-latest
+          tags: ${{ steps.tags.outputs.list }}
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
           build-args: |

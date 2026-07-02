@@ -1,0 +1,156 @@
+name: Release on Merge
+
+# Fork-oriented release automation. Every PR merged into `main` gets a
+# GitHub Release: Linux + macOS desktop installers attached, and the ADM
+# runtime image (ghcr.io/forgeguard/hermes-agent) tagged with the same
+# version in addition to its rolling adm-<sha>/adm-latest tags.
+#
+# Version scheme: <upstream-base-tag>-forgeguard.<n>, e.g.
+# v2026.7.1-forgeguard.3. <upstream-base-tag> comes from the FORK_UPSTREAM_BASE
+# marker file at repo root (written by the upstream-sync skill each time this
+# fork syncs to a new NousResearch/hermes-agent tag — see
+# docs/fork-maintenance/upstream-sync-skill.md); if that marker doesn't exist
+# yet, falls back to the nearest reachable git tag so this workflow still
+# works before the first sync. <n> auto-increments per base tag by scanning
+# existing release tags.
+#
+# Note: this runs on *every* merge to main, including small chore/docs PRs —
+# each one produces a full desktop + image build and a new release. If that
+# cadence turns out to be more than wanted, narrow the trigger (e.g. skip on
+# a "no-release" label, or path-filter to code-relevant changes) — it is
+# deliberately unfiltered for now per the fork owner's request.
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: release-on-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  compute-version:
+    name: Compute release version
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      base_tag: ${{ steps.version.outputs.base_tag }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Compute release version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          if [ -f FORK_UPSTREAM_BASE ]; then
+            BASE_TAG="$(tr -d '[:space:]' < FORK_UPSTREAM_BASE)"
+          else
+            BASE_TAG="$(git describe --tags --abbrev=0 HEAD)"
+            echo "::notice::No FORK_UPSTREAM_BASE marker yet; using nearest reachable tag '$BASE_TAG'. Run the upstream-sync skill (docs/fork-maintenance/upstream-sync-skill.md) to pin this properly once main is synced to a real upstream release."
+          fi
+
+          # Highest existing "<base>-forgeguard.N" release tag, then +1.
+          LAST_N="$(gh release list --repo "${{ github.repository }}" --limit 200 --json tagName \
+            | jq -r --arg base "$BASE_TAG" '
+                [ .[].tagName
+                  | select(startswith($base + "-forgeguard."))
+                  | split(".") | last | tonumber
+                ] | (if length > 0 then max else 0 end)
+              ')"
+          NEXT_N=$((LAST_N + 1))
+          VERSION="${BASE_TAG}-forgeguard.${NEXT_N}"
+
+          echo "base_tag=$BASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "::notice::Computed release version: $VERSION"
+
+  build-desktop:
+    name: Build desktop installers
+    needs: compute-version
+    uses: ./.github/workflows/build-desktop-client.yml
+    with:
+      upload: true
+
+  build-image:
+    name: Build ADM runtime image
+    needs: compute-version
+    uses: ./.github/workflows/build-adm-runtime-image.yml
+    with:
+      push: true
+      extra_tag: adm-${{ needs.compute-version.outputs.version }}
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [compute-version, build-desktop, build-image]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Linux installers
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: hermes-desktop-linux
+          path: release-assets
+
+      - name: Download macOS installers
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: hermes-desktop-macos
+          path: release-assets
+
+      - name: Write release notes
+        env:
+          VERSION: ${{ needs.compute-version.outputs.version }}
+          BASE_TAG: ${{ needs.compute-version.outputs.base_tag }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          cat <<'NOTES' > /tmp/release-notes.md
+          Fork release automatically built on merge of __PR_LINK__ into `main`.
+
+          Tracks upstream base `__BASE_TAG__`. See `docs/fork-maintenance/upstream-sync-skill.md`
+          for how this fork stays current with [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent).
+
+          ### Docker
+
+          ```bash
+          docker pull ghcr.io/forgeguard/hermes-agent:adm-__VERSION__
+          # or the rolling tag:
+          docker pull ghcr.io/forgeguard/hermes-agent:adm-latest
+          ```
+
+          ### Desktop installers
+
+          Linux (`.AppImage`, `.deb`, `.rpm`) and macOS (`.dmg`, `.zip`) installers are
+          attached below. Both are **unsigned** — no Apple Developer or notarization
+          credentials on this fork. Linux needs no extra step; macOS will show the
+          standard Gatekeeper "unidentified developer" warning on first launch
+          (right-click the app, then Open).
+          NOTES
+          sed -i \
+            -e "s/__VERSION__/${VERSION}/g" \
+            -e "s/__BASE_TAG__/${BASE_TAG}/g" \
+            -e "s/__PR_LINK__/#${PR_NUMBER}/g" \
+            /tmp/release-notes.md
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.compute-version.outputs.version }}
+        run: |
+          gh release create "$VERSION" \
+            release-assets/* \
+            --repo "${{ github.repository }}" \
+            --title "Hermes Agent (ForgeGuard fork) ${VERSION}" \
+            --notes-file /tmp/release-notes.md
