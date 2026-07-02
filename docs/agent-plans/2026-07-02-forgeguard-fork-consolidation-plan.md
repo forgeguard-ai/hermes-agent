@@ -173,16 +173,33 @@ Final branch list on `ForgeGuard/hermes-agent`: `main`,
 
 ## Phase 4 — Sync fork main to upstream v2026.7.1 + write the reusable sync skill
 
-- [ ] Merge `upstream` tag `v2026.7.1` into fork `main` via a `sync/upstream-v2026.7.1` branch → PR, re-applying fork-only patches (contributor-check guard, ADM/desktop-client workflows, release workflow, README docker section, the `vite.config.ts` test-scope fix, the `apps/desktop/package.json` homepage fix, and the `workflow_call` upload/push condition fix).
-- [ ] Write a `FORK_UPSTREAM_BASE` marker recording the synced upstream tag.
-- [ ] Author `docs/fork-maintenance/upstream-sync-skill.md` — an agent-agnostic runbook for Cursor, GitHub Copilot, Codex, and Claude Code to repeat this sync in the future.
-- [ ] Cross-link the skill from `AGENTS.md`, `CLAUDE.md`, and `.github/copilot-instructions.md`.
+- [x] Merge `upstream` tag `v2026.7.1` into fork `main` via a `sync/upstream-v2026.7.1` branch → PR, re-applying fork-only patches (contributor-check guard, ADM/desktop-client workflows, release workflow, README docker section, the `vite.config.ts` test-scope fix, the `apps/desktop/package.json` homepage fix, and the `workflow_call` upload/push condition fix). ([PR #9](https://github.com/ForgeGuard/hermes-agent/pull/9), merged via real merge commit.) Only 2 real conflicts across 755 changed files, both in `apps/desktop` (an onboarding-file rename + an import-list conflict from an upstream cron refactor); both resolved keeping upstream's structure while preserving the fork-only `openConnectionModeDialog` import. Re-verified every fork-only patch survived intact.
+  - Full test suite (`uv sync --locked --extra all --extra dev` + `scripts/run_tests.sh`, ~35.5k tests) run twice locally; final tally: 16 failures across 8 files. 15 reproduce **identically** on a clean checkout of `upstream v2026.7.1` alone (verified via a throwaway `git worktree` — pre-existing upstream test debt: systemd/D-Bus, WSL detection, audio device mocking, all sandbox-environment-sensitive). The 16th (`test_ignore_user_config_flags.py`) was a false failure from a stray gitignored local `cli-config.yaml` already present in this sandbox (not part of the diff/CI) — confirmed by temporarily removing it and re-running clean. **Zero real regressions from the merge.** CI on PR #9 itself (including all 8 Python test slices) was fully green.
+- [x] Write a `FORK_UPSTREAM_BASE` marker recording the synced upstream tag. (Contains `v2026.7.1`; confirmed the next `release-on-merge.yml` run used it — the "no marker yet" fallback notice did NOT fire, and the computed version was `v2026.7.1-forgeguard.1`.)
+- [x] Author `docs/fork-maintenance/upstream-sync-skill.md` — an agent-agnostic runbook for Cursor, GitHub Copilot, Codex, and Claude Code to repeat this sync in the future.
+- [x] Cross-link the skill from `AGENTS.md`, `CLAUDE.md`, and `.github/copilot-instructions.md`. (`AGENTS.md`'s fork-policy section already referenced the path — it now resolves; added explicit one-line pointers to `CLAUDE.md` and `.github/copilot-instructions.md`.)
+
+**Verified after PR #9 merged:** `release-on-merge.yml` run
+[28600318859](https://github.com/ForgeGuard/hermes-agent/actions/runs/28600318859)
+computed version `v2026.7.1-forgeguard.1` (confirming `FORK_UPSTREAM_BASE` was
+read correctly) and published a new GitHub Release with installers + ADM
+image, same as the PR #8 verification above.
 
 ## Phase 5 — Branch + design for desktop font size (implementation deferred)
 
-- [ ] Create `feature/desktop-font-size` off the freshly-synced `main`.
-- [ ] Record design direction: expose the existing Electron zoom mechanism via a new IPC channel + a control in `apps/desktop/src/app/settings/appearance-settings.tsx` (mirrors the existing `translucency` `ListRow` pattern), rather than building a parallel CSS font-scale system.
-- [ ] Keep this branch (and `feat/devcontainer`) indefinitely — both are candidates for a future upstream PR to `NousResearch/hermes-agent`.
+- [x] Create `feature/desktop-font-size` off the freshly-synced `main`.
+- [x] Record design direction: expose the existing Electron zoom mechanism via a new IPC channel + a control in `apps/desktop/src/app/settings/appearance-settings.tsx` (mirrors the existing `translucency` `ListRow` pattern), rather than building a parallel CSS font-scale system. Full design write-up (existing zoom mechanism internals, the `translucency` precedent to mirror, proposed new store/IPC/settings-row shape, explicit out-of-scope items, open questions for the implementer) recorded in `docs/agent-plans/2026-07-02-desktop-font-size-design-notes.md`, committed on the branch. No implementation — branch pushed to `origin`, no PR opened (deferred).
+- [x] Keep this branch (and `feat/devcontainer`) indefinitely — both are candidates for a future upstream PR to `NousResearch/hermes-agent`.
+
+## Status: all 5 phases complete (2026-07-02)
+
+Every phase in this plan is done. Remaining long-lived state on the fork:
+`main` (synced to upstream `v2026.7.1` + all fork patches), plus
+`feature/adm-runtime-desktop-client`, `feat/devcontainer`, and
+`feature/desktop-font-size` kept indefinitely as future upstream-PR
+candidates (not to be opened without explicit human direction — see
+`AGENTS.md`'s Fork PR Policy). Nine PRs landed in this effort: #3–#9 (see
+above), all via real merge commits, all with CI green before merge.
 
 ### Contributing upstream later (reference notes)
 
