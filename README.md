@@ -120,6 +120,27 @@ hermes doctor       # Diagnose any issues
 
 ---
 
+## Docker (ForgeGuard fork)
+
+This fork publishes its own runtime image and desktop installers, separate from upstream's Docker Hub image and GitHub Releases:
+
+```bash
+docker pull ghcr.io/forgeguard/hermes-agent:adm-latest
+docker run -d \
+  --name hermes \
+  --restart unless-stopped \
+  -v ~/.hermes:/opt/data \
+  -p 9119:9119 \
+  -e HERMES_DASHBOARD=1 \
+  ghcr.io/forgeguard/hermes-agent:adm-latest gateway run
+```
+
+That starts the gateway with the web dashboard on `:9119` — the same backend Hermes Desktop's **Client Mode** connects to. Unsigned Linux (`.AppImage`/`.deb`/`.rpm`) and macOS (`.dmg`/`.zip`) desktop installers are attached to every [GitHub Release](https://github.com/ForgeGuard/hermes-agent/releases) on this fork, built automatically on every merge to `main`.
+
+`/opt/data` and every other detail (profiles, dashboard auth, resource limits, upgrading) work exactly like the upstream image — see [Docker → Deployment Manager (ADM) runtime image](website/docs/user-guide/docker.md#deployment-manager-adm-runtime-image) for the full reference; substitute `ghcr.io/forgeguard/hermes-agent` for `nousresearch/hermes-agent` in any command on that page.
+
+---
+
 ## Skip the API-key collection — Nous Portal
 
 Hermes works with whatever provider you want — that's not changing. But if you'd rather not collect five separate API keys for the model, web search, image generation, TTS, and a cloud browser, **[Nous Portal](https://portal.nousresearch.com)** covers all of them under one subscription:

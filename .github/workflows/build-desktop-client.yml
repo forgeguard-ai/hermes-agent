@@ -1,20 +1,29 @@
-name: Build Desktop Client (Linux)
+name: Build Desktop Client
 
-# Fork-oriented desktop artifact builder. Produces unsigned Linux installers for
-# the Electron desktop app (apps/desktop) so a downstream Deployment Manager (or
-# a fork maintainer) has a downloadable client that can point at an ADM runtime
-# image via Client Mode.
+# Fork-oriented desktop artifact builder. Produces unsigned Linux and macOS
+# installers for the Electron desktop app (apps/desktop) so a downstream
+# Deployment Manager (or a fork maintainer) has a downloadable client that can
+# point at an ADM runtime image via Client Mode.
 #
-# Linux-first on purpose: ubuntu-latest builds AppImage/deb/rpm without signing
-# credentials. macOS + Windows matrix jobs can be layered on once the Linux path
-# is proven — macOS release builds additionally need notarization/signing certs
-# that a fork won't have by default, so they stay a follow-up.
+# Linux + macOS for now — both build unsigned (no code-signing/notarization
+# credentials on the fork; scripts/notarize.cjs no-ops without Apple API key
+# env vars, so macOS ships Gatekeeper-warned like a normal unsigned build).
+# Windows stays a follow-up until it's been tested there.
 #
 # The desktop workspace resolves its dependencies from the ROOT install (npm
 # workspaces + staged native deps), so this always runs `npm ci` at the repo
 # root, never a package-local install.
+#
+# workflow_call lets release-on-merge.yml invoke this directly and reuse the
+# same build steps instead of duplicating them.
 
 on:
+  workflow_call:
+    inputs:
+      upload:
+        description: "Upload the built installers as workflow artifacts"
+        type: boolean
+        default: true
   workflow_dispatch:
     inputs:
       upload:
@@ -34,7 +43,8 @@ on:
 permissions:
   contents: read
 
-# Collapse rapid manual re-dispatches; never cancel a push-to-main build.
+# Collapse rapid manual re-dispatches; never cancel a push-to-main build or a
+# release-on-merge-triggered call.
 concurrency:
   group: desktop-client-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' }}
@@ -87,7 +97,7 @@ jobs:
         run: npm run --prefix apps/desktop dist:linux
 
       - name: Upload Linux installers
-        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.upload)
+        if: github.event_name == 'push' || github.event_name == 'workflow_call' || (github.event_name == 'workflow_dispatch' && inputs.upload)
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: hermes-desktop-linux
@@ -95,5 +105,56 @@ jobs:
             apps/desktop/release/*.AppImage
             apps/desktop/release/*.deb
             apps/desktop/release/*.rpm
+          if-no-files-found: error
+          retention-days: 14
+
+  build-macos:
+    name: Build macOS desktop installers
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies (root)
+        uses: ./.github/actions/retry
+        with:
+          command: npm ci
+
+      - name: Desktop main-process tests
+        run: npm run --prefix apps/desktop test:desktop:platforms
+
+      - name: Desktop renderer tests
+        run: npm run --prefix apps/desktop test:ui
+
+      - name: Typecheck desktop
+        run: npm run --prefix apps/desktop typecheck
+
+      - name: Build renderer + main
+        run: npm run --prefix apps/desktop build
+
+      # Package the unsigned macOS installers (dmg + zip, per apps/desktop's
+      # electron-builder "mac.target" config). Unsigned/unnotarized: no Apple
+      # Developer identity or notarization credentials on the fork —
+      # scripts/notarize.cjs no-ops when APPLE_API_KEY/APPLE_NOTARY_PROFILE
+      # aren't set, same as any other unsigned OSS Electron build. Users will
+      # see the standard macOS Gatekeeper "unidentified developer" prompt.
+      - name: Package macOS installers
+        run: npm run --prefix apps/desktop dist:mac
+
+      - name: Upload macOS installers
+        if: github.event_name == 'push' || github.event_name == 'workflow_call' || (github.event_name == 'workflow_dispatch' && inputs.upload)
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hermes-desktop-macos
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
           if-no-files-found: error
           retention-days: 14
