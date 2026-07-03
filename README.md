@@ -16,6 +16,33 @@
   <a href="README.es.md"><img src="https://img.shields.io/badge/Lang-Español-orange?style=for-the-badge" alt="Español"></a>
 </p>
 
+> ## 🛡️ ForgeGuard fork
+>
+> This is the **[ForgeGuard](https://github.com/ForgeGuard) fork** of [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent). It tracks upstream tagged releases (MIT license and attribution preserved) and adds its own publicly usable release artifacts:
+>
+> - **Runtime images on GHCR** — a full supervised server image for a persistently running Hermes deployment, and a lean CLI image for distrobox-based installs:
+>
+>   ```bash
+>   # Persistent server (gateway + web dashboard on :9119; state survives on the volume):
+>   docker pull ghcr.io/forgeguard/hermes-agent:runtime-latest
+>   docker run -d --name hermes --restart unless-stopped \
+>     -v ~/.hermes:/opt/data -p 9119:9119 \
+>     -e HERMES_DASHBOARD=1 \
+>     -e HERMES_DASHBOARD_BASIC_AUTH_USERNAME=admin \
+>     -e HERMES_DASHBOARD_BASIC_AUTH_PASSWORD=choose-a-strong-password \
+>     ghcr.io/forgeguard/hermes-agent:runtime-latest gateway run
+>
+>   # Distrobox install (CLI/TUI Hermes in a container that integrates with your host):
+>   distrobox create --image ghcr.io/forgeguard/hermes-agent:cli-latest --name hermes
+>   distrobox enter hermes -- hermes
+>   ```
+>
+>   The dashboard **requires an auth provider** on its non-loopback bind (as of `v2026.7.1`): set the basic-auth pair shown above (optionally `HERMES_DASHBOARD_BASIC_AUTH_SECRET` so sessions survive restarts) or `HERMES_DASHBOARD_OAUTH_CLIENT_ID`. The desktop **Client Mode** dialog signs in against either provider. If a deployment stops accepting connections after an image update, check the container log for `Refusing to bind dashboard to 0.0.0.0`.
+>
+> - **Desktop installers** — Linux (`.AppImage`/`.deb`/`.rpm`) and macOS (`.dmg`/`.zip`) builds of the Hermes Desktop app are attached to every [fork release](https://github.com/ForgeGuard/hermes-agent/releases). They are not notarized; the macOS build is ad-hoc signed, so run `xattr -cr /Applications/Hermes.app` once after installing — see [Desktop → Troubleshooting](website/docs/user-guide/desktop.md#macos-hermes-is-damaged-and-cant-be-opened).
+>
+> Everything about the images (volumes, profiles, dashboard auth, resource limits, upgrades) works exactly like upstream's Docker image — see [Docker → ForgeGuard fork runtime images](website/docs/user-guide/docker.md#forgeguard-fork-runtime-images), and the fork's own docs under [`docs/forgeguard-fork/`](docs/forgeguard-fork/) for the tag scheme, release/versioning model, and the upstream-sync runbook.
+
 **The self-improving AI agent built by [Nous Research](https://nousresearch.com).** It's the only agent with a built-in learning loop — it creates skills from experience, improves them during use, nudges itself to persist knowledge, searches its own past conversations, and builds a deepening model of who you are across sessions. Run it on a $5 VPS, a GPU cluster, or serverless infrastructure that costs nearly nothing when idle. It's not tied to your laptop — talk to it from Telegram while it works on a cloud VM.
 
 Use any model you want — [Nous Portal](https://portal.nousresearch.com), OpenRouter, OpenAI, your own endpoint, and [many others](https://hermes-agent.nousresearch.com/docs/integrations/providers). Switch with `hermes model` — no code changes, no lock-in.
@@ -117,38 +144,6 @@ hermes doctor       # Diagnose any issues
 ```
 
 📖 **[Full documentation →](https://hermes-agent.nousresearch.com/docs/)**
-
----
-
-## Docker (ForgeGuard fork)
-
-This fork publishes its own runtime image and desktop installers, separate from upstream's Docker Hub image and GitHub Releases:
-
-```bash
-docker pull ghcr.io/forgeguard/hermes-agent:adm-latest
-docker run -d \
-  --name hermes \
-  --restart unless-stopped \
-  -v ~/.hermes:/opt/data \
-  -p 9119:9119 \
-  -e HERMES_DASHBOARD=1 \
-  -e HERMES_DASHBOARD_BASIC_AUTH_USERNAME=admin \
-  -e HERMES_DASHBOARD_BASIC_AUTH_PASSWORD=choose-a-strong-password \
-  ghcr.io/forgeguard/hermes-agent:adm-latest gateway run
-```
-
-That starts the gateway with the web dashboard on `:9119` — the same backend Hermes Desktop's **Client Mode** connects to.
-
-> [!IMPORTANT]
-> **As of `v2026.7.1` the dashboard requires an auth provider on non-loopback binds.** The container binds `0.0.0.0`, and upstream's June-2026 hardening makes such a bind **refuse to start** unless an auth provider is configured — `HERMES_DASHBOARD_INSECURE` and static-token mode no longer open a public dashboard. Set **one** of:
-> - **Password** (shown above): `HERMES_DASHBOARD_BASIC_AUTH_USERNAME` + `HERMES_DASHBOARD_BASIC_AUTH_PASSWORD` (optionally `HERMES_DASHBOARD_BASIC_AUTH_SECRET` so sessions survive restarts).
-> - **OAuth:** `HERMES_DASHBOARD_OAUTH_CLIENT_ID`.
->
-> If a previously working deployment stops accepting connections after pulling a newer image, check the container log for `Refusing to bind dashboard to 0.0.0.0` — that means no provider is set. The desktop **Client Mode** dialog signs in against either provider automatically.
-
-Linux (`.AppImage`/`.deb`/`.rpm`) and macOS (`.dmg`/`.zip`) desktop installers are attached to every [GitHub Release](https://github.com/ForgeGuard/hermes-agent/releases) on this fork, built automatically on every merge to `main`. They are not notarized (no Apple credentials on the fork); the macOS build is ad-hoc signed, so after installing from the `.dmg` run `xattr -cr /Applications/Hermes.app` once to clear the Gatekeeper "damaged" quarantine — see [Desktop → Troubleshooting](website/docs/user-guide/desktop.md#macos-hermes-is-damaged-and-cant-be-opened).
-
-`/opt/data` and every other detail (profiles, dashboard auth, resource limits, upgrading) work exactly like the upstream image — see [Docker → Deployment Manager (ADM) runtime image](website/docs/user-guide/docker.md#deployment-manager-adm-runtime-image) for the full reference; substitute `ghcr.io/forgeguard/hermes-agent` for `nousresearch/hermes-agent` in any command on that page.
 
 ---
 

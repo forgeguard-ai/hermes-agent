@@ -304,10 +304,10 @@ export function DesktopController() {
         return
       }
 
-      // hermes://connect?url=…&token=…&auth=oauth|token — a Deployment Manager
-      // (or docs "Connect" button) hands off a remote backend. Open the guided
-      // Client Mode dialog seeded with the endpoint instead of dropping the raw
-      // URL into the composer.
+      // hermes://connect?url=…&token=…&auth=oauth|token — external deployment
+      // tooling (or a docs "Connect" button) hands off a remote backend. Open
+      // the guided Client Mode dialog seeded with the endpoint instead of
+      // dropping the raw URL into the composer.
       if (payload.kind === 'connect') {
         const params = payload.params || {}
         const url = (params.url || params.endpoint || payload.name || '').trim()

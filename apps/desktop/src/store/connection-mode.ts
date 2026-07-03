@@ -1,9 +1,10 @@
 import { atom } from 'nanostores'
 
 // Prefill for a guided Client Mode setup, typically arriving from a
-// `hermes://connect?...` deep link handed off by a Deployment Manager. All
-// fields are optional: with none, the dialog opens on the mode picker; with a
-// url it opens straight into Client Mode setup seeded with that endpoint.
+// `hermes://connect?...` deep link handed off by external deployment tooling.
+// All fields are optional: with none, the dialog opens on the mode picker;
+// with a url it opens straight into Client Mode setup seeded with that
+// endpoint.
 export interface ConnectionModePrefill {
   authMode?: 'oauth' | 'token'
   token?: string

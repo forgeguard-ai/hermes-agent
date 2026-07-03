@@ -23,7 +23,7 @@ truth if work pauses or moves to a different agent/session.
 - **Branches:** the fork had **1274 remote branches** total — nearly all of NousResearch's own active dev/salvage/dependabot/feature branches, inherited from "fork with all branches." Fork-owned branches are only `main`, `feature/adm-runtime-desktop-client`, and `feat/devcontainer` (merged). Everything else is deleted.
 - **Upstream sync target:** tag `v2026.7.1` ("Hermes Agent v0.18.0 — The Judgment Release", cut 2026-07-01). `upstream/main` was 17 commits past this tag at plan time; sync targets the tagged release specifically, not the moving tip.
 - **Desktop font size:** the Electron app already implements full-window zoom (`Cmd/Ctrl +/-/0`) in `apps/desktop/electron/main.cjs` (`setAndPersistZoomLevel`, persisted to `localStorage['hermes:desktop:zoomLevel']`), it's just not exposed anywhere in Settings. Future work surfaces this as an explicit control, not a parallel CSS font-scale system.
-- **ADM context** (read from the private `ForgeGuard/agent-deployment-manager` repo, `docs/hermes-fork-runtime-plan.md` + `docs/remote-deployment-plan.md`): ADM expects exactly **one** shared runtime image (`ghcr.io/forgeguard/hermes-agent:adm-*`) for both local-distrobox and remote-docker-standalone deployment kinds.
+- **Downstream deployment context:** ForgeGuard's deployment tooling expected exactly **one** shared runtime image (`ghcr.io/forgeguard/hermes-agent:adm-*` at the time; since superseded by the split `runtime-*`/`cli-*` scheme) for both local-distrobox and remote-docker-standalone deployment kinds.
 
 ```mermaid
 flowchart TD
@@ -103,7 +103,7 @@ fixed as part of the same PR #3 branch before merging:
 - [x] Gate `contributor-check` to upstream-only in `.github/workflows/ci.yml` (`if: github.repository == 'NousResearch/hermes-agent'`). (Landed in PR #3.)
 - [x] Open and merge a PR: `feature/adm-runtime-desktop-client` → fork `main` (merge commit, not squash/rebase). Confirm CI green. ([PR #4](https://github.com/ForgeGuard/hermes-agent/pull/4), merged.)
 - [x] Extend `build-desktop-client.yml` with a macOS job (unsigned `dist:mac`). No Windows job yet. ([PR #5](https://github.com/ForgeGuard/hermes-agent/pull/5), merged.)
-- [x] Create `release-on-merge.yml`: trigger on PR merged to `main`, build desktop (Linux+macOS) + ADM runtime image, version as `<upstream-tag>-forgeguard.<n>`, publish a GitHub Release with installers attached and image tags referenced. ([PR #5](https://github.com/ForgeGuard/hermes-agent/pull/5), merged.)
+- [x] Create `release-on-merge.yml`: trigger on PR merged to `main`, build desktop (Linux+macOS) + runtime image, version as `<upstream-tag>-forgeguard.<n>`, publish a GitHub Release with installers attached and image tags referenced. ([PR #5](https://github.com/ForgeGuard/hermes-agent/pull/5), merged.)
 - [x] Add a "Docker (ForgeGuard fork)" quickstart section to `README.md`. ([PR #5](https://github.com/ForgeGuard/hermes-agent/pull/5), merged.)
 - [x] Checkpoint: tested release automation end-to-end (see below) — needed 3 follow-up bug fixes before a release actually published cleanly.
 
@@ -143,7 +143,7 @@ bugs, each fixed in its own PR:
   `build-adm-runtime-image.yml`'s "Push image to GHCR" step gated on
   `github.event_name == 'workflow_call'`, which can never be true — so
   **every prior release-on-merge run had silently skipped uploading
-  installers AND pushing the ADM image**, even on the two "green" runs.
+  installers AND pushing the runtime image**, even on the two "green" runs.
   Fixed by gating on `inputs.upload` / `inputs.push` directly (both default
   `true`). Validated via manual `workflow_dispatch` of both workflows on the
   branch (confirmed upload/push steps actually executed instead of being
@@ -154,7 +154,7 @@ bugs, each fixed in its own PR:
 completed fully green, publishing **`v2026.6.19-forgeguard.1`** with all 5
 installers attached (`Hermes-0.17.0-linux-amd64.deb`,
 `Hermes-0.17.0-linux-x86_64.AppImage`, `Hermes-0.17.0-linux-x86_64.rpm`,
-`Hermes-0.17.0-mac-arm64.dmg`, `Hermes-0.17.0-mac-arm64.zip`) and the ADM
+`Hermes-0.17.0-mac-arm64.dmg`, `Hermes-0.17.0-mac-arm64.zip`) and the runtime
 image's "Push image to GHCR" step actually running and succeeding (not
 skipped). Release automation is now proven working, not just "green."
 
@@ -173,7 +173,7 @@ Final branch list on `ForgeGuard/hermes-agent`: `main`,
 
 ## Phase 4 — Sync fork main to upstream v2026.7.1 + write the reusable sync skill
 
-- [x] Merge `upstream` tag `v2026.7.1` into fork `main` via a `sync/upstream-v2026.7.1` branch → PR, re-applying fork-only patches (contributor-check guard, ADM/desktop-client workflows, release workflow, README docker section, the `vite.config.ts` test-scope fix, the `apps/desktop/package.json` homepage fix, and the `workflow_call` upload/push condition fix). ([PR #9](https://github.com/ForgeGuard/hermes-agent/pull/9), merged via real merge commit.) Only 2 real conflicts across 755 changed files, both in `apps/desktop` (an onboarding-file rename + an import-list conflict from an upstream cron refactor); both resolved keeping upstream's structure while preserving the fork-only `openConnectionModeDialog` import. Re-verified every fork-only patch survived intact.
+- [x] Merge `upstream` tag `v2026.7.1` into fork `main` via a `sync/upstream-v2026.7.1` branch → PR, re-applying fork-only patches (contributor-check guard, image/desktop-client workflows, release workflow, README docker section, the `vite.config.ts` test-scope fix, the `apps/desktop/package.json` homepage fix, and the `workflow_call` upload/push condition fix). ([PR #9](https://github.com/ForgeGuard/hermes-agent/pull/9), merged via real merge commit.) Only 2 real conflicts across 755 changed files, both in `apps/desktop` (an onboarding-file rename + an import-list conflict from an upstream cron refactor); both resolved keeping upstream's structure while preserving the fork-only `openConnectionModeDialog` import. Re-verified every fork-only patch survived intact.
   - Full test suite (`uv sync --locked --extra all --extra dev` + `scripts/run_tests.sh`, ~35.5k tests) run twice locally; final tally: 16 failures across 8 files. 15 reproduce **identically** on a clean checkout of `upstream v2026.7.1` alone (verified via a throwaway `git worktree` — pre-existing upstream test debt: systemd/D-Bus, WSL detection, audio device mocking, all sandbox-environment-sensitive). The 16th (`test_ignore_user_config_flags.py`) was a false failure from a stray gitignored local `cli-config.yaml` already present in this sandbox (not part of the diff/CI) — confirmed by temporarily removing it and re-running clean. **Zero real regressions from the merge.** CI on PR #9 itself (including all 8 Python test slices) was fully green.
 - [x] Write a `FORK_UPSTREAM_BASE` marker recording the synced upstream tag. (Contains `v2026.7.1`; confirmed the next `release-on-merge.yml` run used it — the "no marker yet" fallback notice did NOT fire, and the computed version was `v2026.7.1-forgeguard.1`.)
 - [x] Author `docs/fork-maintenance/upstream-sync-skill.md` — an agent-agnostic runbook for Cursor, GitHub Copilot, Codex, and Claude Code to repeat this sync in the future.
@@ -182,7 +182,7 @@ Final branch list on `ForgeGuard/hermes-agent`: `main`,
 **Verified after PR #9 merged:** `release-on-merge.yml` run
 [28600318859](https://github.com/ForgeGuard/hermes-agent/actions/runs/28600318859)
 computed version `v2026.7.1-forgeguard.1` (confirming `FORK_UPSTREAM_BASE` was
-read correctly) and published a new GitHub Release with installers + ADM
+read correctly) and published a new GitHub Release with installers + runtime
 image, same as the PR #8 verification above.
 
 ## Phase 5 — Branch + design for desktop font size (implementation deferred)
@@ -204,7 +204,7 @@ above), all via real merge commits, all with CI green before merge.
 ### Contributing upstream later (reference notes)
 
 1. Rebase the branch cleanly on the *current* `upstream/main` (not fork `main`, which carries fork-only patches).
-2. Strip any ForgeGuard/ADM-specific bits so the diff is a "pure" feature.
+2. Strip any ForgeGuard-specific bits so the diff is a "pure" feature.
 3. Push the clean branch to the fork.
 4. Open a PR: `gh pr create --repo NousResearch/hermes-agent --head ForgeGuard:feature/desktop-font-size --base main`.
 5. Follow `CONTRIBUTING.md` and expect upstream's own `contributor-check` to require the author email in `AUTHOR_MAP` — normal for an external contribution.

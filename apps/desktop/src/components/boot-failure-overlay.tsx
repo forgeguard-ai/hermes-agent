@@ -217,8 +217,8 @@ export function BootFailureOverlay() {
                 {copy.useLocalGateway}
               </Button>
               {/* Local runtime won't boot? Point this app at an already-running
-                  remote backend (e.g. an ADM deployment) instead of the failed
-                  local install. The reauth case already offers a sign-in path. */}
+                  remote backend (e.g. a self-hosted deployment) instead of the
+                  failed local install. The reauth case offers a sign-in path. */}
               {!remoteReauth ? (
                 <Button disabled={Boolean(busy)} onClick={() => openConnectionModeDialog()} variant="secondary">
                   <Globe />
