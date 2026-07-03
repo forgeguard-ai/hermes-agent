@@ -4737,6 +4737,77 @@ function sanitizeConnectionProfiles(raw) {
   return out
 }
 
+// Saved-endpoint history: previously used remote gateways, most recent first.
+// Each entry keeps its own (encrypted) token + auth settings so re-picking an
+// endpoint reconnects without re-entering credentials. Secrets never reach the
+// renderer — sanitizeDesktopConnectionConfig exposes metadata only.
+const SAVED_REMOTES_MAX = 8
+
+// normalizeRemoteBaseUrl throws on invalid input (it validates user entry);
+// history matching must never throw, so map invalid → '' (no match).
+function safeNormalizeRemoteUrl(rawUrl) {
+  try {
+    return normalizeRemoteBaseUrl(rawUrl)
+  } catch {
+    return ''
+  }
+}
+
+function sanitizeSavedRemotes(raw) {
+  if (!Array.isArray(raw)) {
+    return []
+  }
+
+  const seen = new Set()
+  const out = []
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') {
+      continue
+    }
+    const url = safeNormalizeRemoteUrl(entry.url)
+    if (!url || seen.has(url)) {
+      continue
+    }
+    seen.add(url)
+    const cleaned = {
+      url,
+      authMode: normAuthMode(entry.authMode),
+      allowInvalidCertificate: entry.allowInvalidCertificate === true,
+      lastUsedAt: Number.isFinite(entry.lastUsedAt) ? entry.lastUsedAt : 0
+    }
+    if (entry.token && typeof entry.token === 'object') {
+      cleaned.token = entry.token
+    }
+    out.push(cleaned)
+    if (out.length >= SAVED_REMOTES_MAX) {
+      break
+    }
+  }
+
+  return out
+}
+
+// Record a just-saved remote block in the history: newest first, deduped by
+// normalized URL, capped at SAVED_REMOTES_MAX.
+function upsertSavedRemote(remotes, block) {
+  const url = safeNormalizeRemoteUrl(block?.url)
+  if (!url) {
+    return remotes
+  }
+
+  const entry = {
+    url,
+    authMode: normAuthMode(block.authMode),
+    allowInvalidCertificate: block.allowInvalidCertificate === true,
+    lastUsedAt: Date.now()
+  }
+  if (block.token && typeof block.token === 'object') {
+    entry.token = block.token
+  }
+
+  return [entry, ...remotes.filter(existing => existing.url !== url)].slice(0, SAVED_REMOTES_MAX)
+}
+
 function readDesktopConnectionConfig() {
   // Check if file changed on disk since last read (e.g. modified by another
   // process or an external tool).  Our own writes update the cache inline
@@ -4752,7 +4823,7 @@ function readDesktopConnectionConfig() {
     return connectionConfigCache
   }
 
-  let config = { mode: 'local', remote: {}, profiles: {} }
+  let config = { mode: 'local', remote: {}, profiles: {}, remotes: [] }
 
   try {
     const raw = fs.readFileSync(DESKTOP_CONNECTION_CONFIG_PATH, 'utf8')
@@ -4772,7 +4843,10 @@ function readDesktopConnectionConfig() {
         // Per-profile remote overrides: each profile may point at its own
         // backend (local spawn or its own remote URL). Preserved verbatim so
         // profileRemoteOverride() can resolve them; normalized lazily on save.
-        profiles: sanitizeConnectionProfiles(parsed.profiles)
+        profiles: sanitizeConnectionProfiles(parsed.profiles),
+        // Saved-endpoint history (absent in configs written before this
+        // existed — old shapes read compatibly as an empty history).
+        remotes: sanitizeSavedRemotes(parsed.remotes)
       }
     }
   } catch {
@@ -4951,6 +5025,16 @@ async function sanitizeDesktopConnectionConfig(config = readDesktopConnectionCon
     remoteUrl,
     remoteTokenPreview: tokenPreview(remoteToken),
     remoteTokenSet: Boolean(remoteToken),
+    // Saved-endpoint history, metadata only — entries' tokens stay in the main
+    // process and are re-attached by coerceDesktopConnectionConfig when a
+    // history URL is picked and saved.
+    savedRemotes: (config.remotes || []).map(entry => ({
+      url: entry.url,
+      authMode: normAuthMode(entry.authMode),
+      allowInvalidCertificate: entry.allowInvalidCertificate === true,
+      tokenSet: Boolean(entry.token),
+      lastUsedAt: entry.lastUsedAt || 0
+    })),
     // The env override only forces the global/primary connection; a per-profile
     // scope is never overridden by HERMES_DESKTOP_REMOTE_URL.
     envOverride
@@ -4980,31 +5064,43 @@ function coerceDesktopConnectionConfig(input = {}, existing = readDesktopConnect
   // The block being edited: a per-profile entry or the global remote block.
   const existingBlock = key ? existing.profiles?.[key] || {} : existing.remote || {}
   const remoteUrl = String(input.remoteUrl ?? existingBlock.url ?? '').trim()
+  // When the target URL differs from the block being edited, a matching
+  // saved-endpoint history entry supplies the credential/auth fallbacks — this
+  // is what lets "pick a recent endpoint → Connect" work without re-entering
+  // its token. Same-URL edits keep inheriting from the block itself.
+  const normalizedUrl = safeNormalizeRemoteUrl(remoteUrl)
+  const urlChanged = Boolean(normalizedUrl) && normalizedUrl !== safeNormalizeRemoteUrl(existingBlock.url)
+  const savedEntry = urlChanged ? (existing.remotes || []).find(entry => entry.url === normalizedUrl) : null
+  const fallbackBlock = savedEntry || existingBlock
+
   // authMode: explicit input wins; otherwise inherit the saved value, default 'token'.
-  const authMode = resolveAuthMode(input.remoteAuthMode, existingBlock.authMode)
+  const authMode = resolveAuthMode(input.remoteAuthMode, fallbackBlock.authMode)
   const incomingToken = typeof input.remoteToken === 'string' ? input.remoteToken.trim() : ''
   const nextToken = incomingToken
     ? persistToken
       ? encryptDesktopSecret(incomingToken)
       : { encoding: 'plain', value: incomingToken }
-    : existingBlock.token
+    : fallbackBlock.token
   // allowInvalidCertificate: explicit input wins; otherwise inherit the saved
   // value. Defaults to false so verification stays on unless a user opts in.
   const allowInvalidCertificate =
     typeof input.remoteAllowInvalidCertificate === 'boolean'
       ? input.remoteAllowInvalidCertificate
-      : existingBlock.allowInvalidCertificate === true
+      : fallbackBlock.allowInvalidCertificate === true
 
   if (key) {
     // Per-profile scope: a remote entry pins this profile to its own backend; a
     // local entry clears the override so the profile inherits the default.
     const profiles = { ...(existing.profiles || {}) }
+    let remotes = existing.remotes || []
     if (mode === 'remote') {
-      profiles[key] = { mode: 'remote', ...buildRemoteBlock(remoteUrl, authMode, nextToken, allowInvalidCertificate) }
+      const block = buildRemoteBlock(remoteUrl, authMode, nextToken, allowInvalidCertificate)
+      profiles[key] = { mode: 'remote', ...block }
+      remotes = upsertSavedRemote(remotes, block)
     } else {
       delete profiles[key]
     }
-    return { mode: existing.mode === 'remote' ? 'remote' : 'local', remote: existing.remote || {}, profiles }
+    return { mode: existing.mode === 'remote' ? 'remote' : 'local', remote: existing.remote || {}, profiles, remotes }
   }
 
   const nextRemote =
@@ -5017,8 +5113,12 @@ function coerceDesktopConnectionConfig(input = {}, existing = readDesktopConnect
           allowInvalidCertificate
         }
 
+  // Record an actually-selected remote in the endpoint history; a local save
+  // just carries the history through unchanged.
+  const remotes = mode === 'remote' ? upsertSavedRemote(existing.remotes || [], nextRemote) : existing.remotes || []
+
   // Preserve per-profile overrides when saving the global connection.
-  return { mode, remote: nextRemote, profiles: existing.profiles || {} }
+  return { mode, remote: nextRemote, profiles: existing.profiles || {}, remotes }
 }
 
 // Build a remote backend connection descriptor from an already-resolved remote

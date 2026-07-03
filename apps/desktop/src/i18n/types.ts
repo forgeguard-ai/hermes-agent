@@ -227,6 +227,7 @@ export interface Translations {
     switchToLocal: string
     switchToClient: string
     reconnect: string
+    recentEndpoints: string
     advanced: string
     connectedTitle: string
     connectedMessage: string

@@ -31,6 +31,8 @@ class FakeWebSocket {
   static instances: FakeWebSocket[] = []
 
   readyState = 0
+  // Frames written by the client (heartbeat pings land here).
+  sent: string[] = []
   private listeners: Record<string, Set<Listener>> = {}
 
   constructor(public url: string) {
@@ -55,6 +57,10 @@ class FakeWebSocket {
 
   removeEventListener(type: string, fn: Listener) {
     this.listeners[type]?.delete(fn)
+  }
+
+  send(data: string) {
+    this.sent.push(data)
   }
 
   close() {
@@ -147,9 +153,12 @@ afterEach(() => {
 })
 
 // Let pending microtasks (awaits) AND the queued 0ms socket open/error fire.
+// Advances a few fake ms (not 0): a 0ms timer scheduled DURING a previous
+// advance window lands just past its boundary and never fires on a 0ms
+// advance — observed with the retry chain's delay → dial → socket-event hops.
 async function flushAsync() {
   await act(async () => {
-    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(50)
   })
 }
 
@@ -198,6 +207,75 @@ describe('useGatewayBoot remote reconnect loop (real hook, fake socket)', () => 
     })
 
     expect($desktopBoot.get().error).toBeTruthy()
+  })
+
+  it('FIX: a WS-stage failure on INITIAL boot retries with backoff and connects when the gateway comes back', async () => {
+    // The HTTP probe passed (getConnection resolves) but the WS dial fails —
+    // e.g. the gateway restarting between probe and dial. Previously a single
+    // failed attempt dropped straight to the failure overlay.
+    FakeWebSocket.mode = 'fail'
+
+    render(<Harness />)
+    await flushAsync()
+
+    // First attempt failed, but boot is still retrying — no failure overlay.
+    expect(FakeWebSocket.instances).toHaveLength(1)
+    expect($desktopBoot.get().error).toBeNull()
+
+    // The gateway comes back before the retries run out.
+    FakeWebSocket.mode = 'open'
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000)
+    })
+    await flushAsync()
+
+    expect($gatewayState.get()).toBe('open')
+    expect($desktopBoot.get().error).toBeNull()
+    expect(FakeWebSocket.instances).toHaveLength(2)
+  })
+
+  it('a persistently dead WS on INITIAL boot exhausts the bounded retries, then fails', async () => {
+    FakeWebSocket.mode = 'fail'
+
+    render(<Harness />)
+    await flushAsync()
+
+    // Walk through the 1s, 2s, 4s waits between the four attempts.
+    for (const delay of [1_000, 2_000, 4_000]) {
+      expect($desktopBoot.get().error).toBeNull()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(delay)
+      })
+      await flushAsync()
+    }
+
+    expect(FakeWebSocket.instances).toHaveLength(4)
+    expect($desktopBoot.get().error).toBeTruthy()
+  })
+
+  it('FIX: a silent half-dead socket is heartbeat-detected and force-closed into the reconnect loop', async () => {
+    render(<Harness />)
+    await flushAsync()
+    expect($gatewayState.get()).toBe('open')
+    const socket = FakeWebSocket.instances[0]
+
+    // First heartbeat tick: the ping goes out on the wire.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000)
+    })
+    expect(socket.sent.some(frame => frame.includes('gateway.ping'))).toBe(true)
+
+    // No reply ever arrives (the socket is half-dead — open at the TCP layer,
+    // delivering nothing). After the reply timeout the hook force-closes it,
+    // handing off to the reconnect loop, which mints a fresh socket.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000)
+    })
+    expect(socket.readyState).toBe(FakeWebSocket.CLOSED)
+
+    await advanceBackoff()
+    expect($gatewayState.get()).toBe('open')
+    expect(FakeWebSocket.instances.length).toBeGreaterThan(1)
   })
 
   it('a remote that drops post-boot keeps looping with NO boot.error (the dead-end CONNECTING combo)', async () => {

@@ -23,7 +23,8 @@ const LOCAL_CONFIG: DesktopConnectionConfig = {
   remoteOauthConnected: false,
   remoteTokenPreview: null,
   remoteTokenSet: false,
-  remoteUrl: ''
+  remoteUrl: '',
+  savedRemotes: []
 }
 
 const REMOTE_CONFIG: DesktopConnectionConfig = {
@@ -35,7 +36,8 @@ const REMOTE_CONFIG: DesktopConnectionConfig = {
   remoteOauthConnected: false,
   remoteTokenPreview: '••••1234',
   remoteTokenSet: true,
-  remoteUrl: 'https://gateway.example.com/hermes'
+  remoteUrl: 'https://gateway.example.com/hermes',
+  savedRemotes: []
 }
 
 const TOKEN_PROBE: DesktopConnectionProbeResult = {
@@ -230,6 +232,50 @@ describe('ConnectionModeDialog', () => {
     await waitFor(() => expect($connectionModeDialog.get().open).toBe(false))
   })
 
+  it('re-picking a recent endpoint reconnects without re-entering its token', async () => {
+    installDesktop({
+      ...LOCAL_CONFIG,
+      savedRemotes: [
+        {
+          allowInvalidCertificate: true,
+          authMode: 'token',
+          lastUsedAt: 1,
+          tokenSet: true,
+          url: 'https://vps.example.com/hermes'
+        }
+      ]
+    })
+    renderDialog()
+    openConnectionModeDialog()
+    await waitFor(() => expect(screen.getByText('Client Mode')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('Client Mode'))
+
+    // The history chip seeds the URL + auth settings and probes immediately
+    // (a picked URL never gets a blur event).
+    const chip = await screen.findByRole('button', { name: 'vps.example.com/hermes' })
+    fireEvent.click(chip)
+
+    const url = await screen.findByPlaceholderText(/gateway.example.com/i)
+    await waitFor(() => expect((url as HTMLInputElement).value).toBe('https://vps.example.com/hermes'))
+    await waitFor(() => expect(probeConnectionConfig).toHaveBeenCalledWith('https://vps.example.com/hermes', true))
+
+    // The entry's saved token is re-attached by the main process on save, so
+    // Connect is enabled with no token typed — and the payload carries no
+    // remoteToken (the fallback happens main-side).
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
+
+    await waitFor(() => expect(applyConnectionConfig).toHaveBeenCalledTimes(1))
+    expect(applyConnectionConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: 'remote',
+        remoteAllowInvalidCertificate: true,
+        remoteToken: undefined,
+        remoteUrl: 'https://vps.example.com/hermes'
+      })
+    )
+  })
+
   it('a hermes://connect prefill opens straight into a seeded Client Mode', async () => {
     renderDialog()
     openConnectionModeDialog({ authMode: 'token', token: 'handoff-token', url: 'https://vps.example.com/hermes' })
@@ -251,15 +297,32 @@ describe('ConnectionModeDialog', () => {
       // Both choices are offered.
       expect(screen.getByText('Local Runtime')).toBeTruthy()
       expect(screen.getByText('Client Mode')).toBeTruthy()
-      // The Local action reads "Set up local Hermes", not "Use Local Runtime".
-      expect(screen.getByRole('button', { name: 'Set up local Hermes' })).toBeTruthy()
       // No close (X) button in the blocking first-run gate.
       expect(screen.queryByRole('button', { name: /close/i })).toBeNull()
+    })
+
+    it('preselects Client Mode on a fresh install', async () => {
+      renderDialog()
+      openFirstRunConnectionChoice()
+
+      // Client Mode is the first-run default: the URL field is visible without
+      // clicking anything, even though the loaded config's parse-fallback mode
+      // is 'local'.
+      await screen.findByPlaceholderText(/gateway.example.com/i)
+      // Renderer-local only: preselecting must not persist anything.
+      expect(saveConnectionConfig).not.toHaveBeenCalled()
+      expect(applyConnectionConfig).not.toHaveBeenCalled()
+      expect(firstRunComplete).not.toHaveBeenCalled()
     })
 
     it('"Set up local Hermes" records the local choice and reloads', async () => {
       renderDialog()
       openFirstRunConnectionChoice()
+
+      // Client Mode is preselected on first run; the local path is the
+      // deliberate secondary pick.
+      await waitFor(() => expect(screen.getByText('Local Runtime')).toBeTruthy())
+      fireEvent.click(screen.getByText('Local Runtime'))
 
       const setUp = await screen.findByRole('button', { name: 'Set up local Hermes' })
       fireEvent.click(setUp)

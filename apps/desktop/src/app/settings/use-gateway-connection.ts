@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import type { DesktopAuthProvider, DesktopConnectionProbeResult } from '@/global'
+import type { DesktopAuthProvider, DesktopConnectionProbeResult, DesktopSavedRemote } from '@/global'
 import { useI18n } from '@/i18n'
 import { notify, notifyError } from '@/store/notifications'
 
@@ -17,6 +17,7 @@ export interface GatewayConnectionState {
   remoteTokenPreview: string | null
   remoteTokenSet: boolean
   remoteUrl: string
+  savedRemotes: DesktopSavedRemote[]
 }
 
 export const EMPTY_CONNECTION_STATE: GatewayConnectionState = {
@@ -27,7 +28,8 @@ export const EMPTY_CONNECTION_STATE: GatewayConnectionState = {
   remoteOauthConnected: false,
   remoteTokenPreview: null,
   remoteTokenSet: false,
-  remoteUrl: ''
+  remoteUrl: '',
+  savedRemotes: []
 }
 
 /**
@@ -224,6 +226,31 @@ export function useGatewayConnection(scope: null | string) {
     setState(current => ({ ...current, remoteUrl }))
   }
 
+  // Seed the form from a saved-endpoint history entry. The entry's own token
+  // never reaches the renderer — the main process re-attaches it when this URL
+  // is saved — so only mirror its presence (remoteTokenSet) to enable Connect.
+  const selectSavedRemote = (url: string) => {
+    const entry = state.savedRemotes.find(candidate => candidate.url === url)
+
+    if (!entry) {
+      return
+    }
+
+    resetProbe()
+    setRemoteToken('')
+    setState(current => ({
+      ...current,
+      mode: 'remote',
+      remoteAllowInvalidCertificate: entry.allowInvalidCertificate,
+      remoteAuthMode: entry.authMode,
+      remoteTokenPreview: null,
+      remoteTokenSet: entry.tokenSet,
+      remoteUrl: entry.url
+    }))
+    // A picked URL never gets a blur event, so probe the auth mode here.
+    void probeWith(entry.url, entry.allowInvalidCertificate)
+  }
+
   const setAllowInvalidCertificate = (remoteAllowInvalidCertificate: boolean) => {
     setState(current => ({ ...current, remoteAllowInvalidCertificate }))
 
@@ -413,6 +440,7 @@ export function useGatewayConnection(scope: null | string) {
     remoteToken,
     save,
     saving,
+    selectSavedRemote,
     setAllowInvalidCertificate,
     setMode,
     setRemoteToken,

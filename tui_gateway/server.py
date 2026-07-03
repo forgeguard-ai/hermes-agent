@@ -5779,6 +5779,19 @@ def _live_session_payload(
     return payload
 
 
+@method("gateway.ping")
+def _(rid, params: dict) -> dict:
+    """Liveness probe for gateway clients.
+
+    Answers inline with no session/agent access so a half-dead WebSocket (open
+    at the TCP layer but no longer delivering frames) is distinguishable from a
+    healthy one: clients treat a reply — any reply — as alive and only a
+    request timeout as dead. Kept payload-free and side-effect-free so it is
+    safe to call on an interval.
+    """
+    return _ok(rid, {"ok": True})
+
+
 @method("session.active_list")
 def _(rid, params: dict) -> dict:
     """Return live TUI sessions in this gateway process.

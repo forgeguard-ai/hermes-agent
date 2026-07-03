@@ -626,7 +626,7 @@ export const zhHant = defineLocale({
       envOverrideTitle: '環境變數正在控制此桌面工作階段。',
       envOverrideDesc: '取消設定 HERMES_DESKTOP_REMOTE_URL 和 HERMES_DESKTOP_REMOTE_TOKEN 後才會使用下方儲存的設定。',
       localTitle: '本機閘道',
-      localDesc: '在 localhost 啟動私有 Hermes 後端。這是預設方式，可離線使用。',
+      localDesc: '在 localhost 啟動私有 Hermes 後端。可離線使用。',
       remoteTitle: '遠端閘道',
       remoteDesc:
         '將此桌面殼層連線至遠端 Hermes 後端。託管閘道使用 OAuth 或帳號密碼；自託管閘道也可使用工作階段 Token。',

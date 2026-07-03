@@ -407,6 +407,17 @@ export interface DesktopConnectionConfig {
   remoteTokenPreview: string | null
   remoteTokenSet: boolean
   remoteUrl: string
+  // Previously used remote endpoints (metadata only — each entry's token stays
+  // in the main process and is re-attached when its URL is saved again).
+  savedRemotes: DesktopSavedRemote[]
+}
+
+export interface DesktopSavedRemote {
+  allowInvalidCertificate: boolean
+  authMode: 'oauth' | 'token'
+  lastUsedAt: number
+  tokenSet: boolean
+  url: string
 }
 
 export type DesktopFirstRunChoice = 'local' | 'remote'
