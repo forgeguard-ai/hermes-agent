@@ -1,9 +1,9 @@
 name: Build Desktop Client
 
 # Fork-oriented desktop artifact builder. Produces unsigned Linux and macOS
-# installers for the Electron desktop app (apps/desktop) so a downstream
-# Deployment Manager (or a fork maintainer) has a downloadable client that can
-# point at an ADM runtime image via Client Mode.
+# installers for the Electron desktop app (apps/desktop) so users have a
+# downloadable client that can connect to a remote/self-hosted Hermes
+# deployment via Client Mode (or run a local backend).
 #
 # Linux + macOS for now. No Developer ID / notarization credentials exist on
 # the fork (scripts/notarize.cjs no-ops without Apple API key env vars), so
@@ -19,8 +19,10 @@ name: Build Desktop Client
 # workspaces + staged native deps), so this always runs `npm ci` at the repo
 # root, never a package-local install.
 #
-# workflow_call lets release-on-merge.yml invoke this directly and reuse the
-# same build steps instead of duplicating them.
+# Triggers: release-on-merge.yml (workflow_call) is the ONE merge-time
+# builder — this file deliberately has NO push trigger so a merge can't build
+# the same installers twice. workflow_dispatch remains as the manual escape
+# hatch.
 
 on:
   workflow_call:
@@ -35,20 +37,11 @@ on:
         description: "Upload the built installers as workflow artifacts"
         type: boolean
         default: true
-  push:
-    branches:
-      - main
-    paths:
-      - "apps/desktop/**"
-      - "apps/shared/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/build-desktop-client.yml"
 
 permissions:
   contents: read
 
-# Collapse rapid manual re-dispatches; never cancel a push-to-main build or a
+# Collapse rapid manual re-dispatches; never cancel a
 # release-on-merge-triggered call.
 concurrency:
   group: desktop-client-${{ github.ref }}
@@ -87,7 +80,7 @@ jobs:
         run: npm run --prefix apps/desktop test:desktop:platforms
 
       # Non-blocking: apps/desktop's vitest suite (test:ui) has pre-existing
-      # failures unrelated to fork/ADM changes (jsdom-environment gaps —
+      # failures unrelated to fork changes (jsdom-environment gaps —
       # missing canvas/CSS.escape polyfills — not real product bugs; verified
       # the same failures occur outside this fork too). This step has never
       # been a validated CI gate anywhere in this project's history — ci.yml's
@@ -120,7 +113,7 @@ jobs:
       # 2026-07-02: this bug meant release-on-merge.yml never actually
       # attached installers to a release.)
       - name: Upload Linux installers
-        if: github.event_name == 'push' || inputs.upload
+        if: inputs.upload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: hermes-desktop-linux
@@ -198,7 +191,7 @@ jobs:
 
       # See the matching NOTE on "Upload Linux installers" above.
       - name: Upload macOS installers
-        if: github.event_name == 'push' || inputs.upload
+        if: inputs.upload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: hermes-desktop-macos
