@@ -5071,7 +5071,13 @@ function coerceDesktopConnectionConfig(input = {}, existing = readDesktopConnect
   const normalizedUrl = safeNormalizeRemoteUrl(remoteUrl)
   const urlChanged = Boolean(normalizedUrl) && normalizedUrl !== safeNormalizeRemoteUrl(existingBlock.url)
   const savedEntry = urlChanged ? (existing.remotes || []).find(entry => entry.url === normalizedUrl) : null
-  const fallbackBlock = savedEntry || existingBlock
+  // Credential/auth fallback source. Same-URL edits inherit from the block being
+  // edited. A changed URL inherits ONLY from a matching saved-endpoint entry
+  // (its own token) — a brand-new URL that isn't in history falls back to an
+  // EMPTY block so it can never inherit the previously-connected endpoint's
+  // token (which would send that session token to a different server). The user
+  // must supply a token / sign in for a new endpoint.
+  const fallbackBlock = urlChanged ? savedEntry || {} : existingBlock
 
   // authMode: explicit input wins; otherwise inherit the saved value, default 'token'.
   const authMode = resolveAuthMode(input.remoteAuthMode, fallbackBlock.authMode)

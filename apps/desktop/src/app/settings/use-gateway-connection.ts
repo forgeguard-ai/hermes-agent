@@ -223,7 +223,19 @@ export function useGatewayConnection(scope: null | string) {
     // Editing the URL invalidates any probe of the previous URL. Reset quietly
     // (no spinner, no network); the next deliberate probe happens on blur.
     resetProbe()
-    setState(current => ({ ...current, remoteUrl }))
+    // A saved token/OAuth session belongs to the URL it was loaded for. Once the
+    // user edits the URL, clear those flags so Connect disables until a
+    // credential is supplied for the new endpoint — the token is NOT carried to
+    // a different server (the main-process coerce also refuses to inherit it).
+    // Re-picking a recent endpoint via selectSavedRemote re-sets them explicitly.
+    setState(current => ({
+      ...current,
+      remoteUrl,
+      remoteTokenSet: false,
+      remoteTokenPreview: null,
+      remoteOauthConnected: false
+    }))
+    setRemoteToken('')
   }
 
   // Seed the form from a saved-endpoint history entry. The entry's own token

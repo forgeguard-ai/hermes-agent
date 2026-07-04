@@ -276,6 +276,33 @@ describe('ConnectionModeDialog', () => {
     )
   })
 
+  it('editing the URL to a new endpoint clears the loaded token so Connect re-gates on a credential', async () => {
+    // Regression: a session token loaded for one endpoint must not stay attached
+    // when the user retargets the form at a different, unsaved server. The main
+    // process refuses to inherit it (coerceDesktopConnectionConfig), and the
+    // renderer clears remoteTokenSet so Connect disables until a credential is
+    // supplied for the new endpoint.
+    installDesktop(REMOTE_CONFIG)
+    renderDialog()
+    openConnectionModeDialog()
+
+    await waitFor(() => expect(screen.getByText('Client Mode')).toBeTruthy())
+    fireEvent.click(screen.getByText('Client Mode'))
+
+    // Loaded on its current endpoint with a saved token → Connect is enabled
+    // with nothing typed.
+    const connect = await screen.findByRole('button', { name: 'Connect' })
+    await waitFor(() => expect((connect as HTMLButtonElement).disabled).toBe(false))
+
+    // Retarget the form at a brand-new endpoint that is NOT in saved history.
+    const url = await screen.findByPlaceholderText(/gateway.example.com/i)
+    fireEvent.change(url, { target: { value: 'https://other.example.com/hermes' } })
+
+    // The saved token belonged to the previous endpoint; Connect must disable
+    // until a credential is supplied for the new server.
+    await waitFor(() => expect((connect as HTMLButtonElement).disabled).toBe(true))
+  })
+
   it('a hermes://connect prefill opens straight into a seeded Client Mode', async () => {
     renderDialog()
     openConnectionModeDialog({ authMode: 'token', token: 'handoff-token', url: 'https://vps.example.com/hermes' })
