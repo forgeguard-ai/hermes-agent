@@ -53,8 +53,11 @@ jobs:
           fetch-tags: true
 
       # Skip the release when the merged PR changed nothing that ships:
-      # docs, website, markdown, CI/workflow config, tests, and skills
-      # content don't alter the desktop installers or the runtime images.
+      # docs, website, markdown, CI/workflow config, and tests don't alter
+      # the desktop installers or the runtime images. Skills ARE shipped —
+      # the image bakes the whole tree in (`COPY . .`) and stage2-hook syncs
+      # skills/ + optional-skills/ into the running agent — so a skills-only
+      # change is release-relevant and must NOT be skipped.
       # Uses the paginated files API (a sync PR can touch >100 files; the
       # single-page `gh pr view --json files` would silently truncate).
       - name: Decide whether this merge ships a release
@@ -69,7 +72,7 @@ jobs:
           while IFS= read -r f; do
             [ -n "$f" ] || continue
             case "$f" in
-              docs/*|website/*|tests/*|skills/*|optional-skills/*|.github/*|*.md) ;;
+              docs/*|website/*|tests/*|.github/*|*.md) ;;
               *) should=true; break ;;
             esac
           done <<EOF2

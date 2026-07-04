@@ -8,9 +8,11 @@
 # they deliberately don't run.
 #
 # /api/status is served unauthenticated — it is the same public readiness
-# probe the desktop client uses — and the check targets loopback regardless
-# of the configured bind host, so it works with the default 0.0.0.0 bind and
-# never needs credentials.
+# probe the desktop client uses — so the check never needs credentials. It
+# targets the dashboard's effective bind host: a wildcard bind (the default
+# 0.0.0.0, an empty value, or the IPv6 wildcard ::) is reached via loopback,
+# but a specific-IP bind must be probed at that IP or the container would flap
+# to "unhealthy" for a dashboard that is actually up.
 set -eu
 
 case "${HERMES_DASHBOARD:-}" in
@@ -18,5 +20,11 @@ case "${HERMES_DASHBOARD:-}" in
     *) exit 0 ;;
 esac
 
+dash_host="${HERMES_DASHBOARD_HOST:-0.0.0.0}"
+case "$dash_host" in
+    ''|0.0.0.0|'::'|'[::]') probe_host=127.0.0.1 ;;
+    *) probe_host="$dash_host" ;;
+esac
+
 exec curl -fsS -o /dev/null --max-time 5 \
-    "http://127.0.0.1:${HERMES_DASHBOARD_PORT:-9119}/api/status"
+    "http://${probe_host}:${HERMES_DASHBOARD_PORT:-9119}/api/status"

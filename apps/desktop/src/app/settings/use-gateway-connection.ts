@@ -255,6 +255,11 @@ export function useGatewayConnection(scope: null | string) {
       mode: 'remote',
       remoteAllowInvalidCertificate: entry.allowInvalidCertificate,
       remoteAuthMode: entry.authMode,
+      // A saved-endpoint entry records no OAuth session (only tokenSet for token
+      // auth), so an OAuth session cannot be inherited from history: reset the
+      // connected flag so Connect re-gates on a fresh sign-in for this endpoint
+      // rather than riding a stale session left over from another connection.
+      remoteOauthConnected: false,
       remoteTokenPreview: null,
       remoteTokenSet: entry.tokenSet,
       remoteUrl: entry.url
