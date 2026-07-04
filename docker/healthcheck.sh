@@ -26,5 +26,17 @@ case "$dash_host" in
     *) probe_host="$dash_host" ;;
 esac
 
+# An IPv6 literal must be bracketed in the URL (http://[fd00::1]:9119/...), or
+# curl rejects it and the container flaps to "unhealthy" for a live dashboard.
+# Wrap a raw IPv6 probe host that is not already bracketed.
+case "$probe_host" in
+    *:*)
+        case "$probe_host" in
+            \[*) ;;
+            *) probe_host="[${probe_host}]" ;;
+        esac
+        ;;
+esac
+
 exec curl -fsS -o /dev/null --max-time 5 \
     "http://${probe_host}:${HERMES_DASHBOARD_PORT:-9119}/api/status"

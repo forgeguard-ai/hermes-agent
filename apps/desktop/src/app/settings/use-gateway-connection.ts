@@ -119,9 +119,13 @@ export function useGatewayConnection(scope: null | string) {
 
     setLoading(true)
     // Clear scope-local entry state so a token from one scope can't leak into
-    // the next when switching profiles.
+    // the next when switching profiles. Reset the probe too, or the previous
+    // scope's resolved probe (and its authMode) would drive the new scope's UI
+    // until the fresh probe below resolves — and never, if the new scope is not
+    // remote (probeWith isn't called), leaving the wrong auth control showing.
     setRemoteToken('')
     setLastTest(null)
+    resetProbe()
 
     desktop
       .getConnectionConfig(scope)
@@ -370,7 +374,10 @@ export function useGatewayConnection(scope: null | string) {
       if (result.connected) {
         const refreshed = await window.hermesDesktop.getConnectionConfig(scope)
         setState(refreshed)
-        notify({ kind: 'success', title: g.signedIn, message: g.connectedTo(providerLabel) })
+        // connectedTo's first arg is the gateway URL, not the provider name
+        // (the token path at testRemote passes result.baseUrl); passing
+        // providerLabel here rendered the provider in the URL slot.
+        notify({ kind: 'success', title: g.signedIn, message: g.connectedTo(trimmedUrl) })
 
         return true
       }

@@ -170,6 +170,43 @@ export const ja = defineLocale({
     dismiss: '閉じる'
   },
 
+  connectionMode: {
+    title: '接続',
+    description: 'このアプリが Hermes バックエンドに接続する方法を選択します。',
+    localTitle: 'ローカルランタイム',
+    localDesc: '上級者向け：このマシンでプライベートな Hermes バックエンドを実行します。オフラインでも動作します。',
+    clientTitle: 'クライアントモード',
+    clientDesc: '別のマシンやサーバーで既に実行中の Hermes バックエンドに接続します。推奨。',
+    currentLocal: 'このマシンのローカルランタイムを使用中です。',
+    currentRemote: url => `クライアントモード — ${url} に接続済み。`,
+    urlTitle: 'バックエンド URL',
+    urlDesc: 'リモートダッシュボードバックエンドのベース URL。/hermes などのパスプレフィックスに対応しています。',
+    recentEndpoints: '最近のエンドポイント',
+    connect: '接続',
+    useLocal: 'ローカルランタイムを使用',
+    switchToLocal: 'ローカルランタイムに切り替え',
+    switchToClient: 'クライアントモードに切り替え',
+    reconnect: '再接続',
+    advanced: 'ゲートウェイの詳細設定を開く',
+    connectedTitle: 'クライアントモードが有効になりました',
+    connectedMessage: 'Hermes Desktop はリモートバックエンドに再接続します。',
+    switchedLocalTitle: 'ローカルランタイムが有効になりました',
+    switchedLocalMessage: 'Hermes Desktop はローカルバックエンドを再起動します。',
+    firstRunTitle: 'Hermes をどのように使用しますか？',
+    firstRunDescription:
+      '既存の Hermes バックエンドに接続するか、このマシンにプライベートな Hermes ランタイムをセットアップします。',
+    firstRunLocalDesc:
+      '上級者向け：このマシンに完全な Hermes バックエンドをインストールして実行します。オフラインでも動作します。',
+    firstRunClientDesc:
+      '別の場所で既に実行中の Hermes バックエンドに接続します。推奨 — ローカルへのインストールは不要です。',
+    firstRunSetUpLocal: 'ローカル Hermes をセットアップ',
+    firstRunLocalToastTitle: 'ローカル Hermes をセットアップ中',
+    firstRunLocalToastMessage: 'Hermes Desktop はローカルランタイムをインストールして起動します。',
+    insecureCertTitle: '自己署名証明書を許可',
+    insecureCertDesc:
+      'このゲートウェイの TLS 証明書チェックをスキップします。信頼でき、かつ管理下にあるサーバーでのみ有効にしてください。'
+  },
+
   titlebar: {
     hideSidebar: 'サイドバーを非表示',
     showSidebar: 'サイドバーを表示',
@@ -665,6 +702,9 @@ export const ja = defineLocale({
       tokenTitle: 'セッショントークン',
       tokenDesc:
         'REST および WebSocket アクセスに使用するダッシュボードセッショントークン。保存済みトークンを維持するには空欄にしてください。',
+      insecureCertTitle: '自己署名証明書を許可',
+      insecureCertDesc:
+        'このリモートゲートウェイの TLS 証明書検証をスキップします。自己署名またはその他の信頼されない証明書を使用する、ご自身が管理するサーバーでのみ使用してください。',
       existingToken: value => `既存のトークン ${value}`,
       savedToken: '保存済み',
       pasteSessionToken: 'セッショントークンを貼り付け',

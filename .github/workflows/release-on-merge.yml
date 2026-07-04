@@ -31,8 +31,13 @@ permissions:
   contents: write
   packages: write
 
+# One fixed group (not per-PR) so releases SERIALIZE: two PRs merged close
+# together would otherwise run compute-version in parallel, both read the same
+# highest -forgeguard.N, compute N+1, push images over each other, and the
+# second `gh release create` would fail on the duplicate tag. Queue them so each
+# reads the previous release's tag.
 concurrency:
-  group: release-on-merge-${{ github.event.pull_request.number }}
+  group: release-on-merge-main
   cancel-in-progress: false
 
 jobs:
@@ -98,12 +103,18 @@ jobs:
             echo "::notice::No FORK_UPSTREAM_BASE marker yet; using nearest reachable tag '$BASE_TAG'. Run the upstream-sync skill (docs/forgeguard-fork/upstream-sync-skill.md) to pin this properly once main is synced to a real upstream release."
           fi
 
-          # Highest existing "<base>-forgeguard.N" release tag, then +1.
+          # Highest existing "<base>-forgeguard.N" release tag, then +1. Match
+          # ONLY tags whose final segment is exactly "-forgeguard.<digits>" (via
+          # test()+capture, not split|last|tonumber) so a human-made odd tag such
+          # as "<base>-forgeguard.5-hotfix1" is skipped instead of crashing jq's
+          # tonumber and blocking every future release under set -euo pipefail.
           LAST_N="$(gh release list --repo "${{ github.repository }}" --limit 200 --json tagName \
             | jq -r --arg base "$BASE_TAG" '
                 [ .[].tagName
                   | select(startswith($base + "-forgeguard."))
-                  | split(".") | last | tonumber
+                  | select(test("-forgeguard\\.[0-9]+$"))
+                  | capture("-forgeguard\\.(?<n>[0-9]+)$").n
+                  | tonumber
                 ] | (if length > 0 then max else 0 end)
               ')"
           NEXT_N=$((LAST_N + 1))

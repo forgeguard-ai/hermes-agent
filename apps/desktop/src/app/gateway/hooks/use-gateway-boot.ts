@@ -501,6 +501,11 @@ export function useGatewayBoot({
           const message = err instanceof Error ? err.message : String(err)
 
           if (message.includes('FIRST_RUN_CHOICE_REQUIRED')) {
+            // The gateway + keepalive/heartbeat timers + subscriptions were
+            // already wired up before boot() ran; tear them down before parking
+            // on the chooser, or they keep pinging a backend that shouldn't
+            // exist yet (leaking until the next reload).
+            teardownGateway()
             enterFirstRunChoice()
 
             return
@@ -512,9 +517,17 @@ export function useGatewayBoot({
         }
       }
 
-      void boot()
+      // Single teardown for the gateway machinery, usable both as the effect
+      // cleanup AND from boot()'s first-run-sentinel path. Idempotent so calling
+      // it from the sentinel and again on unmount is safe.
+      let tornDown = false
 
-      return () => {
+      const teardownGateway = (): void => {
+        if (tornDown) {
+          return
+        }
+
+        tornDown = true
         cancelled = true
         clearReconnectTimer()
         clearInterval(keepaliveTimer)
@@ -537,6 +550,10 @@ export function useGatewayBoot({
         setPrimaryGateway(null)
         $gateway.set(null)
       }
+
+      void boot()
+
+      return teardownGateway
     }
 
     // First-run gate — runs BEFORE any gateway/boot machinery. On a fresh
