@@ -148,7 +148,7 @@ The packaged app ships the Electron shell and a native React chat surface. On fi
 
 ## Connecting to a remote backend
 
-By default the app starts and manages its own **local** backend. You can instead point it at a Hermes backend running on another machine — a VPS, a home server, or a Mini behind Tailscale.
+On this fork's desktop builds, **Client Mode is the default experience**: a fresh install's first-run chooser preselects connecting to an already-running Hermes backend — a VPS, a home server, a self-hosted container, or a Mini behind Tailscale — and running a **local** backend remains fully supported as the advanced/secondary choice on the same chooser (existing local installs keep booting locally, undisturbed). Previously used endpoints are remembered and one click away in the connection dialog's **Recent endpoints** list.
 
 :::info The remote backend is a running `hermes serve` process
 "Remote backend" means a **`hermes serve`** server running on the remote machine — that is the process the desktop app connects to. Nothing in this section works unless that backend is actually up and reachable. The desktop app does not start it for you; you (or a `systemd` service) keep `hermes serve` running on the remote host, and the app attaches to it. If you also use messaging channels (Telegram, Discord, etc.), the **gateway** is a *separate* long-running process you start independently — see the note after the setup steps.

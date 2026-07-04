@@ -59,6 +59,15 @@ export interface GatewayClientOptions {
 
 const ANY = '*'
 const DEFAULT_REQUEST_TIMEOUT_MS = 120_000
+const REQUEST_TIMEOUT_PREFIX = 'request timed out:'
+
+// True only when a request died waiting for a reply (transport-level silence).
+// An RPC *error* reply — including "unknown method" from an older backend —
+// still proves the socket is alive, so liveness probes must not treat it as a
+// dead connection.
+export function isGatewayRequestTimeout(error: unknown): boolean {
+  return error instanceof Error && error.message.startsWith(REQUEST_TIMEOUT_PREFIX)
+}
 // A reconnect after sleep/wake must not hang forever in 'connecting' (which
 // keeps the composer disabled and stuck on "Starting Hermes..."). If the open
 // handshake doesn't land in this window, fail to 'error' so callers can retry.
@@ -268,7 +277,7 @@ export class JsonRpcGatewayClient {
         pending.timer = setTimeout(() => {
           if (this.pending.delete(id)) {
             detach()
-            reject(new Error(`request timed out: ${method}`))
+            reject(new Error(`${REQUEST_TIMEOUT_PREFIX} ${method}`))
           }
         }, timeoutMs)
       }

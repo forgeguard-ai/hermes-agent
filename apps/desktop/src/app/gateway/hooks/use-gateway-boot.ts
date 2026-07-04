@@ -1,4 +1,4 @@
-import { isGatewayReauthRequired, resolveGatewayWsUrl } from '@hermes/shared'
+import { isGatewayReauthRequired, isGatewayRequestTimeout, resolveGatewayWsUrl } from '@hermes/shared'
 import { useEffect, useRef } from 'react'
 
 import type { HermesConnection } from '@/global'
@@ -48,6 +48,24 @@ import type { RpcEvent } from '@/types/hermes'
 // Settings / sign in / switch to local — the "lost connection breaks the app"
 // dead end. The next successful reconnect clears it.
 const RECONNECT_ESCALATE_AFTER = 6
+
+// Initial-boot WS attempts (ticket mint + socket dial). getConnection() carries
+// its own resilience — the main process probes /api/status for 45s and
+// deliberately latches hard backend-start failures — but the WS stage used to
+// be single-shot: a gateway restarting between the HTTP readiness probe and
+// the WS dial, or a transient ticket/handshake failure, dropped straight to
+// the failure overlay with no retry.
+const INITIAL_CONNECT_ATTEMPTS = 4
+
+// Application-level liveness probe cadence. Socket close frames don't always
+// arrive (sleep/NAT reaping/remote power loss leave a half-dead socket that
+// looks 'open'), and the OS wake signals only cover this machine sleeping —
+// not the remote end going away. Any RPC reply counts as alive (including
+// "unknown method" from an older backend without gateway.ping); only silence
+// past the reply timeout forces a close, which hands off to the normal
+// reconnect backoff.
+const HEARTBEAT_INTERVAL_MS = 30_000
+const HEARTBEAT_REPLY_TIMEOUT_MS = 10_000
 
 interface GatewayBootOptions {
   handleGatewayEvent: (event: RpcEvent) => void
@@ -307,6 +325,25 @@ export function useGatewayBoot({
         touchSecondaryGateways()
       }, 60_000)
 
+      // Application-level liveness probe (see HEARTBEAT_* above). Only runs
+      // after boot while the window is visible and the socket believes it's
+      // open — a closed socket is already in the reconnect loop's hands.
+      const heartbeatTimer = setInterval(() => {
+        if (!bootCompleted || document.visibilityState !== 'visible' || !gatewayOpen()) {
+          return
+        }
+
+        void gateway.request('gateway.ping', {}, HEARTBEAT_REPLY_TIMEOUT_MS).catch(err => {
+          // Any reply — even an RPC error from an older backend without
+          // gateway.ping — proves the socket is alive. Only silence counts:
+          // force-close the half-dead socket so the reconnect backoff takes
+          // over (onState 'closed' → scheduleReconnect).
+          if (!cancelled && isGatewayRequestTimeout(err) && gatewayOpen()) {
+            gateway.close()
+          }
+        })
+      }, HEARTBEAT_INTERVAL_MS)
+
       // Bound concurrency cost to live work: keep a background socket only while
       // its profile has a running (working) or blocked (needs-input) session.
       // Once that profile goes idle its socket is dropped and its backend is free
@@ -349,27 +386,64 @@ export function useGatewayBoot({
         })
       })
 
+      // Initial connect with bounded backoff over the WS stage. Each attempt
+      // re-mints the WS URL (OAuth tickets are single-use with a short TTL;
+      // for local/token gateways the re-mint is a cheap no-op) and, halfway
+      // through, drops + re-resolves a remote descriptor that died between the
+      // HTTP readiness probe and the WS dial (mirrors attemptReconnect()).
+      // Reauth errors are not retryable — a stale session can never connect —
+      // and rethrow immediately so the failure overlay shows Sign in.
+      async function connectInitial(): Promise<void> {
+        let conn = await desktop.getConnection()
+
+        if (cancelled) {
+          return
+        }
+
+        // Only now bump the renderer step: the main process drives the boot
+        // overlay up to 94% (backend.ready) inside getConnection().
+        setDesktopBootStep({
+          phase: 'renderer.gateway.connect',
+          message: translateNow('boot.steps.connectingGateway'),
+          progress: 95
+        })
+        publish(conn)
+
+        for (let attempt = 1; ; attempt++) {
+          try {
+            const wsUrl = await resolveGatewayWsUrl(desktop, conn)
+            await gateway.connect(wsUrl)
+
+            return
+          } catch (err) {
+            if (cancelled || attempt >= INITIAL_CONNECT_ATTEMPTS || isGatewayReauthRequired(err)) {
+              throw err
+            }
+
+            // 1s, 2s, 4s between the four attempts.
+            await new Promise(resolve => setTimeout(resolve, 1_000 * 2 ** (attempt - 1)))
+
+            if (cancelled) {
+              return
+            }
+
+            if (attempt === 2) {
+              await desktop.revalidateConnection?.().catch(() => undefined)
+              conn = await desktop.getConnection()
+
+              if (cancelled) {
+                return
+              }
+
+              publish(conn)
+            }
+          }
+        }
+      }
+
       async function boot() {
         try {
-          const conn = await desktop.getConnection()
-
-          if (cancelled) {
-            return
-          }
-
-          setDesktopBootStep({
-            phase: 'renderer.gateway.connect',
-            message: translateNow('boot.steps.connectingGateway'),
-            progress: 95
-          })
-          publish(conn)
-          // Mint a fresh WS URL right before connecting. For OAuth gateways the
-          // ticket is single-use with a short TTL, so the ticket baked into
-          // conn.wsUrl is stale; resolveGatewayWsUrl() re-mints it and, on
-          // failure, throws a reauth error rather than connecting with a dead
-          // ticket (which would surface as an opaque "connection closed").
-          const wsUrl = await resolveGatewayWsUrl(desktop, conn)
-          await gateway.connect(wsUrl)
+          await connectInitial()
 
           if (cancelled) {
             return
@@ -444,6 +518,7 @@ export function useGatewayBoot({
         cancelled = true
         clearReconnectTimer()
         clearInterval(keepaliveTimer)
+        clearInterval(heartbeatTimer)
         offWorking()
         offAttention()
         offActiveProfile()

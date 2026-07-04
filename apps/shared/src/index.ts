@@ -1,5 +1,6 @@
 export {
   JsonRpcGatewayClient,
+  isGatewayRequestTimeout,
   type ConnectionState,
   type GatewayClientOptions,
   type GatewayEvent,

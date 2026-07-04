@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import type { DesktopAuthProvider, DesktopConnectionProbeResult } from '@/global'
+import type { DesktopAuthProvider, DesktopConnectionProbeResult, DesktopSavedRemote } from '@/global'
 import { useI18n } from '@/i18n'
 import { notify, notifyError } from '@/store/notifications'
 
@@ -17,6 +17,7 @@ export interface GatewayConnectionState {
   remoteTokenPreview: string | null
   remoteTokenSet: boolean
   remoteUrl: string
+  savedRemotes: DesktopSavedRemote[]
 }
 
 export const EMPTY_CONNECTION_STATE: GatewayConnectionState = {
@@ -27,7 +28,8 @@ export const EMPTY_CONNECTION_STATE: GatewayConnectionState = {
   remoteOauthConnected: false,
   remoteTokenPreview: null,
   remoteTokenSet: false,
-  remoteUrl: ''
+  remoteUrl: '',
+  savedRemotes: []
 }
 
 /**
@@ -221,7 +223,49 @@ export function useGatewayConnection(scope: null | string) {
     // Editing the URL invalidates any probe of the previous URL. Reset quietly
     // (no spinner, no network); the next deliberate probe happens on blur.
     resetProbe()
-    setState(current => ({ ...current, remoteUrl }))
+    // A saved token/OAuth session belongs to the URL it was loaded for. Once the
+    // user edits the URL, clear those flags so Connect disables until a
+    // credential is supplied for the new endpoint — the token is NOT carried to
+    // a different server (the main-process coerce also refuses to inherit it).
+    // Re-picking a recent endpoint via selectSavedRemote re-sets them explicitly.
+    setState(current => ({
+      ...current,
+      remoteUrl,
+      remoteTokenSet: false,
+      remoteTokenPreview: null,
+      remoteOauthConnected: false
+    }))
+    setRemoteToken('')
+  }
+
+  // Seed the form from a saved-endpoint history entry. The entry's own token
+  // never reaches the renderer — the main process re-attaches it when this URL
+  // is saved — so only mirror its presence (remoteTokenSet) to enable Connect.
+  const selectSavedRemote = (url: string) => {
+    const entry = state.savedRemotes.find(candidate => candidate.url === url)
+
+    if (!entry) {
+      return
+    }
+
+    resetProbe()
+    setRemoteToken('')
+    setState(current => ({
+      ...current,
+      mode: 'remote',
+      remoteAllowInvalidCertificate: entry.allowInvalidCertificate,
+      remoteAuthMode: entry.authMode,
+      // A saved-endpoint entry records no OAuth session (only tokenSet for token
+      // auth), so an OAuth session cannot be inherited from history: reset the
+      // connected flag so Connect re-gates on a fresh sign-in for this endpoint
+      // rather than riding a stale session left over from another connection.
+      remoteOauthConnected: false,
+      remoteTokenPreview: null,
+      remoteTokenSet: entry.tokenSet,
+      remoteUrl: entry.url
+    }))
+    // A picked URL never gets a blur event, so probe the auth mode here.
+    void probeWith(entry.url, entry.allowInvalidCertificate)
   }
 
   const setAllowInvalidCertificate = (remoteAllowInvalidCertificate: boolean) => {
@@ -413,6 +457,7 @@ export function useGatewayConnection(scope: null | string) {
     remoteToken,
     save,
     saving,
+    selectSavedRemote,
     setAllowInvalidCertificate,
     setMode,
     setRemoteToken,

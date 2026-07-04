@@ -79,6 +79,7 @@ function DialogBody({ firstRun, prefill }: { firstRun: boolean; prefill: Connect
     remoteToken,
     save,
     saving,
+    selectSavedRemote,
     setAllowInvalidCertificate,
     setMode,
     setRemoteToken,
@@ -120,6 +121,23 @@ function DialogBody({ firstRun, prefill }: { firstRun: boolean; prefill: Connect
     void probeRemoteUrl(prefill.url)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot seed on first load
   }, [loading])
+
+  // Client Mode is the default pick on a fresh install. The loaded config's
+  // parse-fallback is 'local' (deliberately — a corrupt config on an existing
+  // install must not flip a local user to remote), so the first-run chooser
+  // preselects 'remote' itself, once, after load. Renderer-local only: nothing
+  // persists until the user actually connects (or picks Local). A deep-link
+  // prefill already lands in Client Mode and wins over this.
+  const firstRunDefaultApplied = useRef(false)
+  useEffect(() => {
+    if (loading || !firstRun || firstRunDefaultApplied.current || prefill?.url) {
+      return
+    }
+
+    firstRunDefaultApplied.current = true
+    setMode('remote')
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot default on first load
+  }, [loading, firstRun])
 
   const applyLocalMode = async () => {
     // First run: there's no backend to switch — record the choice, then reload
@@ -188,15 +206,9 @@ function DialogBody({ firstRun, prefill }: { firstRun: boolean; prefill: Connect
             </p>
           )}
 
+          {/* Client Mode is the primary card (first/left); Local Runtime is the
+              de-emphasized secondary path. */}
           <div className="grid gap-3 sm:grid-cols-2">
-            <ModeCard
-              active={state.mode === 'local'}
-              description={firstRun ? c.firstRunLocalDesc : c.localDesc}
-              disabled={state.envOverride}
-              icon={Monitor}
-              onSelect={() => setMode('local')}
-              title={c.localTitle}
-            />
             <ModeCard
               active={remote}
               description={firstRun ? c.firstRunClientDesc : c.clientDesc}
@@ -205,10 +217,46 @@ function DialogBody({ firstRun, prefill }: { firstRun: boolean; prefill: Connect
               onSelect={() => setMode('remote')}
               title={c.clientTitle}
             />
+            <ModeCard
+              active={state.mode === 'local'}
+              description={firstRun ? c.firstRunLocalDesc : c.localDesc}
+              disabled={state.envOverride}
+              icon={Monitor}
+              onSelect={() => setMode('local')}
+              title={c.localTitle}
+            />
           </div>
 
           {remote ? (
             <div className="grid gap-2">
+              {/* Recent endpoints: one click reselects a previously used gateway
+                  (its saved token/auth settings are re-attached on save). */}
+              {state.savedRemotes.length > 0 ? (
+                <div className="grid gap-1.5">
+                  <span className="text-[length:var(--conversation-caption-font-size)] font-medium text-(--ui-text-secondary)">
+                    {c.recentEndpoints}
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {state.savedRemotes.map(entry => (
+                      <button
+                        className={cn(
+                          'rounded-full border px-2.5 py-1 font-mono text-[length:var(--conversation-caption-font-size)] transition',
+                          entry.url === trimmedUrl
+                            ? 'border-(--ui-stroke-secondary) bg-(--ui-bg-tertiary)'
+                            : 'border-(--ui-stroke-tertiary) bg-(--ui-bg-quinary) hover:bg-(--chrome-action-hover)'
+                        )}
+                        disabled={state.envOverride}
+                        key={entry.url}
+                        onClick={() => selectSavedRemote(entry.url)}
+                        type="button"
+                      >
+                        {entry.url.replace(/^https?:\/\//, '')}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
               <label className="grid gap-1.5">
                 <span className="text-[length:var(--conversation-caption-font-size)] font-medium text-(--ui-text-secondary)">
                   {c.urlTitle}

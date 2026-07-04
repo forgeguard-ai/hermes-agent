@@ -1,24 +1,26 @@
 name: Release on Merge
 
-# Fork-oriented release automation. Every PR merged into `main` gets a
-# GitHub Release: Linux + macOS desktop installers attached, and the ADM
-# runtime image (ghcr.io/forgeguard/hermes-agent) tagged with the same
-# version in addition to its rolling adm-<sha>/adm-latest tags.
+# Fork-oriented release automation. A release-relevant PR merged into `main`
+# gets a GitHub Release: Linux + macOS desktop installers attached, and both
+# runtime images (ghcr.io/forgeguard/hermes-agent) tagged with the same
+# version in addition to their rolling <variant>-<sha>/<variant>-latest tags.
 #
 # Version scheme: <upstream-base-tag>-forgeguard.<n>, e.g.
 # v2026.7.1-forgeguard.3. <upstream-base-tag> comes from the FORK_UPSTREAM_BASE
 # marker file at repo root (written by the upstream-sync skill each time this
 # fork syncs to a new NousResearch/hermes-agent tag — see
-# docs/fork-maintenance/upstream-sync-skill.md); if that marker doesn't exist
+# docs/forgeguard-fork/upstream-sync-skill.md); if that marker doesn't exist
 # yet, falls back to the nearest reachable git tag so this workflow still
 # works before the first sync. <n> auto-increments per base tag by scanning
 # existing release tags.
 #
-# Note: this runs on *every* merge to main, including small chore/docs PRs —
-# each one produces a full desktop + image build and a new release. If that
-# cadence turns out to be more than wanted, narrow the trigger (e.g. skip on
-# a "no-release" label, or path-filter to code-relevant changes) — it is
-# deliberately unfiltered for now per the fork owner's request.
+# Release gating (2026-07-03): merges skip the whole pipeline — no macOS
+# runner, no image builds, no release — when either
+#   • the PR carries the `no-release` label, or
+#   • the PR touches no release-relevant paths (docs-/CI-/tests-only merges
+#     don't change the shipped artifacts).
+# This replaced the deliberately-unfiltered release-every-merge behavior once
+# the doc-only release churn outweighed its simplicity.
 
 on:
   pull_request:
@@ -36,9 +38,10 @@ concurrency:
 jobs:
   compute-version:
     name: Compute release version
-    if: github.event.pull_request.merged == true
+    if: github.event.pull_request.merged == true && !contains(github.event.pull_request.labels.*.name, 'no-release')
     runs-on: ubuntu-latest
     outputs:
+      should_release: ${{ steps.gate.outputs.should_release }}
       version: ${{ steps.version.outputs.version }}
       base_tag: ${{ steps.version.outputs.base_tag }}
       hermes_version: ${{ steps.version.outputs.hermes_version }}
@@ -49,8 +52,40 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      # Skip the release when the merged PR changed nothing that ships:
+      # docs, website, markdown, CI/workflow config, and tests don't alter
+      # the desktop installers or the runtime images. Skills ARE shipped —
+      # the image bakes the whole tree in (`COPY . .`) and stage2-hook syncs
+      # skills/ + optional-skills/ into the running agent — so a skills-only
+      # change is release-relevant and must NOT be skipped.
+      # Uses the paginated files API (a sync PR can touch >100 files; the
+      # single-page `gh pr view --json files` would silently truncate).
+      - name: Decide whether this merge ships a release
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          files="$(gh api "repos/${{ github.repository }}/pulls/${PR}/files" --paginate --jq '.[].filename')"
+          should=false
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            case "$f" in
+              docs/*|website/*|tests/*|.github/*|*.md) ;;
+              *) should=true; break ;;
+            esac
+          done <<EOF2
+          $files
+          EOF2
+          echo "should_release=$should" >> "$GITHUB_OUTPUT"
+          if [ "$should" = "false" ]; then
+            echo "::notice::No release-relevant paths in PR #${PR} — skipping the release pipeline (label a PR 'no-release' to skip explicitly)."
+          fi
+
       - name: Compute release version
         id: version
+        if: steps.gate.outputs.should_release == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -60,7 +95,7 @@ jobs:
             BASE_TAG="$(tr -d '[:space:]' < FORK_UPSTREAM_BASE)"
           else
             BASE_TAG="$(git describe --tags --abbrev=0 HEAD)"
-            echo "::notice::No FORK_UPSTREAM_BASE marker yet; using nearest reachable tag '$BASE_TAG'. Run the upstream-sync skill (docs/fork-maintenance/upstream-sync-skill.md) to pin this properly once main is synced to a real upstream release."
+            echo "::notice::No FORK_UPSTREAM_BASE marker yet; using nearest reachable tag '$BASE_TAG'. Run the upstream-sync skill (docs/forgeguard-fork/upstream-sync-skill.md) to pin this properly once main is synced to a real upstream release."
           fi
 
           # Highest existing "<base>-forgeguard.N" release tag, then +1.
@@ -89,21 +124,24 @@ jobs:
   build-desktop:
     name: Build desktop installers
     needs: compute-version
+    if: needs.compute-version.outputs.should_release == 'true'
     uses: ./.github/workflows/build-desktop-client.yml
     with:
       upload: true
 
-  build-image:
-    name: Build ADM runtime image
+  build-images:
+    name: Build runtime images
     needs: compute-version
-    uses: ./.github/workflows/build-adm-runtime-image.yml
+    if: needs.compute-version.outputs.should_release == 'true'
+    uses: ./.github/workflows/build-runtime-images.yml
     with:
       push: true
-      extra_tag: adm-${{ needs.compute-version.outputs.version }}
+      version: ${{ needs.compute-version.outputs.version }}
 
   publish-release:
     name: Publish GitHub Release
-    needs: [compute-version, build-desktop, build-image]
+    needs: [compute-version, build-desktop, build-images]
+    if: needs.compute-version.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Download Linux installers
@@ -132,15 +170,18 @@ jobs:
           **Hermes Agent version:** v__HERMES_VERSION__
           **Upstream release:** [__BASE_TAG__](https://github.com/NousResearch/hermes-agent/releases/tag/__BASE_TAG__)
 
-          Tracks upstream base `__BASE_TAG__`. See `docs/fork-maintenance/upstream-sync-skill.md`
-          for how this fork stays current with [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent).
+          Tracks upstream base `__BASE_TAG__`. See `docs/forgeguard-fork/`
+          for the fork's image guide, versioning scheme, and how this fork
+          stays current with [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent).
 
           ### Docker
 
           ```bash
-          docker pull ghcr.io/forgeguard/hermes-agent:adm-__VERSION__
-          # or the rolling tag:
-          docker pull ghcr.io/forgeguard/hermes-agent:adm-latest
+          # Full supervised server image (dashboard + gateways):
+          docker pull ghcr.io/forgeguard/hermes-agent:runtime-__VERSION__
+          # Lean CLI / distrobox image:
+          docker pull ghcr.io/forgeguard/hermes-agent:cli-__VERSION__
+          # Rolling tags: runtime-latest / cli-latest
           ```
 
           > [!IMPORTANT]

@@ -1384,7 +1384,7 @@ in this repo:
   (e.g. `feat/devcontainer`, `feature/desktop-font-size`) indefinitely as
   candidates for a future upstream contribution — "keep the branch" and "open
   the PR" are two separate, separately-authorized actions.
-- See `docs/fork-maintenance/upstream-sync-skill.md` for the reusable runbook
+- See `docs/forgeguard-fork/upstream-sync-skill.md` for the reusable runbook
   this fork uses to pull changes *from* `NousResearch/hermes-agent` (the
   direction that's on by default) — contributing *to* it is the direction
   that requires explicit sign-off.

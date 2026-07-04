@@ -366,21 +366,24 @@ services:
 
 Start with `docker compose up -d` and view logs with `docker compose logs -f`. The supervised gateway's stdout is also tee'd to `${HERMES_HOME}/logs/gateways/<profile>/current` on the volume — see [Where the logs go](#where-the-logs-go) for the full routing map.
 
-## Deployment Manager (ADM) runtime image
+## ForgeGuard fork runtime images
 
-A fork/downstream deployment that provisions Hermes through a control plane
-(the "Deployment Manager", ADM) reuses the **same** image described above — the
-only differences are *where it is published* and *how it is wired for
-remote clients*. Nothing about `/opt/hermes` (immutable install tree) or
-`/opt/data` (persistent state) changes.
+A fork/downstream deployment that provisions Hermes on remote or self-hosted
+Docker hosts reuses the **same** image described above — the only differences
+are *where it is published* and *how it is wired for remote clients*. Nothing
+about `/opt/hermes` (immutable install tree) or `/opt/data` (persistent
+state) changes.
 
 - **Registry.** Upstream publishes the multi-arch image to Docker Hub
-  (`nousresearch/hermes-agent`). A fork publishes to its own GitHub Container
-  Registry via the `Build ADM Runtime Image (GHCR)` workflow
-  (`.github/workflows/build-adm-runtime-image.yml`), tagged
-  `ghcr.io/<owner>/hermes-agent:adm-<sha>` (immutable) and `:adm-latest`
-  (rolling). Substitute that reference for `nousresearch/hermes-agent` in any
-  command on this page.
+  (`nousresearch/hermes-agent`). The fork publishes two variants to its own
+  GitHub Container Registry via the `Build Runtime Images (GHCR)` workflow
+  (`.github/workflows/build-runtime-images.yml`): the full supervised server
+  image tagged `ghcr.io/<owner>/hermes-agent:runtime-<sha>` (immutable) /
+  `:runtime-latest` (rolling), and a lean CLI/distrobox image under `cli-*`
+  tags. Substitute the `runtime-*` reference for `nousresearch/hermes-agent`
+  in any command on this page; see the fork's
+  [runtime images guide](https://github.com/ForgeGuard/hermes-agent/blob/main/docs/forgeguard-fork/runtime-images.md)
+  for the full tag scheme and the `cli-*` variant.
 - **Persistent data stays at `/opt/data`.** Mount each deployment's profile
   data at `/opt/data` (`-v /srv/hermes/<deployment>:/opt/data`). Do **not**
   rebuild the image to relocate state to `/home/hermes`; `/opt/data` is the
@@ -397,7 +400,7 @@ remote clients*. Nothing about `/opt/hermes` (immutable install tree) or
 
 The Hermes Desktop app's **Client Mode** and the web dashboard both connect to
 a `hermes dashboard` backend on **port 9119** — *not* the OpenAI API server on
-`8642`. For an ADM deployment that Desktop clients connect to remotely:
+`8642`. For a remote deployment that Desktop clients connect to:
 
 - Enable the dashboard with `HERMES_DASHBOARD=1` and publish `-p 9119:9119`.
 - Treat `8642` as **optional** API-server traffic (OpenAI-compatible clients).
@@ -406,8 +409,8 @@ a `hermes dashboard` backend on **port 9119** — *not* the OpenAI API server on
 - One dashboard backend serves **every** co-located profile — the client sends
   the target profile with each request. You do not need a port per profile for
   Desktop clients.
-- The dashboard auth gate is **mandatory** on the non-loopback bind an ADM box
-  uses. Configure one provider before exposing the port:
+- The dashboard auth gate is **mandatory** on the non-loopback bind a remote
+  deployment uses. Configure one provider before exposing the port:
   username/password (`HERMES_DASHBOARD_BASIC_AUTH_USERNAME` +
   `_PASSWORD` + `_SECRET`), OAuth (Nous Portal), or self-hosted OIDC. See
   [Running the dashboard](#running-the-dashboard) for all three. With no
@@ -424,7 +427,7 @@ docker run -d \
   -e HERMES_DASHBOARD_BASIC_AUTH_PASSWORD="$(openssl rand -hex 24)" \
   -e HERMES_DASHBOARD_BASIC_AUTH_SECRET="$(openssl rand -hex 32)" \
   -e HERMES_UID="$(id -u)" -e HERMES_GID="$(id -g)" \
-  ghcr.io/<owner>/hermes-agent:adm-latest gateway run
+  ghcr.io/<owner>/hermes-agent:runtime-latest gateway run
 ```
 
 Point the Desktop app's **Client Mode** at `https://<host>:9119` and sign in

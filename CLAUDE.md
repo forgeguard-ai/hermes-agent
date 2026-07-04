@@ -6,7 +6,7 @@ as every other coding agent working in this repository, including the
 this fork's PR policy and plan-saving rule.
 
 If you're asked to sync this fork with a new upstream `NousResearch/hermes-agent`
-release, follow [`docs/fork-maintenance/upstream-sync-skill.md`](docs/fork-maintenance/upstream-sync-skill.md)
+release, follow [`docs/forgeguard-fork/upstream-sync-skill.md`](docs/forgeguard-fork/upstream-sync-skill.md)
 step by step — it's written to be followed directly by Claude Code as well
 as Cursor, GitHub Copilot, and Codex.
 
