@@ -476,8 +476,9 @@ LABEL com.forgeguard.hermes.variant="runtime"
 # Container-level health signal. Only meaningful when the dashboard is
 # enabled: with HERMES_DASHBOARD unset the probe reports healthy (no-op) so
 # plain CLI/one-shot containers don't flap. /api/status is served
-# unauthenticated (it's the same public probe the desktop client uses), and
-# the probe targets loopback regardless of the bind host.
+# unauthenticated (it's the same public probe the desktop client uses); the
+# probe targets the dashboard's effective bind host (loopback for a wildcard
+# bind, the specific IP otherwise) — see docker/healthcheck.sh.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
     CMD ["/opt/hermes/docker/healthcheck.sh"]
 

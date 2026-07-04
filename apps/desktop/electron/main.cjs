@@ -4801,7 +4801,11 @@ function upsertSavedRemote(remotes, block) {
     allowInvalidCertificate: block.allowInvalidCertificate === true,
     lastUsedAt: Date.now()
   }
-  if (block.token && typeof block.token === 'object') {
+  // The endpoint history is written to disk, so only carry an ENCRYPTED token
+  // blob here — never a plaintext one (a persistToken:false coercion, or a
+  // safeStorage-unavailable fallback). The entry still records the endpoint;
+  // a dropped plaintext token just means re-entering it on reselect.
+  if (block.token && typeof block.token === 'object' && block.token.encoding !== 'plain') {
     entry.token = block.token
   }
 
