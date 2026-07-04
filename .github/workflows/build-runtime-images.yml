@@ -100,6 +100,10 @@ jobs:
           load: true
           platforms: linux/amd64
           tags: ${{ steps.image.outputs.name }}:test-${{ matrix.target }}
+          # Bake the revision label here so the tested image already carries it
+          # and the publish step can retag-and-push these exact bytes.
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
           build-args: |
             HERMES_GIT_SHA=${{ github.sha }}
           cache-from: type=registry,ref=${{ steps.image.outputs.name }}:buildcache-${{ matrix.target }}-amd64
@@ -183,19 +187,20 @@ jobs:
             echo "TAGEOF"
           } >> "$GITHUB_OUTPUT"
 
+      # Publish the EXACT bytes that were built and tested above — the local
+      # `test-<target>` image — by retagging and pushing it, NOT by running a
+      # second build. A second build-push-action invocation rebuilds from cache
+      # and could publish an image the integration/smoke tests never ran
+      # against; docker tag + push guarantees tested == published.
       - name: Push image to GHCR
         if: inputs.push
-        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
-        with:
-          context: .
-          file: Dockerfile
-          target: ${{ matrix.target }}
-          push: true
-          platforms: linux/amd64
-          tags: ${{ steps.tags.outputs.list }}
-          labels: |
-            org.opencontainers.image.revision=${{ github.sha }}
-          build-args: |
-            HERMES_GIT_SHA=${{ github.sha }}
-          cache-from: type=registry,ref=${{ steps.image.outputs.name }}:buildcache-${{ matrix.target }}-amd64
-          cache-to: type=registry,ref=${{ steps.image.outputs.name }}:buildcache-${{ matrix.target }}-amd64,mode=max
+        env:
+          SRC: ${{ steps.image.outputs.name }}:test-${{ matrix.target }}
+          TAGS: ${{ steps.tags.outputs.list }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r tag; do
+            [ -n "$tag" ] || continue
+            docker tag "$SRC" "$tag"
+            docker push "$tag"
+          done <<< "$TAGS"
