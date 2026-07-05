@@ -4,10 +4,40 @@ from unittest.mock import MagicMock, patch
 def test_format_banner_version_label_without_git_state():
     from hermes_cli import banner
 
-    with patch.object(banner, "get_git_banner_state", return_value=None):
+    # Isolate the no-git-state base label from the fork-identity element (which
+    # is driven by the repo-root FORK_UPSTREAM_BASE marker, present in this repo).
+    with patch.object(banner, "get_git_banner_state", return_value=None), \
+         patch.object(banner, "_fork_upstream_base", return_value=None):
         value = banner.format_banner_version_label()
 
     assert value == f"Hermes Agent v{banner.VERSION} ({banner.RELEASE_DATE})"
+
+
+def test_format_banner_version_label_includes_fork_identity():
+    from hermes_cli import banner
+
+    with patch.object(banner, "get_git_banner_state", return_value=None), \
+         patch.object(banner, "_fork_upstream_base", return_value="v2026.7.1"):
+        value = banner.format_banner_version_label()
+
+    assert value == (
+        f"Hermes Agent v{banner.VERSION} ({banner.RELEASE_DATE})"
+        " · ForgeGuard fork (tracks v2026.7.1)"
+    )
+
+
+def test_format_banner_version_label_fork_identity_before_git_suffix():
+    """The fork element sits between the base and the git upstream/local suffix."""
+    from hermes_cli import banner
+
+    with patch.object(
+        banner,
+        "get_git_banner_state",
+        return_value={"upstream": "b2f477a3", "local": "b2f477a3", "ahead": 0},
+    ), patch.object(banner, "_fork_upstream_base", return_value="v2026.7.1"):
+        value = banner.format_banner_version_label()
+
+    assert "· ForgeGuard fork (tracks v2026.7.1) · upstream b2f477a3" in value
 
 
 def test_format_banner_version_label_on_upstream_main():
