@@ -509,9 +509,27 @@ def get_latest_release_tag(repo_dir: Optional[Path] = None) -> Optional[tuple]:
     return _latest_release_cache
 
 
+def _fork_upstream_base() -> Optional[str]:
+    """Upstream release tag this ForgeGuard fork tracks, read from the repo-root
+    ``FORK_UPSTREAM_BASE`` marker (baked into fork images via ``COPY . .``).
+
+    Read from the package root rather than ``_resolve_repo_dir()`` so it still
+    works on sealed images that ship no ``.git``. Returns ``None`` on a plain
+    upstream checkout with no marker, so the banner degrades to upstream labels.
+    """
+    try:
+        marker = Path(__file__).resolve().parent.parent / "FORK_UPSTREAM_BASE"
+        return marker.read_text(encoding="utf-8").strip() or None
+    except OSError:
+        return None
+
+
 def format_banner_version_label() -> str:
     """Return the version label shown in the startup banner title."""
     base = f"Hermes Agent v{VERSION} ({RELEASE_DATE})"
+    fork_base = _fork_upstream_base()
+    if fork_base:
+        base = f"{base} · ForgeGuard fork (tracks {fork_base})"
     state = get_git_banner_state()
     if not state:
         return base
