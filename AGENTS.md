@@ -1413,3 +1413,24 @@ The saved plan file should include, at minimum:
 distinct from the upstream-inherited `docs/plans/` directory (which holds
 upstream's own historical fix/feature plans) so the two never collide during
 a sync.
+
+### Code-Review & Codebase-Map Skills
+
+Two fork-local runbooks make code reviews (local `/code-review` and the billed
+cloud `/code-review ultra`) more accurate by giving the reviewer repo-specific
+context and an up-to-date structural map of the codebase:
+
+- [`docs/forgeguard-fork/code-review-instructions.md`](docs/forgeguard-fork/code-review-instructions.md)
+  — how to trigger a review plus this repo's structure, conventions, risk
+  hotspots, validation commands, and fork guardrails. **Read it before triggering
+  a review.**
+- [`docs/forgeguard-fork/graphify-refresh-skill.md`](docs/forgeguard-fork/graphify-refresh-skill.md)
+  — regenerate the [Graphify](https://graphify.net) code map with
+  `scripts/graphify-refresh.sh` (code-only, no API key). Only the small
+  `graphify-out/GRAPH_REPORT.md` is committed (the ~49 MB `graph.json` is
+  git-ignored and rebuilt locally); the cloud reviewer reads the report.
+
+**Keep `code-review-instructions.md` current**: whenever project structure,
+conventions, validation commands, or the Graphify workflow change, update that
+doc in the same change. Before requesting a review, run
+`scripts/graphify-refresh.sh` and commit the refreshed `GRAPH_REPORT.md`.

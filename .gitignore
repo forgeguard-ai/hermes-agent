@@ -143,3 +143,10 @@ apps/desktop/demo/
 # PR body is the archive. See the hermes-agent-dev skill's
 # pr-infographic-workflow reference (storage rule + lapse #8 / #COMMIT-1).
 infographic/
+
+# Graphify codebase-map output (generated; refresh with scripts/graphify-refresh.sh).
+# graph.json is ~49MB for this repo, so only the small human-readable report is
+# tracked (cloud code-review reads it); the graph itself is regenerated locally
+# for CLI queries. See docs/forgeguard-fork/graphify-refresh-skill.md.
+graphify-out/*
+!graphify-out/GRAPH_REPORT.md

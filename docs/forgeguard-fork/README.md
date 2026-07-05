@@ -10,6 +10,8 @@ upstream documentation and applies unchanged.
 | [`runtime-images.md`](runtime-images.md) | Pulling and running the fork's published images: a persistent server install from `runtime-*`, and a distrobox-based CLI install from `cli-*`. Tag scheme, required configuration, upgrades. |
 | [`releases-and-versioning.md`](releases-and-versioning.md) | The `<upstream-base>-forgeguard.<n>` release scheme, what release-on-merge automation publishes, and how image tags map to releases. |
 | [`upstream-sync-skill.md`](upstream-sync-skill.md) | The agent-agnostic runbook for syncing this fork to a new upstream release tag, including the fork-patch re-verification checklist. |
+| [`code-review-instructions.md`](code-review-instructions.md) | Repo-specific context for running `/code-review` (local or cloud `ultra`): structure, conventions, risk hotspots, validation commands, fork guardrails, and how to use the Graphify map. Read before triggering a review. |
+| [`graphify-refresh-skill.md`](graphify-refresh-skill.md) | Regenerate the Graphify codebase map with `scripts/graphify-refresh.sh` (code-only, no API key). Only `graphify-out/GRAPH_REPORT.md` is committed; the large `graph.json` is git-ignored and rebuilt locally. |
 
 Related, outside this directory:
 

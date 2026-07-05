@@ -1,0 +1,66 @@
+# Graphify scan scope for the ForgeGuard hermes-agent fork (gitignore syntax).
+# Keeps the codebase graph focused on the Python agent/gateway/tools source and
+# code-only, so `graphify update .` needs no LLM API key. Graphify classifies
+# .md/.mdx/.qmd/.txt/.rst/.html/.yaml/.yml/.pdf + images as "docs" requiring
+# semantic (LLM) extraction — excluded here on purpose.
+
+# --- Doc / markup / data formats (would demand an LLM key) ---
+*.md
+*.mdx
+*.qmd
+*.txt
+*.rst
+*.html
+*.htm
+*.yml
+*.yaml
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.webp
+*.ico
+
+# --- Python / build / env noise ---
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# --- JS / packaging noise ---
+node_modules/
+package-lock.json
+uv.lock
+flake.lock
+
+# --- Graphify's own output ---
+graphify-out/
+
+# --- Non-core content dirs (docs sites, translations, assets, generated) ---
+docs/
+website/
+locales/
+assets/
+infographic/
+packaging/
+datagen-config-examples/
+optional-mcps/
+.plans/
+.github/
+.devcontainer/
+nix/
+
+# --- Tests excluded to keep the committed graph focused + small ---
+# (re-include if you want test↔source edges in the map)
+tests/
+
+# --- VCS / tooling internals ---
+.git/
