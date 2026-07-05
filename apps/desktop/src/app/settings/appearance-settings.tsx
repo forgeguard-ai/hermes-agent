@@ -15,6 +15,7 @@ import { $embedAllowed, $embedMode, clearEmbedAllowed, type EmbedMode, setEmbedM
 import { $activeGatewayProfile, $profiles, normalizeProfileKey } from '@/store/profile'
 import { $toolViewMode, setToolViewMode } from '@/store/tool-view'
 import { $translucency, setTranslucency } from '@/store/translucency'
+import { $zoomLevel, setZoomLevel } from '@/store/zoom'
 import { getBaseColors, useTheme } from '@/themes/context'
 import { installVscodeThemeFromMarketplace } from '@/themes/install'
 import type { DesktopTheme } from '@/themes/types'
@@ -233,6 +234,7 @@ export function AppearanceSettings() {
   const embedMode = useStore($embedMode)
   const embedAllowed = useStore($embedAllowed)
   const translucency = useStore($translucency)
+  const zoomLevel = useStore($zoomLevel)
   const installs = useStore($marketplaceInstalls)
   const profiles = useStore($profiles)
   const activeProfileKey = normalizeProfileKey(useStore($activeGatewayProfile))
@@ -415,6 +417,32 @@ export function AppearanceSettings() {
             }
             description={a.translucencyDesc}
             title={a.translucencyTitle}
+          />
+
+          <ListRow
+            action={
+              <div className="flex items-center gap-3">
+                <input
+                  aria-label={a.textSizeTitle}
+                  className="h-1 w-40 cursor-pointer appearance-none rounded-full bg-(--ui-stroke-tertiary)"
+                  max={6}
+                  min={-4}
+                  onChange={event => {
+                    triggerHaptic('selection')
+                    setZoomLevel(Number(event.target.value))
+                  }}
+                  step={1}
+                  style={{ accentColor: 'var(--dt-primary)' }}
+                  type="range"
+                  value={zoomLevel}
+                />
+                <span className="w-12 text-right text-[length:var(--conversation-caption-font-size)] tabular-nums text-(--ui-text-tertiary)">
+                  {Math.round(100 * 1.2 ** zoomLevel)}%
+                </span>
+              </div>
+            }
+            description={a.textSizeDesc}
+            title={a.textSizeTitle}
           />
 
           <ListRow

@@ -76,6 +76,12 @@ contextBridge.exposeInMainWorld('hermesDesktop', {
   setTitleBarTheme: payload => ipcRenderer.send('hermes:titlebar-theme', payload),
   setNativeTheme: mode => ipcRenderer.send('hermes:native-theme', mode),
   setTranslucency: payload => ipcRenderer.send('hermes:translucency', payload),
+  setZoomLevel: payload => ipcRenderer.send('hermes:setZoomLevel', payload),
+  onZoomLevelChanged: callback => {
+    const listener = (_event, level) => callback(level)
+    ipcRenderer.on('hermes:zoomLevelChanged', listener)
+    return () => ipcRenderer.removeListener('hermes:zoomLevelChanged', listener)
+  },
   setPreviewShortcutActive: active => ipcRenderer.send('hermes:previewShortcutActive', Boolean(active)),
   openExternal: url => ipcRenderer.invoke('hermes:openExternal', url),
   openPreviewInBrowser: url => ipcRenderer.invoke('hermes:openPreviewInBrowser', url),

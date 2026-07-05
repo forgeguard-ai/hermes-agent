@@ -312,6 +312,8 @@ export const zhHant = defineLocale({
       toolViewDesc: '產品模式會隱藏原始工具 payload；技術模式會顯示完整輸入/輸出。',
       translucencyTitle: '視窗透明',
       translucencyDesc: '讓整個視窗透出桌面。僅支援 macOS 與 Windows。',
+      textSizeTitle: '文字大小',
+      textSizeDesc: '縮放整個視窗（文字、圖示與間距）。也可用 ⌘/Ctrl 與 +/−/0 調整。',
       embedsTitle: '內嵌預覽',
       embedsDesc:
         '豐富預覽會從第三方網站（YouTube、X 等）載入。詢問會在你允許前顯示佔位符；一律會自動載入；關閉則保留純連結。',
