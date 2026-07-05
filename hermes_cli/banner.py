@@ -305,6 +305,11 @@ def check_for_updates() -> Optional[int]:
     if behind but the count is unknown, ``0`` if up-to-date, or ``None`` if
     the check failed or doesn't apply. Cached for 6 hours.
     """
+    # Native offline gate: privacy/offline mode suppresses update-availability
+    # network calls (git ls-remote / PyPI) entirely.
+    from hermes_cli import offline
+    if offline.update_checks_disabled():
+        return None
     hermes_home = get_hermes_home()
     cache_file = hermes_home / ".update_check"
     embedded_rev = os.environ.get("HERMES_REVISION") or None

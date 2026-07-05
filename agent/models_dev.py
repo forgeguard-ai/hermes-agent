@@ -288,6 +288,20 @@ def fetch_models_dev(force_refresh: bool = False) -> Dict[str, Any]:
                 )
                 return _models_dev_cache
 
+    # Native offline gate: when the profile disables remote metadata, never hit
+    # the network — return whatever cache exists (in-mem or any disk copy, even
+    # stale) so lookups keep working from the bundled/cached data.
+    from hermes_cli import offline
+    if offline.remote_metadata_disabled():
+        logger.debug("offline mode: skipping models.dev network fetch")
+        if _models_dev_cache:
+            return _models_dev_cache
+        disk_data = _load_disk_cache()
+        if disk_data:
+            _models_dev_cache = disk_data
+            _models_dev_cache_time = time.time()
+        return _models_dev_cache or {}
+
     # Stage 3: network fetch.
     try:
         response = requests.get(MODELS_DEV_URL, timeout=15)

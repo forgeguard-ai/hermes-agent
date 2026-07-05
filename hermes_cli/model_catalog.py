@@ -160,6 +160,12 @@ def _fetch_manifest_with_fallback(
     operator who configured the catalog URL to point at the raw GitHub
     copy doesn't double-fetch.
     """
+    # Native offline gate: when the profile disables the remote catalog, skip
+    # every network fetch and let the caller fall back to the bundled snapshot.
+    from hermes_cli import offline
+    if offline.remote_catalog_disabled():
+        logger.info("offline mode: skipping remote model-catalog fetch")
+        return None
     data = _fetch_manifest(primary_url, timeout)
     if data is not None:
         return data
