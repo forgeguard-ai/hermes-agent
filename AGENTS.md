@@ -104,7 +104,10 @@ conservative at the waist.
   thresholds, feature flags, display prefs — go in `config.yaml`. Bridge to an
   internal env var if the mechanism needs one, but user-facing docs point to
   `config.yaml`. Reject PRs that tell users to "set X in your .env" unless X
-  is a credential.
+  is a credential. *Documented exception:* the `HERMES_OFFLINE_*` privacy/offline
+  gate (`hermes_cli/offline.py`) stays env-var-driven — it is a deliberate
+  cross-repo interface owned jointly with the ForgeGuard deployment manager's
+  `write_env_file`, not general user-facing config.
 - **A new core tool when terminal + file already do the job, or when a skill
   would.** If the only barrier is file visibility on a remote backend, fix the
   mount, not the toolset.

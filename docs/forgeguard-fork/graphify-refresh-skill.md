@@ -14,7 +14,7 @@ how a reviewer *uses* it.
 
 Graphify writes to `graphify-out/`. For this repo the graph is large
 (~40k nodes / ~49 MB `graph.json`), so **only the small human-readable
-`GRAPH_REPORT.md` (~270 KB) is committed** (see `.gitignore`). That report is what
+`GRAPH_REPORT.md` (~290 KB) is committed** (see `.gitignore`). That report is what
 the cloud reviewer reads for orientation. The heavy `graph.json` is git-ignored
 and regenerated locally — the cloud reviewer can't run the CLI anyway, and a
 local rebuild is ~1 minute with no API key.
@@ -67,9 +67,15 @@ Optional enrichment, never required for a valid refresh.
 
 ## Completion criteria
 
-- `scripts/graphify-refresh.sh` succeeded; `GRAPH_REPORT.md` regenerated (compare
-  its "Built from commit" line to `git rev-parse HEAD`).
-- The corpus stayed code-only (report shows `0 docs`); no API key was required.
+- `scripts/graphify-refresh.sh` succeeded; `GRAPH_REPORT.md` regenerated. Its
+  "Built from commit" line names the commit the graph was built against — for a
+  committed report this necessarily lags `HEAD` (the report is regenerated, then
+  committed on top), so verify it is an ancestor of `HEAD`
+  (`git merge-base --is-ancestor <sha> HEAD`) or matches the pre-commit `HEAD`,
+  rather than exact-matching `git rev-parse HEAD`.
+- The corpus stayed code-only: the report's `## Corpus Check` section is present
+  and its `Token cost:` line reads `0 input · 0 output` (pure AST extraction, no
+  API key required).
 - `graphify-out/GRAPH_REPORT.md` is staged/committed; `graph.json` and the other
   internals remain git-ignored.
 - A sanity query works locally, e.g. `graphify query "<subsystem you changed>"` or

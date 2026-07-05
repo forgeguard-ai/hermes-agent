@@ -85,6 +85,10 @@ _HERMES_USER_AGENT = f"hermes-cli/{_HERMES_VERSION}"
 _catalog_cache: dict[str, Any] | None = None
 _catalog_cache_source_mtime: float = 0.0
 
+# One-shot flag so the offline short-circuit logs an info line once per process
+# instead of on every catalog read (which happens on every model-picker open).
+_offline_logged: bool = False
+
 
 # ---------------------------------------------------------------------------
 # Config
@@ -164,7 +168,12 @@ def _fetch_manifest_with_fallback(
     # every network fetch and let the caller fall back to the bundled snapshot.
     from hermes_cli import offline
     if offline.remote_catalog_disabled():
-        logger.info("offline mode: skipping remote model-catalog fetch")
+        global _offline_logged
+        if not _offline_logged:
+            logger.info("offline mode: skipping remote model-catalog fetch")
+            _offline_logged = True
+        else:
+            logger.debug("offline mode: skipping remote model-catalog fetch")
         return None
     data = _fetch_manifest(primary_url, timeout)
     if data is not None:
@@ -299,6 +308,11 @@ def _fetch_provider_override(provider: str) -> dict[str, Any] | None:
     """If ``model_catalog.providers.<name>.url`` is set, fetch that instead."""
     cfg = _load_catalog_config()
     if not cfg["enabled"]:
+        return None
+    # Native offline gate: this path calls _fetch_manifest directly, bypassing
+    # the gate in _fetch_manifest_with_fallback, so guard the override fetch too.
+    from hermes_cli import offline
+    if offline.remote_catalog_disabled():
         return None
     provider_cfg = cfg["providers"].get(provider)
     if not isinstance(provider_cfg, dict):

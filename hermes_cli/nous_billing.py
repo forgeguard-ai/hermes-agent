@@ -279,6 +279,15 @@ def _request(
     retry with a freshly-resolved token (bypassing the short token cache) so a
     cached-but-just-expired token self-heals instead of failing the call.
     """
+    # Native offline gate: privacy/offline mode disables all Nous Portal billing
+    # calls. Fail loud with a typed error so each surface can degrade its own way.
+    from hermes_cli import offline
+    if offline.portal_checks_disabled():
+        raise BillingError(
+            "Nous Portal billing is unavailable while Hermes offline mode is enabled.",
+            error="offline_mode",
+        )
+
     token, base = _resolve_token_and_base(use_cache=not _retried_auth)
     url = f"{base}{path}"
     headers = {

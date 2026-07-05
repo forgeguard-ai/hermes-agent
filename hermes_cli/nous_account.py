@@ -340,6 +340,29 @@ def get_nous_portal_account_info(
 
     access_token = state.get("access_token")
     portal_base_url = _portal_base_url(state)
+    # Native offline gate: privacy/offline mode suppresses Nous Portal
+    # account/entitlement lookups. A locally-decodable, unexpired access JWT is
+    # still honored (no network), otherwise return an explicit offline snapshot.
+    from hermes_cli import offline
+    if offline.portal_checks_disabled():
+        if isinstance(access_token, str) and access_token.strip():
+            jwt_info = _info_from_valid_jwt(
+                access_token,
+                state=state,
+                portal_base_url=portal_base_url,
+                min_jwt_ttl_seconds=0,
+            )
+            if jwt_info is not None:
+                return jwt_info
+        return NousPortalAccountInfo(
+            logged_in=bool(isinstance(access_token, str) and access_token.strip()),
+            source="none",
+            fresh=False,
+            portal_base_url=portal_base_url,
+            inference_credential_present=bool(access_token),
+            credential_source="auth_store" if access_token else None,
+            error="offline_mode",
+        )
     if not isinstance(access_token, str) or not access_token.strip():
         pool_oauth_info = _info_from_oauth_pool(
             force_fresh=force_fresh,
@@ -564,6 +587,11 @@ def _fetch_nous_account_info(
     access_token: str,
     portal_base_url: Optional[str] = None,
 ) -> dict[str, Any]:
+    # Defense in depth: the oauth-pool path calls this directly, so gate the
+    # actual network fetch too when offline mode disables portal checks.
+    from hermes_cli import offline
+    if offline.portal_checks_disabled():
+        return {"error": "offline_mode"}
     base = (portal_base_url or "https://portal.nousresearch.com").rstrip("/")
     url = f"{base}/api/oauth/account"
     headers = {
