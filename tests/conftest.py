@@ -200,6 +200,14 @@ _HERMES_BEHAVIORAL_VARS = frozenset({
     "HERMES_EXEC_ASK",
     "HERMES_HOME_MODE",
     "HERMES_AGENT_USE_LEGACY_SESSION_KEYS",
+    # Offline / privacy gate (cross-repo interface with the ForgeGuard
+    # deployment manager). A bare pytest inside an offline container would
+    # otherwise inherit these and silently disable network paths under test.
+    "HERMES_OFFLINE_MODE",
+    "HERMES_OFFLINE_DISABLE_REMOTE_CATALOG",
+    "HERMES_OFFLINE_DISABLE_REMOTE_METADATA",
+    "HERMES_OFFLINE_DISABLE_UPDATE_CHECKS",
+    "HERMES_OFFLINE_DISABLE_PORTAL_CHECKS",
     # Kanban path/board pins must never leak from a developer shell or
     # dispatched worker into tests; otherwise tests can write fake tasks to
     # the real ~/.hermes/kanban.db instead of the per-test HERMES_HOME.

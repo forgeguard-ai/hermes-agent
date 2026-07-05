@@ -37,6 +37,8 @@ _MODELS_DEV_CACHE_TTL = 3600  # 1 hour in-memory
 # In-memory cache
 _models_dev_cache: Dict[str, Any] = {}
 _models_dev_cache_time: float = 0
+# One-shot flag: log at most once when offline mode suppresses a forced refresh.
+_models_dev_offline_refresh_logged: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -257,7 +259,7 @@ def fetch_models_dev(force_refresh: bool = False) -> Dict[str, Any]:
     function always hits the network and only falls back to disk if the
     network call fails.
     """
-    global _models_dev_cache, _models_dev_cache_time
+    global _models_dev_cache, _models_dev_cache_time, _models_dev_offline_refresh_logged
 
     # Stage 1: fresh in-memory cache wins. This is the hot path on
     # long-lived processes — no I/O, no system calls.
@@ -287,6 +289,29 @@ def fetch_models_dev(force_refresh: bool = False) -> Dict[str, Any]:
                     "(%d providers, age=%.0fs)", len(disk_data), disk_age,
                 )
                 return _models_dev_cache
+
+    # Native offline gate: when the profile disables remote metadata, never hit
+    # the network — return whatever cache exists (in-mem or any disk copy, even
+    # stale) so lookups keep working from the bundled/cached data.
+    from hermes_cli import offline
+    if offline.remote_metadata_disabled():
+        logger.debug("offline mode: skipping models.dev network fetch")
+        if force_refresh and not _models_dev_offline_refresh_logged:
+            logger.info(
+                "offline mode: suppressing models.dev force-refresh; "
+                "serving cached/bundled data"
+            )
+            _models_dev_offline_refresh_logged = True
+        if _models_dev_cache:
+            return _models_dev_cache
+        disk_data = _load_disk_cache()
+        if disk_data:
+            _models_dev_cache = disk_data
+            # Back-date the in-mem TTL like the online-failure path (Stage 4) so
+            # arbitrarily-old disk data isn't treated as fresh for a full TTL;
+            # leave a short 5 min grace window before the next refresh attempt.
+            _models_dev_cache_time = time.time() - _MODELS_DEV_CACHE_TTL + 300
+        return _models_dev_cache or {}
 
     # Stage 3: network fetch.
     try:

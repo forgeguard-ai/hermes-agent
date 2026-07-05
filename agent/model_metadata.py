@@ -714,6 +714,24 @@ def fetch_model_metadata(force_refresh: bool = False) -> Dict[str, Dict[str, Any
                 _model_metadata_cache_time = time.time() - disk_age
                 return _model_metadata_cache
 
+    # Native offline gate: privacy/offline mode skips the OpenRouter metadata
+    # fetch entirely — serve the in-mem cache, then any disk cache (anchoring the
+    # in-mem TTL to the disk file's age), else empty.
+    from hermes_cli import offline
+    if offline.remote_metadata_disabled():
+        if _model_metadata_cache:
+            return _model_metadata_cache
+        disk_cache = _load_model_metadata_disk_cache()
+        if disk_cache:
+            _model_metadata_cache = disk_cache
+            disk_age = _model_metadata_disk_cache_age_seconds()
+            if disk_age is not None:
+                _model_metadata_cache_time = time.time() - min(disk_age, _MODEL_CACHE_TTL)
+            else:
+                _model_metadata_cache_time = time.time() - _MODEL_CACHE_TTL + 1
+            return _model_metadata_cache
+        return {}
+
     try:
         response = requests.get(OPENROUTER_MODELS_URL, timeout=10, verify=_resolve_requests_verify())
         response.raise_for_status()

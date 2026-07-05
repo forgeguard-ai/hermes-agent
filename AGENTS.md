@@ -104,7 +104,10 @@ conservative at the waist.
   thresholds, feature flags, display prefs — go in `config.yaml`. Bridge to an
   internal env var if the mechanism needs one, but user-facing docs point to
   `config.yaml`. Reject PRs that tell users to "set X in your .env" unless X
-  is a credential.
+  is a credential. *Documented exception:* the `HERMES_OFFLINE_*` privacy/offline
+  gate (`hermes_cli/offline.py`) stays env-var-driven — it is a deliberate
+  cross-repo interface owned jointly with the ForgeGuard deployment manager's
+  `write_env_file`, not general user-facing config.
 - **A new core tool when terminal + file already do the job, or when a skill
   would.** If the only barrier is file visibility on a remote backend, fix the
   mount, not the toolset.
@@ -1413,3 +1416,24 @@ The saved plan file should include, at minimum:
 distinct from the upstream-inherited `docs/plans/` directory (which holds
 upstream's own historical fix/feature plans) so the two never collide during
 a sync.
+
+### Code-Review & Codebase-Map Skills
+
+Two fork-local runbooks make code reviews (local `/code-review` and the billed
+cloud `/code-review ultra`) more accurate by giving the reviewer repo-specific
+context and an up-to-date structural map of the codebase:
+
+- [`docs/forgeguard-fork/code-review-instructions.md`](docs/forgeguard-fork/code-review-instructions.md)
+  — how to trigger a review plus this repo's structure, conventions, risk
+  hotspots, validation commands, and fork guardrails. **Read it before triggering
+  a review.**
+- [`docs/forgeguard-fork/graphify-refresh-skill.md`](docs/forgeguard-fork/graphify-refresh-skill.md)
+  — regenerate the [Graphify](https://graphify.net) code map with
+  `scripts/graphify-refresh.sh` (code-only, no API key). Only the small
+  `graphify-out/GRAPH_REPORT.md` is committed (the ~49 MB `graph.json` is
+  git-ignored and rebuilt locally); the cloud reviewer reads the report.
+
+**Keep `code-review-instructions.md` current**: whenever project structure,
+conventions, validation commands, or the Graphify workflow change, update that
+doc in the same change. Before requesting a review, run
+`scripts/graphify-refresh.sh` and commit the refreshed `GRAPH_REPORT.md`.
