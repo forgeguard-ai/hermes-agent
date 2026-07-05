@@ -4119,6 +4119,10 @@ function setAndPersistZoomLevel(window, zoomLevel) {
   if (!window || window.isDestroyed()) return
   const next = clampZoomLevel(zoomLevel)
   window.webContents.setZoomLevel(next)
+  // Push the new level to the renderer so the Settings "Text Size" slider stays
+  // in sync when zoom is changed from the ⌘/Ctrl +/−/0 shortcuts (this is the
+  // single choke point for every zoom change, including the slider's own IPC).
+  window.webContents.send('hermes:zoomLevelChanged', next)
   window.webContents
     .executeJavaScript(
       `try { localStorage.setItem(${JSON.stringify(ZOOM_STORAGE_KEY)}, ${JSON.stringify(String(next))}) } catch {}`
@@ -7041,6 +7045,14 @@ ipcMain.on('hermes:translucency', (_event, payload) => {
   for (const win of BrowserWindow.getAllWindows()) {
     applyWindowTranslucency(win)
   }
+})
+
+// Settings "Text Size" slider → whole-window zoom. Reuse setAndPersistZoomLevel
+// (it clamps, applies, and persists) so the slider, the ⌘/Ctrl +/−/0 shortcuts,
+// and the restored value all flow through one code path and one persisted key.
+ipcMain.on('hermes:setZoomLevel', (event, payload) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  if (win) setAndPersistZoomLevel(win, payload && Number(payload.level))
 })
 
 ipcMain.handle('hermes:openExternal', (_event, url) => {
