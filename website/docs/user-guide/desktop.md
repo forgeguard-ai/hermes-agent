@@ -243,7 +243,7 @@ tccutil reset Microphone com.nousresearch.hermes
 ### macOS: "Hermes is damaged and can't be opened"
 
 This appears when you launch a **prebuilt ForgeGuard fork installer** (the `.dmg`/`.zip`
-attached to a [fork release](https://github.com/ForgeGuard/hermes-agent/releases)) rather
+attached to a [fork release](https://github.com/forgeguard-ai/hermes-agent/releases)) rather
 than a locally built app. The fork's macOS builds are ad-hoc signed but **not notarized**
 — there are no Apple Developer credentials on the fork — so Gatekeeper quarantines the app
 on download and blocks it. The message says "damaged," but nothing is wrong with the

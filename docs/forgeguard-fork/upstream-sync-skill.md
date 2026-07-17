@@ -83,7 +83,7 @@ places most likely to matter to the fork's own CI/release behavior:
 - [ ] **`build-runtime-images.yml`** exists at
       `.github/workflows/build-runtime-images.yml`, still matrixes over
       `target: [runtime, cli]`, and pushes both `runtime-*` and `cli-*` tags
-      to `ghcr.io/forgeguard/hermes-agent`. It must have **no `push:`
+      to `ghcr.io/forgeguard-ai/hermes-agent`. It must have **no `push:`
       trigger** — `release-on-merge.yml` is the single merge-time builder
       (a push trigger here re-introduces double builds on qualifying merges).
 - [ ] **Dockerfile multi-target structure intact** — the fork's `Dockerfile`
@@ -128,7 +128,7 @@ places most likely to matter to the fork's own CI/release behavior:
       ['src/**/*.test.{ts,tsx}']` (keeps `apps/desktop`'s vitest run from
       sweeping up `electron/**/*.test.cjs` node:test suites).
 - [ ] **`apps/desktop/package.json`** has a top-level `"homepage"` field
-      (`https://github.com/ForgeGuard/hermes-agent#readme`) — required by
+      (`https://github.com/forgeguard-ai/hermes-agent#readme`) — required by
       electron-builder's Linux `deb` target; its absence fails
       `dist:linux` with `Please specify project homepage`.
 - [ ] **`workflow_call` upload/push gating** — in both

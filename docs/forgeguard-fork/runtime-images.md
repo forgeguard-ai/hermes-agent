@@ -6,7 +6,7 @@ any other ForgeGuard tooling required.
 
 | Variant | Tags | What it is |
 | --- | --- | --- |
-| **runtime** | `ghcr.io/forgeguard/hermes-agent:runtime-latest` (rolling), `runtime-<git-sha>` (immutable), `runtime-<release>` (e.g. `runtime-v2026.7.1-forgeuard.4`) | The full supervised server image: s6-overlay supervises the dashboard and per-profile gateways (they restart on crash and come back after `docker restart` / host reboot), web dashboard UI, Playwright/Chromium browser tools, messaging + Matrix adapters baked in. Identical layout to upstream's Docker image (`/opt/hermes` immutable install tree, `/opt/data` state volume). |
+| **runtime** | `ghcr.io/forgeguard-ai/hermes-agent:runtime-latest` (rolling), `runtime-<git-sha>` (immutable), `runtime-<release>` (e.g. `runtime-v2026.7.1-forgeuard.4`) | The full supervised server image: s6-overlay supervises the dashboard and per-profile gateways (they restart on crash and come back after `docker restart` / host reboot), web dashboard UI, Playwright/Chromium browser tools, messaging + Matrix adapters baked in. Identical layout to upstream's Docker image (`/opt/hermes` immutable install tree, `/opt/data` state volume). |
 | **cli** | `cli-latest`, `cli-<git-sha>`, `cli-<release>` | A lean interactive image for **distrobox** (or plain `docker run -it`) use: CLI + TUI + browser tools, no dashboard/gateway server stack, no supervisor. Distrobox's host-integration packages are pre-baked so the first `distrobox enter` is instant. Messaging adapters are not baked in; Hermes lazy-installs them into your `~/.hermes/lazy-packages` on first use. |
 
 Prefer immutable tags (`runtime-<release>`) for deployments you care about;
@@ -16,7 +16,7 @@ release. Both images carry the `com.forgeguard.hermes.prebaked=1` OCI label.
 ## Persistent server install (`runtime-*`)
 
 ```bash
-docker pull ghcr.io/forgeguard/hermes-agent:runtime-latest
+docker pull ghcr.io/forgeguard-ai/hermes-agent:runtime-latest
 docker run -d \
   --name hermes \
   --restart unless-stopped \
@@ -27,7 +27,7 @@ docker run -d \
   -e HERMES_DASHBOARD_BASIC_AUTH_PASSWORD="$(openssl rand -hex 24)" \
   -e HERMES_DASHBOARD_BASIC_AUTH_SECRET="$(openssl rand -hex 32)" \
   -e HERMES_UID="$(id -u)" -e HERMES_GID="$(id -g)" \
-  ghcr.io/forgeguard/hermes-agent:runtime-latest gateway run
+  ghcr.io/forgeguard-ai/hermes-agent:runtime-latest gateway run
 ```
 
 What each piece buys you:
@@ -64,13 +64,13 @@ the web dashboard / Desktop Client Mode.
 Everything else — compose examples, profiles, log routing, resource limits,
 audio — behaves exactly like upstream's image:
 [Docker user guide](../../website/docs/user-guide/docker.md). Substitute
-`ghcr.io/forgeguard/hermes-agent:runtime-latest` for
+`ghcr.io/forgeguard-ai/hermes-agent:runtime-latest` for
 `nousresearch/hermes-agent:latest` in any command there.
 
 ## Distrobox install (`cli-*`)
 
 ```bash
-distrobox create --image ghcr.io/forgeguard/hermes-agent:cli-latest --name hermes
+distrobox create --image ghcr.io/forgeguard-ai/hermes-agent:cli-latest --name hermes
 distrobox enter hermes
 hermes            # first run walks you through `hermes setup`
 ```
@@ -92,7 +92,7 @@ Notes:
   `~/.hermes/lazy-packages` on first use — so `hermes gateway run` for e.g.
   Telegram works, it just fetches that adapter once.
 - The image also works with plain Docker for one-off CLI use:
-  `docker run -it --rm -v ~/.hermes:/root/.hermes ghcr.io/forgeguard/hermes-agent:cli-latest`.
+  `docker run -it --rm -v ~/.hermes:/root/.hermes ghcr.io/forgeguard-ai/hermes-agent:cli-latest`.
 
 ## Which variant do I want?
 

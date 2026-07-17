@@ -27,7 +27,7 @@ CI-only merges don't produce releases). For qualifying merges it:
    (`.AppImage`, `.deb`, `.rpm`) and ad-hoc-signed macOS installers
    (`.dmg`, `.zip`).
 3. Calls `build-runtime-images.yml` → builds, tests, and pushes both image
-   variants to `ghcr.io/forgeguard/hermes-agent` with tags
+   variants to `ghcr.io/forgeguard-ai/hermes-agent` with tags
    `runtime-<sha>` / `runtime-latest` / `runtime-<version>` and
    `cli-<sha>` / `cli-latest` / `cli-<version>`.
 4. Publishes a GitHub Release with the installers attached and the image

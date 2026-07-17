@@ -2,7 +2,7 @@ name: Release on Merge
 
 # Fork-oriented release automation. A release-relevant PR merged into `main`
 # gets a GitHub Release: Linux + macOS desktop installers attached, and both
-# runtime images (ghcr.io/forgeguard/hermes-agent) tagged with the same
+# runtime images (ghcr.io/forgeguard-ai/hermes-agent) tagged with the same
 # version in addition to their rolling <variant>-<sha>/<variant>-latest tags.
 #
 # Version scheme: <upstream-base-tag>-forgeguard.<n>, e.g.
@@ -189,9 +189,9 @@ jobs:
 
           ```bash
           # Full supervised server image (dashboard + gateways):
-          docker pull ghcr.io/forgeguard/hermes-agent:runtime-__VERSION__
+          docker pull ghcr.io/forgeguard-ai/hermes-agent:runtime-__VERSION__
           # Lean CLI / distrobox image:
-          docker pull ghcr.io/forgeguard/hermes-agent:cli-__VERSION__
+          docker pull ghcr.io/forgeguard-ai/hermes-agent:cli-__VERSION__
           # Rolling tags: runtime-latest / cli-latest
           ```
 

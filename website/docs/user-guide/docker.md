@@ -382,7 +382,7 @@ state) changes.
   `:runtime-latest` (rolling), and a lean CLI/distrobox image under `cli-*`
   tags. Substitute the `runtime-*` reference for `nousresearch/hermes-agent`
   in any command on this page; see the fork's
-  [runtime images guide](https://github.com/ForgeGuard/hermes-agent/blob/main/docs/forgeguard-fork/runtime-images.md)
+  [runtime images guide](https://github.com/forgeguard-ai/hermes-agent/blob/main/docs/forgeguard-fork/runtime-images.md)
   for the full tag scheme and the `cli-*` variant.
 - **Persistent data stays at `/opt/data`.** Mount each deployment's profile
   data at `/opt/data` (`-v /srv/hermes/<deployment>:/opt/data`). Do **not**

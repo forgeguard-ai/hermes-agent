@@ -5,7 +5,7 @@
   "version": "0.18.0",
   "description": "Native desktop shell for Hermes Agent.",
   "author": "Nous Research",
-  "homepage": "https://github.com/ForgeGuard/hermes-agent#readme",
+  "homepage": "https://github.com/forgeguard-ai/hermes-agent#readme",
   "type": "module",
   "main": "electron/main.cjs",
   "engines": {
