@@ -1,0 +1,53 @@
+name: Docs Validate
+
+# ForgeGuard-owned documentation validation for the docs/site publication
+# overlay, the .forgeguard/docs.yml manifest, and the branded README. This is a
+# fork-added, self-contained workflow: it does not modify or depend on the
+# upstream CI orchestrator (ci.yml) or the Docusaurus site build
+# (docs-site-checks.yml), so it never conflicts on an upstream sync. It runs
+# only when the ForgeGuard overlay is touched.
+
+on:
+  pull_request:
+    paths:
+      - "README.md"
+      - "SUPPORT.md"
+      - ".forgeguard/**"
+      - "docs/site/**"
+      - "docs/maintainers/**"
+      - "scripts/docs/**"
+      - ".github/workflows/docs-validate.yml"
+  push:
+    branches: [main]
+    paths:
+      - "README.md"
+      - "SUPPORT.md"
+      - ".forgeguard/**"
+      - "docs/site/**"
+      - "docs/maintainers/**"
+      - "scripts/docs/**"
+      - ".github/workflows/docs-validate.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-validate-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  validate:
+    name: Validate ForgeGuard docs overlay
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.11"
+
+      - name: Install validator dependencies
+        run: python -m pip install pyyaml==6.0.3
+
+      - name: Validate docs overlay
+        run: python scripts/docs/validate_docs.py --repo-root .

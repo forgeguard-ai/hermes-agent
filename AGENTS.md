@@ -1387,7 +1387,7 @@ in this repo:
   (e.g. `feat/devcontainer`, `feature/desktop-font-size`) indefinitely as
   candidates for a future upstream contribution — "keep the branch" and "open
   the PR" are two separate, separately-authorized actions.
-- See `docs/forgeguard-fork/upstream-sync-skill.md` for the reusable runbook
+- See `docs/maintainers/upstream-sync/sync-policy.md` for the reusable runbook
   this fork uses to pull changes *from* `NousResearch/hermes-agent` (the
   direction that's on by default) — contributing *to* it is the direction
   that requires explicit sign-off.
@@ -1423,11 +1423,11 @@ Two fork-local runbooks make code reviews (local `/code-review` and the billed
 cloud `/code-review ultra`) more accurate by giving the reviewer repo-specific
 context and an up-to-date structural map of the codebase:
 
-- [`docs/forgeguard-fork/code-review-instructions.md`](docs/forgeguard-fork/code-review-instructions.md)
+- [`docs/maintainers/development/review.md`](docs/maintainers/development/review.md)
   — how to trigger a review plus this repo's structure, conventions, risk
   hotspots, validation commands, and fork guardrails. **Read it before triggering
   a review.**
-- [`docs/forgeguard-fork/graphify-refresh-skill.md`](docs/forgeguard-fork/graphify-refresh-skill.md)
+- [`docs/maintainers/development/graphify-refresh.md`](docs/maintainers/development/graphify-refresh.md)
   — regenerate the [Graphify](https://graphify.net) code map with
   `scripts/graphify-refresh.sh` (code-only, no API key). Only the small
   `graphify-out/GRAPH_REPORT.md` is committed (the ~49 MB `graph.json` is

@@ -7,7 +7,7 @@ Cursor, GitHub Copilot, Codex, or Claude Code — it's a shell wrapper around th
 
 Run it **before a code review** (local or the cloud `/code-review ultra`), or
 whenever the code has drifted from the committed map. This skill *produces/updates*
-the graph; [`code-review-instructions.md`](code-review-instructions.md) describes
+the graph; [`review.md`](review.md) describes
 how a reviewer *uses* it.
 
 ## What gets tracked (and why only the report)

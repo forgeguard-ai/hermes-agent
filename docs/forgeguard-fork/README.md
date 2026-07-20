@@ -1,21 +1,30 @@
-# ForgeGuard fork documentation
+# Moved — ForgeGuard fork documentation
 
-Everything specific to the ForgeGuard fork of
-[NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent)
-lives in this directory. Everything else in `docs/` and `website/docs/` is
-upstream documentation and applies unchanged.
+The ForgeGuard fork documentation has moved. This directory is a redirect stub
+kept so existing links keep resolving for one release cycle; update anything that
+points here.
 
-| Doc | What it covers |
+## User documentation → `docs/site/`
+
+The public, website-published ForgeGuard distribution docs now live under
+[`docs/site/`](../site/index.md):
+
+| Was here | Now |
 | --- | --- |
-| [`runtime-images.md`](runtime-images.md) | Pulling and running the fork's published images: a persistent server install from `runtime-*`, and a distrobox-based CLI install from `cli-*`. Tag scheme, required configuration, upgrades. |
-| [`releases-and-versioning.md`](releases-and-versioning.md) | The `<upstream-base>-forgeguard.<n>` release scheme, what release-on-merge automation publishes, and how image tags map to releases. |
-| [`upstream-sync-skill.md`](upstream-sync-skill.md) | The agent-agnostic runbook for syncing this fork to a new upstream release tag, including the fork-patch re-verification checklist. |
-| [`code-review-instructions.md`](code-review-instructions.md) | Repo-specific context for running `/code-review` (local or cloud `ultra`): structure, conventions, risk hotspots, validation commands, fork guardrails, and how to use the Graphify map. Read before triggering a review. |
-| [`graphify-refresh-skill.md`](graphify-refresh-skill.md) | Regenerate the Graphify codebase map with `scripts/graphify-refresh.sh` (code-only, no API key). Only `graphify-out/GRAPH_REPORT.md` is committed; the large `graph.json` is git-ignored and rebuilt locally. |
+| `runtime-images.md` | [`docs/site/deployment/runtime-images.md`](../site/deployment/runtime-images.md) and [`distrobox-cli.md`](../site/deployment/distrobox-cli.md) |
+| `releases-and-versioning.md` (consumer parts) | [`docs/site/operations/releases-and-upgrades.md`](../site/operations/releases-and-upgrades.md) |
+| Dashboard auth / persistence | [`docs/site/operations/`](../site/operations/dashboard-authentication.md) |
 
-Related, outside this directory:
+## Maintainer documentation → `docs/maintainers/`
 
-- The fork section at the top of the repo [`README.md`](../../README.md) — quickstarts.
-- [`website/docs/user-guide/docker.md`](../../website/docs/user-guide/docker.md) — the upstream Docker reference; the `runtime-*` image behaves identically (substitute the image reference).
-- `docs/agent-plans/` — checkbox-tracked work plans persisted by coding agents (fork policy; see `AGENTS.md`'s "ForgeGuard Fork" section).
-- The fork PR policy and plan-saving rule — [`AGENTS.md`](../../AGENTS.md), "ForgeGuard Fork — Additions Below This Line".
+Maintainer-only procedures now live under
+[`docs/maintainers/`](../maintainers/) (excluded from the website):
+
+| Was here | Now |
+| --- | --- |
+| `upstream-sync-skill.md` | [`docs/maintainers/upstream-sync/sync-policy.md`](../maintainers/upstream-sync/sync-policy.md) (+ `patch-inventory.md`, `conflict-resolution.md`) |
+| `releases-and-versioning.md` (automation internals) | [`docs/maintainers/release/release-process.md`](../maintainers/release/release-process.md) |
+| `code-review-instructions.md` | [`docs/maintainers/development/review.md`](../maintainers/development/review.md) |
+| `graphify-refresh-skill.md` | [`docs/maintainers/development/graphify-refresh.md`](../maintainers/development/graphify-refresh.md) |
+
+Start at the [ForgeGuard documentation home](../site/index.md).

@@ -330,3 +330,31 @@ that:
   security@nousresearch.com.
 - **Credit:** reporters are credited in release notes unless
   anonymity is requested.
+
+---
+
+## ForgeGuard Fork — Additions Below This Line
+
+Everything above this line is the upstream
+(`NousResearch/hermes-agent`) security policy and remains authoritative for the
+Hermes product itself. This section is fork-specific and only clarifies where to
+route reports for **ForgeGuard's distribution artifacts**.
+
+- **Upstream product vulnerabilities** — anything reproducible on an upstream
+  install (the agent runtime, providers, tools, gateway, desktop app, or the
+  trust model in §2) — follow the upstream policy above: report privately via
+  [GitHub Security Advisories](https://github.com/NousResearch/hermes-agent/security/advisories/new)
+  or the upstream security email. ForgeGuard does not triage upstream product
+  vulnerabilities.
+- **ForgeGuard artifact / packaging issues** — a vulnerability specific to the
+  ForgeGuard runtime/CLI images, the container packaging (s6 supervision, the
+  volume-ownership remapping, the multi-target `Dockerfile`), the desktop
+  installers, or the release/signing automation — report privately through
+  ForgeGuard's [private security advisories](https://github.com/forgeguard-ai/hermes-agent/security/advisories/new).
+  Do not open a public issue for these.
+- When unsure which applies, prefer reproducing on an upstream install first: if
+  it reproduces upstream, it is an upstream product vulnerability.
+
+The security boundary itself is unchanged from upstream — whole-process / OS
+isolation is the load-bearing boundary for untrusted input (§2). ForgeGuard does
+not modify that model.

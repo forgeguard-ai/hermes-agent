@@ -6,12 +6,12 @@ structure, conventions, and risk surface. Read this before triggering a review;
 point the reviewer at it when scoping one.
 
 This doc is a **review lens**, not a second copy of the contributor guide —
-[`AGENTS.md`](../../AGENTS.md) is canonical. It links into AGENTS.md sections
+[`AGENTS.md`](../../../AGENTS.md) is canonical. It links into AGENTS.md sections
 rather than restating them.
 
 > **Keep this current.** When structure, conventions, validation commands, or the
 > Graphify workflow change, update this doc in the same change (see the ForgeGuard
-> Fork section of [`AGENTS.md`](../../AGENTS.md)).
+> Fork section of [`AGENTS.md`](../../../AGENTS.md)).
 
 ---
 
@@ -34,7 +34,7 @@ one) during its scoping phase.
 
 Hermes is a self-improving AI agent (CLI + TUI + messaging gateway + desktop).
 Primarily **Python**, with a TypeScript/Ink TUI, an Electron desktop app, and a
-Docusaurus site. Canonical structure: [`AGENTS.md` → "Project Structure"](../../AGENTS.md)
+Docusaurus site. Canonical structure: [`AGENTS.md` → "Project Structure"](../../../AGENTS.md)
 and "What Hermes Is". Load-bearing entry points:
 
 - `run_agent.py` — `AIAgent` core conversation loop; `model_tools.py` /
@@ -58,7 +58,7 @@ and "What Hermes Is". Load-bearing entry points:
 Weigh diffs against AGENTS.md's own rules — flag violations:
 
 - **Contribution rubric & Footprint Ladder** — reject scope-creep / redundant
-  new capabilities per [`AGENTS.md` → "Contribution Rubric"](../../AGENTS.md) and
+  new capabilities per [`AGENTS.md` → "Contribution Rubric"](../../../AGENTS.md) and
   "The Footprint Ladder". Prefer the smallest footprint that solves the problem.
 - **Profile-safety** — never hardcode `~/.hermes`; use `get_hermes_home()` /
   `display_hermes_home()`. Code must be profile-safe (multi-instance). See
@@ -108,13 +108,13 @@ A change lacking the validation its surface requires is itself a finding.
   upstream PR ("Fork PR Policy").
 - Non-trivial multi-step work must have a saved plan under `docs/agent-plans/`
   ("Plan-Saving Rule").
-- Upstream syncs follow [`upstream-sync-skill.md`](upstream-sync-skill.md).
+- Upstream syncs follow [`../upstream-sync/sync-policy.md`](../upstream-sync/sync-policy.md).
 
 ## 7. Using Graphify to improve the review
 
 A committed code map lives in `graphify-out/GRAPH_REPORT.md` (the ~49 MB
 `graph.json` is git-ignored and regenerated locally — see
-[`graphify-refresh-skill.md`](graphify-refresh-skill.md)). It's a **structural**
+[`graphify-refresh.md`](graphify-refresh.md)). It's a **structural**
 (Tree-sitter) graph — imports, definitions, call/containment edges — built with
 **no API key or cost**.
 
