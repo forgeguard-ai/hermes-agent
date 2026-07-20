@@ -1006,3 +1006,32 @@ test(tools): add unit tests for file_operations
 ## License
 
 By contributing, you agree that your contributions will be licensed under the [MIT License](LICENSE).
+
+---
+
+## ForgeGuard Fork — Additions Below This Line
+
+Everything above this line is the upstream (`NousResearch/hermes-agent`)
+contributor guide and applies to contributions to the Hermes product. This
+section is fork-specific.
+
+This repository is a **ForgeGuard maintained fork**. Two contribution paths
+exist, and it matters which one your change belongs to:
+
+- **Upstream product changes** (agent behaviour, providers, tools, gateway,
+  desktop app, upstream docs) belong upstream. This fork does not open pull
+  requests against `NousResearch/hermes-agent` on its own — see the "Fork PR
+  Policy" in [`AGENTS.md`](AGENTS.md). Prefer contributing product changes to
+  the upstream project directly.
+- **ForgeGuard overlay changes** (the runtime/CLI container packaging, the
+  release/version automation, the desktop-installer build, and the ForgeGuard
+  documentation under [`docs/site/`](docs/site/index.md) and
+  [`docs/maintainers/`](docs/maintainers/)) are the fork's own and merge into
+  `forgeguard-ai/hermes-agent:main`.
+
+When you change the ForgeGuard documentation overlay, the docs validation in
+`.github/workflows/docs-validate.yml` runs on your pull request — keep front
+matter, links, and the manifest valid. Maintainer procedures (release process,
+artifact verification, upstream sync) are documented under
+[`docs/maintainers/`](docs/maintainers/). Non-trivial multi-step work should
+save a plan under `docs/agent-plans/` per the "Plan-Saving Rule" in `AGENTS.md`.

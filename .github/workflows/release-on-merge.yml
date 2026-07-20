@@ -9,7 +9,7 @@ name: Release on Merge
 # v2026.7.1-forgeguard.3. <upstream-base-tag> comes from the FORK_UPSTREAM_BASE
 # marker file at repo root (written by the upstream-sync skill each time this
 # fork syncs to a new NousResearch/hermes-agent tag — see
-# docs/forgeguard-fork/upstream-sync-skill.md); if that marker doesn't exist
+# docs/maintainers/upstream-sync/sync-policy.md); if that marker doesn't exist
 # yet, falls back to the nearest reachable git tag so this workflow still
 # works before the first sync. <n> auto-increments per base tag by scanning
 # existing release tags.
@@ -100,7 +100,7 @@ jobs:
             BASE_TAG="$(tr -d '[:space:]' < FORK_UPSTREAM_BASE)"
           else
             BASE_TAG="$(git describe --tags --abbrev=0 HEAD)"
-            echo "::notice::No FORK_UPSTREAM_BASE marker yet; using nearest reachable tag '$BASE_TAG'. Run the upstream-sync skill (docs/forgeguard-fork/upstream-sync-skill.md) to pin this properly once main is synced to a real upstream release."
+            echo "::notice::No FORK_UPSTREAM_BASE marker yet; using nearest reachable tag '$BASE_TAG'. Run the upstream-sync runbook (docs/maintainers/upstream-sync/sync-policy.md) to pin this properly once main is synced to a real upstream release."
           fi
 
           # Highest existing "<base>-forgeguard.N" release tag, then +1. Match
@@ -181,9 +181,9 @@ jobs:
           **Hermes Agent version:** v__HERMES_VERSION__
           **Upstream release:** [__BASE_TAG__](https://github.com/NousResearch/hermes-agent/releases/tag/__BASE_TAG__)
 
-          Tracks upstream base `__BASE_TAG__`. See `docs/forgeguard-fork/`
-          for the fork's image guide, versioning scheme, and how this fork
-          stays current with [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent).
+          Tracks upstream base `__BASE_TAG__`. See `docs/site/` for the fork's
+          image guide, versioning scheme, and how this fork stays current with
+          [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent).
 
           ### Docker
 
