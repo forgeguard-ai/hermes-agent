@@ -18,7 +18,7 @@ on:
       - "scripts/docs/**"
       - ".github/workflows/docs-validate.yml"
   push:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - "README.md"
       - "SUPPORT.md"
