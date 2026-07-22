@@ -5177,7 +5177,7 @@ function hostAllowsInvalidCertificate(hostname) {
   if (config.remote?.url && config.remote.allowInvalidCertificate === true) {
     urls.push(config.remote.url)
   }
-  for (const entry of Object.values(config.profiles || {})) {
+  for (const entry of Object.values(config.profiles || {}) as any[]) {
     if (entry?.mode === 'remote' && entry.url && entry.allowInvalidCertificate === true) {
       urls.push(entry.url)
     }
@@ -6179,10 +6179,8 @@ function sanitizeSavedRemotes(raw) {
       url,
       authMode: normAuthMode(entry.authMode),
       allowInvalidCertificate: entry.allowInvalidCertificate === true,
-      lastUsedAt: Number.isFinite(entry.lastUsedAt) ? entry.lastUsedAt : 0
-    }
-    if (entry.token && typeof entry.token === 'object') {
-      cleaned.token = entry.token
+      lastUsedAt: Number.isFinite(entry.lastUsedAt) ? entry.lastUsedAt : 0,
+      ...(entry.token && typeof entry.token === 'object' ? { token: entry.token } : {})
     }
     out.push(cleaned)
     if (out.length >= SAVED_REMOTES_MAX) {
@@ -6201,18 +6199,18 @@ function upsertSavedRemote(remotes, block) {
     return remotes
   }
 
-  const entry = {
-    url,
-    authMode: normAuthMode(block.authMode),
-    allowInvalidCertificate: block.allowInvalidCertificate === true,
-    lastUsedAt: Date.now()
-  }
   // The endpoint history is written to disk, so only carry an ENCRYPTED token
   // blob here — never a plaintext one (a persistToken:false coercion, or a
   // safeStorage-unavailable fallback). The entry still records the endpoint;
   // a dropped plaintext token just means re-entering it on reselect.
-  if (block.token && typeof block.token === 'object' && block.token.encoding !== 'plain') {
-    entry.token = block.token
+  const entry = {
+    url,
+    authMode: normAuthMode(block.authMode),
+    allowInvalidCertificate: block.allowInvalidCertificate === true,
+    lastUsedAt: Date.now(),
+    ...(block.token && typeof block.token === 'object' && block.token.encoding !== 'plain'
+      ? { token: block.token }
+      : {})
   }
 
   return [entry, ...remotes.filter(existing => existing.url !== url)].slice(0, SAVED_REMOTES_MAX)
@@ -6700,7 +6698,9 @@ async function resolveRemoteBackend(profile) {
       )
     }
 
-    return buildRemoteConnection(rawEnvUrl, 'token', rawEnvToken, 'env')
+    // Env-var-configured remotes always use strict TLS — the per-host
+    // certificate bypass is an explicit, saved-config-only opt-in.
+    return buildRemoteConnection(rawEnvUrl, 'token', rawEnvToken, 'env', false)
   }
 
   // 3. Global remote (or cloud — cloud resolves to a remote backend, Q6).
@@ -7337,9 +7337,9 @@ async function startHermes() {
         '[boot] startHermes() blocked: first-run choice required — no local backend will start until the user chooses'
       )
     }
-    const err = new Error('FIRST_RUN_CHOICE_REQUIRED: waiting for the first-run connection choice')
-    err.code = 'FIRST_RUN_CHOICE_REQUIRED'
-    throw err
+    throw Object.assign(new Error('FIRST_RUN_CHOICE_REQUIRED: waiting for the first-run connection choice'), {
+      code: 'FIRST_RUN_CHOICE_REQUIRED'
+    })
   }
 
   // Latched-failure short-circuit: once bootstrap has failed in this
