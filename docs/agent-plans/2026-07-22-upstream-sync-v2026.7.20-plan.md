@@ -34,79 +34,83 @@ validation before the final dev → main merge.
 
 ## Phase 1 — Environment prep (cloud)
 
-- [ ] `git fetch origin --unshallow --tags` (full fork history; monitor disk).
-- [ ] `git remote add upstream https://github.com/NousResearch/hermes-agent.git`
+- [x] `git fetch origin --unshallow --tags` (full fork history; monitor disk).
+- [x] `git remote add upstream https://github.com/NousResearch/hermes-agent.git`
       (read-only; TLS via `/root/.ccr/ca-bundle.crt` if needed — never disable
       verification).
-- [ ] `git fetch upstream tag v2026.7.20 tag v2026.7.1 --no-tags` (only the two
+- [x] `git fetch upstream tag v2026.7.20 tag v2026.7.1 --no-tags` (only the two
       needed tags — disk-conscious deviation from the runbook's blanket
       `--tags`).
-- [ ] Verify `git rev-parse 'v2026.7.20^{commit}'` == `3ef6bbd2...` and
+- [x] Verify `git rev-parse 'v2026.7.20^{commit}'` == `3ef6bbd2...` and
       `git log -1 v2026.7.20` looks like Quicksilver.
-- [ ] **GATE:** `git merge-base HEAD 'v2026.7.20^{commit}'` ==
+- [x] **GATE:** `git merge-base HEAD 'v2026.7.20^{commit}'` ==
       `7c1a029...` (the v2026.7.1 commit). If not → STOP, investigate.
-- [ ] Confirm repo allows merge commits (`allow_merge_commit`) so the final
+- [x] Confirm repo allows merge commits (`allow_merge_commit`) so the final
       dev→main PR can land as a real merge.
 
 ## Phase 2 — The merge
 
-- [ ] `git merge v2026.7.20 --no-edit -m "Merge upstream v2026.7.20 into fork dev"`
+- [x] `git merge v2026.7.20 --no-edit -m "Merge upstream v2026.7.20 into fork dev"`
       → single real merge commit M (parents: dev tip + `3ef6bbd`). Resolve all
       conflicts inside M (Phase 3) before committing.
-- [ ] Lineage invariants honored: no squash/rebase/amend of M ever; final
+- [x] Lineage invariants honored: no squash/rebase/amend of M ever; final
       dev→main is a real merge.
 
 ## Phase 3 — Conflict resolution (keep upstream substance, re-apply fork delta)
 
-- [ ] Fork-only workflows kept verbatim: `build-runtime-images.yml`,
+- [x] Fork-only workflows kept verbatim: `build-runtime-images.yml`,
       `build-desktop-client.yml`, `release-on-merge.yml`, `docs-validate.yml`
       (confirm upstream added no same-named files).
-- [ ] Guarded upstream workflows: take upstream structure, re-graft
+- [x] Guarded upstream workflows: take upstream structure, re-graft
       `if: github.repository == 'NousResearch/hermes-agent'` on **every job
       individually** — `upload_to_pypi.yml` (build/publish/**sign** — sign has
       its own `if:`), `deploy-site.yml` (deploy-vercel), `skills-index.yml`
       (build-index on schedule + trigger-deploy), `skills-index-freshness.yml`,
       `ci.yml` contributor-check.
-- [ ] `ci.yml` fork PR-concurrency block preserved.
-- [ ] **Audit ALL workflows in the merged tree (incl. brand-new upstream ones)
+- [x] `ci.yml` fork PR-concurrency block preserved.
+- [x] **Audit ALL workflows in the merged tree (incl. brand-new upstream ones)
       for `push:`/`schedule:`/tag/registry triggers that would fire on the
       fork; guard before first push of the merged tree.** Record new guards in
       patch-inventory.md.
-- [ ] Dockerfile: fork 6-stage split kept (`base`/`toolchain`/`venv-runtime`/
+- [x] Dockerfile: fork 6-stage split kept (`base`/`toolchain`/`venv-runtime`/
       `venv-cli`/`cli`/`runtime`, runtime LAST, prebaked labels, HEALTHCHECK);
       upstream changes mapped into matching stages.
-- [ ] Semantic check: `hermes serve`-era changes vs `docker/healthcheck.sh` +
+- [x] Semantic check: `hermes serve`-era changes vs `docker/healthcheck.sh` +
       `docker/cli/hermes-shim.sh` + `docker/cli/profile.sh`.
-- [ ] AGENTS.md: upstream body adopted; fork `HERMES_OFFLINE_*` exception
+- [x] AGENTS.md: upstream body adopted; fork `HERMES_OFFLINE_*` exception
       re-grafted into upstream's env-var guidance (fork content INSIDE the
       inherited section — highest silent-loss risk); fork tail carried forward
       verbatim; `CLAUDE.md` + `.github/copilot-instructions.md` thin-pointer
       tails intact.
-- [ ] README.md: upstream README + ForgeGuard identity block re-inserted below
+- [x] README.md: upstream README + ForgeGuard identity block re-inserted below
       title/badges (reference: commit `ed218a8`).
-- [ ] `pyproject.toml` + `uv.lock`: upstream wholesale (incl.
+- [x] `pyproject.toml` + `uv.lock`: upstream wholesale (incl.
       `version = "0.19.0"`); `uv lock --check` passes.
-- [ ] `apps/desktop/vite.config.ts`: `test.include: ['src/**/*.test.{ts,tsx}']`
+- [x] `apps/desktop/vite.config.ts`: `test.include: ['src/**/*.test.{ts,tsx}']`
       re-applied on upstream's config shape.
-- [ ] `apps/desktop/package.json`: `"homepage"` field re-applied; upstream
+- [x] `apps/desktop/package.json`: `"homepage"` field re-applied; upstream
       deps/lockfile taken.
-- [ ] i18n files resolved per Phase 4 Text Size verdict.
-- [ ] Any conflict far outside the patch-inventory surface → stopped and
+- [x] i18n files resolved per Phase 4 Text Size verdict.
+- [x] Any conflict far outside the patch-inventory surface → stopped and
       investigated before resolving.
 
 ## Phase 4 — Preserve vs supersede (fork features)
 
-- [ ] **Text Size vs upstream UI scale** analyzed
+- [x] **Text Size vs upstream UI scale** analyzed
       (`git show 'v2026.7.20^{commit}':<path>`, `git log -p -S`). Verdict
       recorded here + `docs/site/fork/forgeguard-changes.md` +
       patch-inventory.md. Rule: upstream persisted-scale-with-Settings-UI ⇒
       supersede (adopt upstream, delete fork zoom store/IPC/keys/tests, port
       fork-only niceties as minimal delta); wheel-zoom-only ⇒ keep fork slider
       rewired onto upstream plumbing. ONE persistence source only.
-      - Verdict: _pending_
-- [ ] Banner version label: ForgeGuard identity re-applied to upstream's banner
+      - Verdict: **superseded — upstream adopted.** Upstream v2026.7.20 ships
+        the same feature evolved (same `hermes:desktop:zoomLevel` key, same
+        1.2^level scale, `electron/zoom.ts` funnel, UI Scale presets row,
+        resize re-assert hardening, half-step Ctrl/Cmd shortcuts). All fork
+        Text Size code/i18n/tests removed; zero migration needed for users.
+- [x] Banner version label: ForgeGuard identity re-applied to upstream's banner
       code path; fork banner tests green.
-- [ ] Offline gate: `hermes_cli/offline.py` present; call-site wiring verified
+- [x] Offline gate: `hermes_cli/offline.py` present; call-site wiring verified
       against upstream startup/`serve` restructure; offline tests green.
 
 ## Phase 5 — Patch-inventory re-verification (grep, not eyeball)
@@ -119,7 +123,7 @@ validation before the final dev → main merge.
 
 ## Phase 6 — Validation (cloud)
 
-- [ ] Venv recreated (`uv sync` → `.venv`).
+- [x] Venv recreated (`uv sync` → `.venv`).
 - [ ] `scripts/run_tests.sh` full suite; every failure triaged:
       upstream-debt (reproduces in clean `git worktree add ... v2026.7.20`)
       listed for the PR body vs merge regression (fixed before done).
@@ -163,7 +167,7 @@ deployment manager, macOS checks.
 No amend/force-push after anything is pushed. Sequence:
 
 - [x] 1. `docs:` this plan file (pushed immediately).
-- [ ] 2. Merge commit M (pushed only after the Phase 3 workflow-trigger audit).
+- [x] 2. Merge commit M (pushed only after the Phase 3 workflow-trigger audit).
 - [ ] 3. `fix(sync): ...` single-topic fixups (inventory pass + test triage).
 - [ ] 4. `chore: bump FORK_UPSTREAM_BASE to v2026.7.20`.
 - [ ] 5. `docs(fork): update compatibility/changes/release docs for v2026.7.20`.
@@ -190,6 +194,34 @@ No amend/force-push after anything is pushed. Sequence:
       `/projects/hermes-agent/docs` shows the v2026.7.20 compatibility table.
 - [ ] Cleanup: fast-forward `dev` to `main`; tick remaining checkboxes here in a
       final small commit.
+
+## Decisions & findings log (2026-07-22, cloud session)
+
+- 23 conflicted files, all inside the predicted surface (root docs + desktop).
+- Connection-mode/onboarding cluster: fork's client-mode-first onboarding,
+  connection-mode dialog, first-run local-vs-remote choice, TLS bypass for
+  self-signed certs, saved-endpoint history, and on-demand URL probe were
+  **preserved** on top of upstream's ts-ified electron layer and new
+  "Hermes Cloud connection mode" (both coexist; cloud connections are not
+  recorded in the endpoint history; a saved cloud connection bypasses the
+  first-run chooser).
+- `desktop-controller.tsx` retired upstream; fork's dialog mount + deep-link
+  branch re-homed into `src/app/contrib/wiring.tsx` and
+  `src/app/contrib/hooks/use-desktop-integrations.ts`.
+- `electron/first-run-choice.cjs` (+test) converted to `.ts` (upstream's
+  electron tree is now tsc-typechecked + vitest-run; `.cjs` would fail both).
+- New upstream workflows guarded for the fork: `js-autofix.yml` (both jobs;
+  upstream bot PAT + auto-squash-merge) and `osv-scanner.yml` weekly cron
+  (schedule-only guard). Recorded in patch-inventory.md.
+- Desktop package version bumped 0.18.0 → 0.19.0 (fork convention: track the
+  Hermes product version; upstream leaves it at 0.17.0) in
+  `apps/desktop/package.json` + root `package-lock.json`.
+- after-pack ad-hoc signing + `codesign --verify` gate re-applied onto
+  upstream's renamed `after-pack.mjs`; upstream's new `afterSign:
+  scripts/notarize.mjs` no-ops without Apple creds (compatible).
+- `pyproject.toml`/`uv.lock` = upstream byte-identical; version 0.19.0;
+  `release-on-merge.yml` version grep verified.
+- Offline-mode + banner identity test files pass on the merged tree.
 
 ## Key risks & mitigations
 

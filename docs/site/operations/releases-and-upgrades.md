@@ -15,7 +15,7 @@ operate a deployment.
 ## Release and version scheme
 
 ForgeGuard releases are tagged `<upstream-base>-forgeguard.<n>`, for example
-`v2026.7.1-forgeguard.5`:
+`v2026.7.20-forgeguard.1`:
 
 - `<upstream-base>` is the upstream `NousResearch/hermes-agent` release tag this
   fork's `main` is synced to (recorded in the `FORK_UPSTREAM_BASE` marker at the

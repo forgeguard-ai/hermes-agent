@@ -46,7 +46,7 @@ See [Desktop artifacts](../deployment/desktop-artifacts.md).
 ## Release and version scheme
 
 Releases are tagged `<upstream-base>-forgeguard.<n>` (e.g.
-`v2026.7.1-forgeguard.5`). `<upstream-base>` is the upstream release tag the
+`v2026.7.20-forgeguard.1`). `<upstream-base>` is the upstream release tag the
 fork's `main` is synced to (recorded in the `FORK_UPSTREAM_BASE` marker); `<n>`
 increments per base tag. Image `-<version>` tags are immutable; `-latest` tags
 roll. See [Releases and upgrades](../operations/releases-and-upgrades.md) and
@@ -69,6 +69,23 @@ pre-baked distrobox host-integration in the CLI image, and the
 `HERMES_UID`/`HERMES_GID` (with `PUID`/`PGID` alias) volume-ownership remapping.
 Dashboard authentication, persistence, ports, and health semantics otherwise
 follow upstream.
+
+## Desktop app behaviour
+
+The fork's desktop builds default to **Client Mode**: the first-run chooser
+preselects connecting to an already-running Hermes backend (self-hosted
+container, VPS, home server), with a local backend as the secondary choice.
+The connection dialog supports an opt-in TLS bypass for self-signed
+certificates and remembers recent endpoints. See the upstream
+[desktop guide](https://hermes-agent.nousresearch.com/docs/user-guide/desktop)
+for the shared product behaviour.
+
+Some earlier fork-only desktop features have since been absorbed by upstream
+and are no longer fork deltas: the Settings → Appearance **Text Size** control
+shipped in fork releases on the `v2026.7.1` base was superseded in upstream
+`v2026.7.20` by the equivalent **UI Scale** setting (same persisted zoom, plus
+Ctrl/Cmd+wheel zoom and half-step keyboard shortcuts), which the fork now uses
+unchanged.
 
 ## Supported platforms and signing state
 
