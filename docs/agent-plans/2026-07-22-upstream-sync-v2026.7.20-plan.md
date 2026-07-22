@@ -244,6 +244,15 @@ No amend/force-push after anything is pushed. Sequence:
 - `pyproject.toml`/`uv.lock` = upstream byte-identical; version 0.19.0;
   `release-on-merge.yml` version grep verified.
 - Offline-mode + banner identity test files pass on the merged tree.
+- (2026-07-21, appended) Release versioning scheme changed in
+  `release-on-merge.yml` before this sync's release ships: tags are now the
+  Hermes product semver from `pyproject.toml` (upcoming release `v0.19.0`, not
+  `v2026.7.20-forgeguard.1` as written earlier in this plan), with a
+  `-forgeguard.<n>` suffix only on a re-cut of an already-released product
+  version. `FORK_UPSTREAM_BASE` still advances per this runbook but now only
+  feeds the release notes' "Upstream release" traceability line. Earlier
+  `v2026.7.20-forgeguard.<n>` references in this plan are left as written
+  (historical record).
 
 ## Key risks & mitigations
 

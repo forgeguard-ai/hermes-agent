@@ -26,10 +26,11 @@ jobs:
   build:
     name: Build distribution 📦
     # Only run on the upstream repository, not on forks. This fork's own
-    # release automation (release-on-merge.yml) creates tags shaped like
-    # v2026.7.1-forgeguard.N, which also match the "v20*" push trigger above
-    # — without this guard those fork releases would attempt to publish to
-    # the real https://pypi.org/p/hermes-agent project.
+    # release automation (release-on-merge.yml) creates product-semver tags
+    # (v0.19.0, re-cuts v0.19.0-forgeguard.N; pre-0.19.0 the date-shaped
+    # v2026.7.1-forgeguard.N, which also matched the "v20*" push trigger
+    # above). Keep this guard regardless of tag shape so fork releases never
+    # attempt to publish to the real https://pypi.org/p/hermes-agent project.
     if: github.repository == 'NousResearch/hermes-agent'
     runs-on: ubuntu-latest
     timeout-minutes: 30

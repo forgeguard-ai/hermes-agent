@@ -10,21 +10,27 @@ this doc describes the release automation specifically.
 
 ## Version scheme
 
-Fork releases are tagged `<upstream-base>-forgeguard.<n>`, e.g.
-`v2026.7.1-forgeguard.3`:
+Since Hermes 0.19.0, fork releases are tagged with the Hermes Agent product
+semver, e.g. `v0.19.0`:
 
-- `<upstream-base>` is the upstream `NousResearch/hermes-agent` release tag the
-  fork's `main` is currently synced to. It is read from the `FORK_UPSTREAM_BASE`
-  marker file at the repo root, which the
-  [upstream-sync runbook](../upstream-sync/sync-policy.md) rewrites on every sync.
-  If the marker is missing, `compute-version` falls back to
-  `git describe --tags --abbrev=0`, which can pick an unrelated or stale tag —
-  so the marker must always be present and correct.
-- `<n>` auto-increments per base tag by scanning existing releases.
+- `<hermes-version>` is read from `pyproject.toml` by `compute-version` —
+  aligning fork releases with ForgeGuard project versioning conventions.
+- The product version only bumps on upstream syncs, but the workflow fires on
+  every release-relevant merge — so a **re-cut** of an already-released product
+  version (e.g. a fork-only fix) gets a `-forgeguard.<n>` suffix instead of
+  colliding on a duplicate tag: `v0.19.0-forgeguard.2`, counting the plain tag
+  as cut 1. `<n>` is computed by scanning existing release tags.
 
-Each release also surfaces the actual Hermes Agent product version (from
-`pyproject.toml`) in its title and notes, since the fork tag says which upstream
-*release line* it tracks, not which product version it contains.
+The upstream base tag no longer names the release. It is still read from the
+`FORK_UPSTREAM_BASE` marker file at the repo root — which the
+[upstream-sync runbook](../upstream-sync/sync-policy.md) rewrites on every sync —
+but now only feeds the "Upstream release" traceability line in the release
+notes. The marker must still always be present and correct: if it is missing,
+`compute-version` falls back to `git describe --tags --abbrev=0`, which can pick
+an unrelated or stale tag.
+
+Releases up to `v2026.7.1-forgeguard.3` used the old date-shaped
+`<upstream-base>-forgeguard.<n>` scheme and keep those tags.
 
 ## What gets published, and when
 
@@ -34,8 +40,10 @@ release-relevant. It skips (no release, no builds) when the PR carries the
 `docs/*`, `website/*`, `tests/*`, `.github/*`, and `*.md`, so docs-only and
 CI-only merges don't produce releases. For qualifying merges it:
 
-1. Computes the next `<base>-forgeguard.<n>` version (`compute-version` job,
-   reading `FORK_UPSTREAM_BASE`).
+1. Computes the release version (`compute-version` job): the product semver
+   from `pyproject.toml` (e.g. `v0.19.0`), with a `-forgeguard.<n>` suffix only
+   on a re-cut; `FORK_UPSTREAM_BASE` feeds only the release-notes traceability
+   line.
 2. Calls `build-desktop-client.yml` with `upload: true` → unsigned Linux
    installers (`.AppImage`, `.deb`, `.rpm`) and ad-hoc-signed macOS installers
    (`.dmg`, `.zip`). It does **not** pass a `version:` input; desktop artifacts
@@ -102,8 +110,10 @@ After a merge that should release, confirm:
 - `release-on-merge.yml` fired, completed fully green, and — checking individual
   **step** conclusions — actually uploaded installers and pushed both runtime
   images rather than silently skipping.
-- The GitHub Release is tagged `<base>-forgeguard.<n>` and has all five
-  installers attached (`*.deb`, `*.AppImage`, `*.rpm`, `*.dmg`, `*.zip`).
+- The GitHub Release is tagged with the product semver (plus the `-forgeguard.<n>`
+  re-cut suffix when that version had already released), its notes carry the
+  expected "Upstream release" line, and it has all five installers attached
+  (`*.deb`, `*.AppImage`, `*.rpm`, `*.dmg`, `*.zip`).
 
 See [Artifact verification](./artifact-verification.md) for provenance checks on
 the published images and installers.

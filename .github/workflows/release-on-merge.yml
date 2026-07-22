@@ -5,14 +5,18 @@ name: Release on Merge
 # runtime images (ghcr.io/forgeguard-ai/hermes-agent) tagged with the same
 # version in addition to their rolling <variant>-<sha>/<variant>-latest tags.
 #
-# Version scheme: <upstream-base-tag>-forgeguard.<n>, e.g.
-# v2026.7.1-forgeguard.3. <upstream-base-tag> comes from the FORK_UPSTREAM_BASE
-# marker file at repo root (written by the upstream-sync skill each time this
-# fork syncs to a new NousResearch/hermes-agent tag — see
-# docs/maintainers/upstream-sync/sync-policy.md); if that marker doesn't exist
-# yet, falls back to the nearest reachable git tag so this workflow still
-# works before the first sync. <n> auto-increments per base tag by scanning
-# existing release tags.
+# Version scheme (since Hermes 0.19.0): v<hermes-version>, e.g. v0.19.0 —
+# the Hermes Agent product semver read from pyproject.toml, aligning fork
+# releases with ForgeGuard project versioning conventions. The product
+# version only bumps on upstream syncs, but this workflow fires on every
+# release-relevant merge, so a RE-CUT of an already-released product version
+# (e.g. a fork-only fix) gets a "-forgeguard.<n>" suffix (v0.19.0-forgeguard.2,
+# counting the plain tag as cut 1) instead of colliding on the duplicate tag.
+# The upstream base tag (FORK_UPSTREAM_BASE marker at repo root, maintained by
+# the upstream-sync runbook — see docs/maintainers/upstream-sync/sync-policy.md)
+# no longer names the release; it is surfaced in the release notes for
+# traceability only. (Releases up to v2026.7.1-forgeguard.3 used the old
+# <upstream-base-tag>-forgeguard.<n> date-shaped scheme.)
 #
 # Release gating (2026-07-03): merges skip the whole pipeline — no macOS
 # runner, no image builds, no release — when either
@@ -96,6 +100,8 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Upstream base tag — release-notes traceability only; it no longer
+          # names the release.
           if [ -f FORK_UPSTREAM_BASE ]; then
             BASE_TAG="$(tr -d '[:space:]' < FORK_UPSTREAM_BASE)"
           else
@@ -103,29 +109,35 @@ jobs:
             echo "::notice::No FORK_UPSTREAM_BASE marker yet; using nearest reachable tag '$BASE_TAG'. Run the upstream-sync runbook (docs/maintainers/upstream-sync/sync-policy.md) to pin this properly once main is synced to a real upstream release."
           fi
 
-          # Highest existing "<base>-forgeguard.N" release tag, then +1. Match
-          # ONLY tags whose final segment is exactly "-forgeguard.<digits>" (via
-          # test()+capture, not split|last|tonumber) so a human-made odd tag such
-          # as "<base>-forgeguard.5-hotfix1" is skipped instead of crashing jq's
-          # tonumber and blocking every future release under set -euo pipefail.
-          LAST_N="$(gh release list --repo "${{ github.repository }}" --limit 200 --json tagName \
-            | jq -r --arg base "$BASE_TAG" '
+          # The release is named after the Hermes Agent product semver from
+          # pyproject.toml (ForgeGuard project versioning convention).
+          HERMES_VERSION="$(grep -m1 '^version' pyproject.toml | sed -E 's/version = "(.*)"/\1/')"
+          SEMVER_BASE="v${HERMES_VERSION}"
+
+          # First cut of a product version gets the plain tag (v0.19.0); a
+          # re-cut of an already-released product version gets a
+          # "-forgeguard.<n>" suffix, counting the plain tag as cut 1.
+          # Match ONLY suffixed tags whose final segment is exactly
+          # "-forgeguard.<digits>" (via test()+capture, not split|last|tonumber)
+          # so a human-made odd tag such as "<base>-forgeguard.5-hotfix1" is
+          # skipped instead of crashing jq's tonumber and blocking every future
+          # release under set -euo pipefail.
+          LAST_CUT="$(gh release list --repo "${{ github.repository }}" --limit 200 --json tagName \
+            | jq -r --arg base "$SEMVER_BASE" '
                 [ .[].tagName
-                  | select(startswith($base + "-forgeguard."))
-                  | select(test("-forgeguard\\.[0-9]+$"))
-                  | capture("-forgeguard\\.(?<n>[0-9]+)$").n
-                  | tonumber
+                  | if . == $base then 1
+                    elif (startswith($base + "-forgeguard.") and test("-forgeguard\\.[0-9]+$"))
+                    then (capture("-forgeguard\\.(?<n>[0-9]+)$").n | tonumber)
+                    else empty
+                    end
                 ] | (if length > 0 then max else 0 end)
               ')"
-          NEXT_N=$((LAST_N + 1))
-          VERSION="${BASE_TAG}-forgeguard.${NEXT_N}"
-
-          # The upstream-tag-shaped fork version (e.g. v2026.7.1-forgeguard.1)
-          # is great for sorting/traceability but says nothing about the
-          # actual Hermes Agent product version. Surface that too, straight
-          # from pyproject.toml, so both version schemes are visible on every
-          # release (see AGENTS.md's dependency/versioning conventions).
-          HERMES_VERSION="$(grep -m1 '^version' pyproject.toml | sed -E 's/version = "(.*)"/\1/')"
+          if [ "$LAST_CUT" -eq 0 ]; then
+            VERSION="$SEMVER_BASE"
+          else
+            VERSION="${SEMVER_BASE}-forgeguard.$((LAST_CUT + 1))"
+            echo "::notice::Product version ${SEMVER_BASE} already released — cutting re-release ${VERSION}."
+          fi
 
           echo "base_tag=$BASE_TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -245,5 +257,5 @@ jobs:
           gh release create "$VERSION" \
             release-assets/* \
             --repo "${{ github.repository }}" \
-            --title "Hermes Agent v${HERMES_VERSION} (ForgeGuard fork ${VERSION})" \
+            --title "Hermes Agent ${VERSION}" \
             --notes-file /tmp/release-notes.md

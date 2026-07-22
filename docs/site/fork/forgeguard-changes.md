@@ -45,11 +45,16 @@ See [Desktop artifacts](../deployment/desktop-artifacts.md).
 
 ## Release and version scheme
 
-Releases are tagged `<upstream-base>-forgeguard.<n>` (e.g.
-`v2026.7.20-forgeguard.1`). `<upstream-base>` is the upstream release tag the
-fork's `main` is synced to (recorded in the `FORK_UPSTREAM_BASE` marker); `<n>`
-increments per base tag. Image `-<version>` tags are immutable; `-latest` tags
-roll. See [Releases and upgrades](../operations/releases-and-upgrades.md) and
+Releases are tagged with the Hermes Agent product version they ship (from
+`pyproject.toml`), e.g. `v0.19.0`. A re-cut of an already-released product
+version — such as a fork-only fix before the next upstream sync — adds a
+`-forgeguard.<n>` suffix (`v0.19.0-forgeguard.2`, counting the plain tag as
+cut 1). The upstream release the fork's `main` is synced to (recorded in the
+`FORK_UPSTREAM_BASE` marker) appears in each release's notes for traceability.
+Releases up to `v2026.7.1-forgeguard.3` used older date-shaped
+`<upstream-base>-forgeguard.<n>` tags. Image `-<version>` tags are immutable;
+`-latest` tags roll. See
+[Releases and upgrades](../operations/releases-and-upgrades.md) and
 [Image tag families](../reference/image-tags.md).
 
 ## Fork CI and workflow guards

@@ -26,9 +26,13 @@ evolves.
       jobs, and **no `push:` trigger** (same single-builder rule as above).
 - [ ] **`release-on-merge.yml`** exists at
       `.github/workflows/release-on-merge.yml`, calls `build-runtime-images.yml`
-      with `version:` (not the retired `extra_tag`), and still carries its
+      with `version:` (not the retired `extra_tag`), still carries its
       release gating (`no-release` label + release-relevant-paths check in
-      `compute-version`).
+      `compute-version`), and still names releases after the `pyproject.toml`
+      product semver (`v<hermes-version>`, `-forgeguard.<n>` suffix only on
+      re-cuts of an already-released version; scheme since Hermes 0.19.0) —
+      `FORK_UPSTREAM_BASE` feeds only the release-notes "Upstream release"
+      line, not the tag.
 - [ ] **Upstream-only guards on the tag/schedule-triggered workflows** that would
       otherwise fire for real (or just burn scheduled runs) on the fork:
       `.github/workflows/upload_to_pypi.yml` (all three jobs: `build`, `publish`,
