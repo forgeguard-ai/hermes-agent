@@ -10,7 +10,13 @@ export type ConnectionProbeStatus = 'idle' | 'probing' | 'done' | 'error'
 
 export interface GatewayConnectionState {
   envOverride: boolean
-  mode: ConnectionMode
+  // The saved config may also be a Hermes Cloud connection ('cloud'); the
+  // connection-mode dialog treats it like remote for display but only ever
+  // creates local/remote configs itself (cloud connects live in Settings).
+  mode: 'cloud' | ConnectionMode
+  // Persisted Hermes Cloud org for a 'cloud' connection; '' otherwise. Carried
+  // through untouched so loading a cloud config into the form is lossless.
+  cloudOrg: string
   remoteAllowInvalidCertificate: boolean
   remoteAuthMode: ConnectionAuthMode
   remoteOauthConnected: boolean
@@ -23,6 +29,7 @@ export interface GatewayConnectionState {
 export const EMPTY_CONNECTION_STATE: GatewayConnectionState = {
   envOverride: false,
   mode: 'local',
+  cloudOrg: '',
   remoteAllowInvalidCertificate: false,
   remoteAuthMode: 'token',
   remoteOauthConnected: false,
