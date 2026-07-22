@@ -14,18 +14,24 @@ operate a deployment.
 
 ## Release and version scheme
 
-ForgeGuard releases are tagged `<upstream-base>-forgeguard.<n>`, for example
-`v2026.7.1-forgeguard.5`:
+ForgeGuard releases are tagged with the Hermes Agent product version they ship,
+for example `v0.19.0`:
 
-- `<upstream-base>` is the upstream `NousResearch/hermes-agent` release tag this
-  fork's `main` is synced to (recorded in the `FORK_UPSTREAM_BASE` marker at the
-  repository root).
-- `<n>` increments per base tag across fork releases.
+- `v<hermes-version>` is the product version (semver, from `pyproject.toml`).
+- If an already-released product version is re-cut — for example a fork-only
+  fix lands before the next upstream sync — the re-cut gets a `-forgeguard.<n>`
+  suffix instead of colliding on the tag: `v0.19.0-forgeguard.2`, counting the
+  plain tag as cut 1.
 
-Each release title and notes also surface the actual Hermes Agent product
-version (from `pyproject.toml`), since the fork tag says which upstream *release
-line* it tracks, not which product version it contains. See
+Each release's notes also record the upstream `NousResearch/hermes-agent`
+release this fork's `main` is synced to (the "Upstream release" line, from the
+`FORK_UPSTREAM_BASE` marker at the repository root). See
 [Compatibility](../fork/compatibility.md) for the current mapping.
+
+> **History.** Releases up to `v2026.7.1-forgeguard.3` were named after the
+> upstream base instead — date-shaped `<upstream-base>-forgeguard.<n>` tags.
+> Those tags remain valid; the product-version scheme applies from Hermes
+> 0.19.0 onward.
 
 ## Image tags to use
 
@@ -92,7 +98,8 @@ docker run -d --name hermes --restart unless-stopped \
 ```
 
 Read release notes before upgrading across an upstream base bump — a change in
-`<upstream-base>` can carry upstream behaviour changes that affect state.
+the notes' "Upstream release" line can carry upstream behaviour changes that
+affect state.
 
 ## macOS desktop installer note
 

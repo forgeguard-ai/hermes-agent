@@ -25,12 +25,18 @@ Both published targets carry the OCI labels
 
 | Tag pattern | Mutability | Meaning |
 |---|---|---|
-| `runtime-<version>` / `cli-<version>` | immutable | A specific fork release, e.g. `runtime-v2026.7.1-forgeguard.5`. Pin durable deployments here. |
+| `runtime-<version>` / `cli-<version>` | immutable | A specific fork release, e.g. `runtime-v0.19.0`. Pin durable deployments here. |
 | `runtime-<git-sha>` / `cli-<git-sha>` | immutable | The exact commit an image was built from; use to trace provenance. |
 | `runtime-latest` / `cli-latest` | rolling | The newest published build. Convenient for testing; **moves on every fork release** and is not immutable. |
 
 The `-<version>` tags exist only for releases where the release automation
 supplies a version; the `-<git-sha>` and `-latest` tags are always published.
+`<version>` is the fork release tag — the Hermes product version
+(`v<hermes-version>`, e.g. `v0.19.0`) since Hermes 0.19.0, gaining a
+`-forgeguard.<n>` suffix only when an already-released product version is
+re-cut; images for releases up to `v2026.7.1-forgeguard.3` carry older
+date-shaped `<upstream-base>-forgeguard.<n>` tags. See
+[Releases and upgrades](../operations/releases-and-upgrades.md).
 
 ## Choosing a tag
 

@@ -26,9 +26,13 @@ evolves.
       jobs, and **no `push:` trigger** (same single-builder rule as above).
 - [ ] **`release-on-merge.yml`** exists at
       `.github/workflows/release-on-merge.yml`, calls `build-runtime-images.yml`
-      with `version:` (not the retired `extra_tag`), and still carries its
+      with `version:` (not the retired `extra_tag`), still carries its
       release gating (`no-release` label + release-relevant-paths check in
-      `compute-version`).
+      `compute-version`), and still names releases after the `pyproject.toml`
+      product semver (`v<hermes-version>`, `-forgeguard.<n>` suffix only on
+      re-cuts of an already-released version; scheme since Hermes 0.19.0) —
+      `FORK_UPSTREAM_BASE` feeds only the release-notes "Upstream release"
+      line, not the tag.
 - [ ] **Upstream-only guards on the tag/schedule-triggered workflows** that would
       otherwise fire for real (or just burn scheduled runs) on the fork:
       `.github/workflows/upload_to_pypi.yml` (all three jobs: `build`, `publish`,
@@ -44,7 +48,18 @@ evolves.
       job's own other conditions via `&&`). **Audit every job in a multi-job
       workflow file individually** — a guard on the first job in a dependency
       chain does not automatically protect a downstream job that has its own
-      explicit `if:`.
+      explicit `if:`. As of the v2026.7.20 sync the guarded set also includes:
+      `.github/workflows/js-autofix.yml` (BOTH jobs, `generate-patch` and
+      `apply-patch` — the autofix bot pushes with an upstream `AUTOFIX_BOT_PAT`
+      and auto-squash-merges its PRs, neither of which exists nor is wanted on
+      the fork; `apply-patch` has its own explicit `if:` so it needs its own
+      guard) and `.github/workflows/osv-scanner.yml` (`scan` job, guarded only
+      for `schedule` events — `github.event_name != 'schedule' || github.repository == 'NousResearch/hermes-agent'` —
+      so the `workflow_call` from `ci.yml` and manual dispatch still run on the
+      fork while the weekly cron stays upstream-only). `docker.yml` and
+      `deploy-site.yml`'s `deploy-docs` job carry upstream-side repository
+      guards of their own; verify they remain guarded but do not re-add fork
+      copies.
 - [ ] **`ci.yml` PR concurrency** — the fork adds a `concurrency:` group with
       `cancel-in-progress` for pull-request refs (never cancelling `main` runs);
       keep it through the merge.
@@ -75,9 +90,16 @@ evolves.
 
 ## Desktop app
 
-- [ ] **`apps/desktop/vite.config.ts`** test scope fix — `test.include:
-      ['src/**/*.test.{ts,tsx}']` (keeps `apps/desktop`'s vitest run from
-      sweeping up `electron/**/*.test.cjs` node:test suites).
+- [ ] ~~**`apps/desktop/vite.config.ts`** test scope fix~~ — **retired at the
+      v2026.7.20 sync.** Upstream's `apps/desktop/vitest.config.ts` now defines
+      separate `react-ui` (`src/**/*.test.{ts,tsx}`) and `electron-native`
+      projects, absorbing the fork's scoping fix, and the electron `.test.cjs`
+      node:test suites were ts-ified into vitest suites. `vite.config.ts` is
+      upstream-identical again; verify it has NOT re-grown a fork `test:` block.
+- [ ] **`apps/desktop/package.json` `"version"`** tracks the Hermes product
+      version (`pyproject.toml`), not upstream's stale desktop version — bump it
+      (and the `"apps/desktop"` entry in the root `package-lock.json`) on every
+      sync that changes the product version.
 - [ ] **`apps/desktop/package.json`** has a top-level `"homepage"` field
       (`https://github.com/forgeguard-ai/hermes-agent#readme`) — required by
       electron-builder's Linux `deb` target; its absence fails `dist:linux` with

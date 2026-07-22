@@ -1,4 +1,3 @@
-/// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
@@ -59,6 +58,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      '@hermes/plugin-sdk': path.resolve(__dirname, './src/sdk/index.ts'),
+      '@hermes/shared/billing': path.resolve(__dirname, '../shared/src/billing-types.ts'),
       '@hermes/shared': path.resolve(__dirname, '../shared/src'),
       react: path.resolve(__dirname, '../../node_modules/react'),
       'react-dom': path.resolve(__dirname, '../../node_modules/react-dom'),
@@ -78,15 +79,5 @@ export default defineConfig({
   preview: {
     host: '127.0.0.1',
     port: 4174
-  },
-  test: {
-    // Vitest's default include glob (`**/*.{test,spec}.*`) also matches
-    // electron/**/*.test.cjs and scripts/**/*.test.cjs — those are node:test
-    // suites run separately via `test:desktop:platforms`, not vitest. Without
-    // this scope, vitest tries to collect them too and reports a spurious
-    // "No test suite found" failure for every one of them (mirrors the scope
-    // web/vitest.config.ts already uses).
-    environment: 'jsdom',
-    include: ['src/**/*.test.{ts,tsx}']
   }
 })

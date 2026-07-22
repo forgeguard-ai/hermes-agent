@@ -15,24 +15,29 @@ engine, and architecture support, see
 
 | Field | Value | Source |
 |---|---|---|
-| Upstream base (`FORK_UPSTREAM_BASE`) | `v2026.7.1` | `FORK_UPSTREAM_BASE` marker at the repository root. |
-| Fork release line | `v2026.7.1-forgeguard.<n>` | Latest [fork release](https://github.com/forgeguard-ai/hermes-agent/releases). |
-| Hermes product version | `0.18.0` | `pyproject.toml` (surfaced in each release title/notes). |
+| Upstream base (`FORK_UPSTREAM_BASE`) | `v2026.7.20` | `FORK_UPSTREAM_BASE` marker at the repository root (surfaced as the "Upstream release" line in each release's notes). |
+| Fork release line | `v0.19.0` (re-cuts: `v0.19.0-forgeguard.<n>`) | Latest [fork release](https://github.com/forgeguard-ai/hermes-agent/releases). |
+| Hermes product version | `0.19.0` | `pyproject.toml` (names the release tag and title). |
 | Runtime/CLI images | `runtime-<version>`, `cli-<version>` (+ `-<sha>`, `-latest`) | `ghcr.io/forgeguard-ai/hermes-agent`. |
 | Desktop artifacts | `.AppImage`/`.deb`/`.rpm`, `.dmg`/`.zip` | Attached to the fork release (versioned by the Release tag). |
 
 > **Version-sensitive.** These values describe the current fork state. Always
 > confirm against the live `FORK_UPSTREAM_BASE` marker and the newest
 > [release](https://github.com/forgeguard-ai/hermes-agent/releases) — this fork
-> advances quickly. The fork tag names the upstream *release line* it tracks, not
-> the product version it contains; read both from the release notes.
+> advances quickly. The fork tag is the Hermes *product version* it ships
+> (`v<hermes-version>`, since Hermes 0.19.0; a re-cut of an already-released
+> version adds `-forgeguard.<n>`); the upstream base it tracks is in the
+> release notes. Releases up to `v2026.7.1-forgeguard.3` carry older
+> date-shaped tags named after the upstream base instead.
 
 ## What the fork tracks
 
 ForgeGuard syncs to upstream **tagged releases**, not the moving `upstream/main`
 tip, so each fork sync point is stable and reproducible. When upstream cuts a new
-tagged release that ForgeGuard adopts, `FORK_UPSTREAM_BASE` advances and the next
-fork release line starts from that base.
+tagged release that ForgeGuard adopts, `FORK_UPSTREAM_BASE` advances and
+subsequent releases record the new base in their notes; the release tag itself
+follows the Hermes product version, so a new fork release line starts when the
+product version changes.
 
 ## Upstream features not independently supported by ForgeGuard
 

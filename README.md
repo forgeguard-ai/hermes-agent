@@ -67,7 +67,7 @@ can do, remains the upstream product.
 
 | Path | Intended use | Where |
 |---|---|---|
-| **Upstream native installer** | Install Hermes directly on your machine (the canonical, fully upstream-supported path) | [Upstream quickstart](https://hermes-agent.nousresearch.com/docs/getting-started/quickstart) |
+| **Upstream native installer** | Install Hermes directly on your machine — `install.sh` for Linux/macOS/WSL2, `install.ps1` (PowerShell) for native Windows (the canonical, fully upstream-supported path) | [Upstream quickstart](https://hermes-agent.nousresearch.com/docs/getting-started/quickstart) |
 | **ForgeGuard runtime image** | A persistent, supervised server with a web dashboard and durable state | [Runtime images](./docs/site/deployment/runtime-images.md) |
 | **ForgeGuard CLI image (distrobox)** | An interactive terminal install with host integration, containerised | [Distrobox / CLI image](./docs/site/deployment/distrobox-cli.md) |
 | **ForgeGuard desktop installers** | Prebuilt Linux / macOS builds of the Hermes Desktop app | [Desktop artifacts](./docs/site/deployment/desktop-artifacts.md) |
@@ -93,7 +93,7 @@ docker run -d \
   -e HERMES_DASHBOARD_BASIC_AUTH_PASSWORD="$(openssl rand -hex 24)" \
   -e HERMES_DASHBOARD_BASIC_AUTH_SECRET="$(openssl rand -hex 32)" \
   -e HERMES_UID="$(id -u)" -e HERMES_GID="$(id -g)" \
-  ghcr.io/forgeguard-ai/hermes-agent:runtime-v2026.7.1-forgeguard.5 gateway run
+  ghcr.io/forgeguard-ai/hermes-agent:runtime-v0.19.0 gateway run
 ```
 
 Verify it is up:
@@ -175,9 +175,11 @@ they may not reflect ForgeGuard artifacts or the current fork release.
 
 ## Compatibility and releases
 
-ForgeGuard releases are tagged `<upstream-base>-forgeguard.<n>`. The current fork
-tracks upstream **`v2026.7.1`** (Hermes product version **`0.18.0`**), recorded in
-the [`FORK_UPSTREAM_BASE`](./FORK_UPSTREAM_BASE) marker. Runtime and CLI images
+ForgeGuard releases are tagged with the Hermes product version they ship (e.g.
+`v0.19.0`; a re-cut of an already-released version adds a `-forgeguard.<n>`
+suffix). The current fork ships Hermes **`0.19.0`** and tracks upstream
+**`v2026.7.20`**, recorded in the [`FORK_UPSTREAM_BASE`](./FORK_UPSTREAM_BASE)
+marker and surfaced in each release's notes. Runtime and CLI images
 are published to `ghcr.io/forgeguard-ai/hermes-agent` with immutable
 `*-<version>` and `*-<git-sha>` tags plus rolling `*-latest` tags; pin an
 immutable tag for durable deployments. Images are built for `linux/amd64`;

@@ -35,7 +35,7 @@ your issue to the people who can act on it fastest.
 
 For a ForgeGuard artifact issue, include:
 
-- The exact artifact and tag (e.g. `runtime-v2026.7.1-forgeguard.5`, or the
+- The exact artifact and tag (e.g. `runtime-v0.19.0`, or the
   desktop installer filename and release tag).
 - The Hermes product version (from the release notes or `hermes --version`).
 - Your platform and container engine (for images) or OS (for desktop).

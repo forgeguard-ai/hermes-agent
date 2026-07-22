@@ -26,12 +26,14 @@ jobs:
   build:
     name: Build distribution 📦
     # Only run on the upstream repository, not on forks. This fork's own
-    # release automation (release-on-merge.yml) creates tags shaped like
-    # v2026.7.1-forgeguard.N, which also match the "v20*" push trigger above
-    # — without this guard those fork releases would attempt to publish to
-    # the real https://pypi.org/p/hermes-agent project.
+    # release automation (release-on-merge.yml) creates product-semver tags
+    # (v0.19.0, re-cuts v0.19.0-forgeguard.N; pre-0.19.0 the date-shaped
+    # v2026.7.1-forgeguard.N, which also matched the "v20*" push trigger
+    # above). Keep this guard regardless of tag shape so fork releases never
+    # attempt to publish to the real https://pypi.org/p/hermes-agent project.
     if: github.repository == 'NousResearch/hermes-agent'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -62,10 +64,24 @@ jobs:
           node-version: "22"
 
       - name: Build web dashboard
-        run: cd web && npm ci && npm run build
+        uses: ./.github/actions/retry
+        with:
+          command: npm ci
+          working-directory: web
+
+      - name: Compile web dashboard
+        run: npm run build
+        working-directory: web
 
       - name: Build TUI bundle
-        run: cd ui-tui && npm ci && npm run build
+        uses: ./.github/actions/retry
+        with:
+          command: npm ci
+          working-directory: ui-tui
+
+      - name: Compile TUI bundle
+        run: npm run build
+        working-directory: ui-tui
 
       - name: Bundle TUI into hermes_cli
         run: |
@@ -99,6 +115,7 @@ jobs:
     if: github.repository == 'NousResearch/hermes-agent'
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     environment:
       name: pypi
       url: https://pypi.org/p/hermes-agent
@@ -127,6 +144,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/') && github.repository == 'NousResearch/hermes-agent'
     needs: publish
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write # attach assets to the existing release
       id-token: write # sigstore signing
@@ -140,7 +158,7 @@ jobs:
 
       - name: Wait for GitHub Release to exist
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ secrets.AUTOFIX_BOT_PAT }}
         # release.py creates the GitHub Release after pushing the tag,
         # but this workflow starts from the tag push — wait for it.
         run: |
@@ -166,7 +184,7 @@ jobs:
       - name: Attach signed artifacts to GitHub Release
         if: env.skip_sign != 'true'
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ secrets.AUTOFIX_BOT_PAT }}
         # release.py already created the GitHub Release — just upload
         # the Sigstore signatures alongside the existing assets.
         run: >-
