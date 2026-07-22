@@ -115,28 +115,50 @@ validation before the final dev → main merge.
 
 ## Phase 5 — Patch-inventory re-verification (grep, not eyeball)
 
-- [ ] Every checkbox in `docs/maintainers/upstream-sync/patch-inventory.md`
+- [x] Every checkbox in `docs/maintainers/upstream-sync/patch-inventory.md`
       re-verified on the merged tree.
-- [ ] Especially: `inputs.upload`/`inputs.push` gated **directly** in both build
+- [x] Especially: `inputs.upload`/`inputs.push` gated **directly** in both build
       workflows — no `github.event_name == 'workflow_call'` regression.
-- [ ] patch-inventory.md updated for anything this sync changed.
+- [x] patch-inventory.md updated for anything this sync changed.
 
 ## Phase 6 — Validation (cloud)
 
 - [x] Venv recreated (`uv sync` → `.venv`).
-- [ ] `scripts/run_tests.sh` full suite; every failure triaged:
+- [x] `scripts/run_tests.sh` full suite; every failure triaged:
       upstream-debt (reproduces in clean `git worktree add ... v2026.7.20`)
       listed for the PR body vs merge regression (fixed before done).
       Worktree removed after.
-      - Triage notes: _pending_
-- [ ] `ui-tui`: npm test + typecheck.
-- [ ] `apps/desktop`: vitest via repo-root vitest; repo typecheck.
-- [ ] `uv lock --check`.
-- [ ] `python scripts/docs/validate_docs.py` + Docusaurus website build
-      (mirrors `docs-site-checks.yml`).
-- [ ] hadolint (if available) / else defer.
-- [ ] `scripts/graphify-refresh.sh` + commit refreshed
-      `graphify-out/GRAPH_REPORT.md`.
+      - Triage notes: merged tree: 99 failed tests across 32 files + 4
+        collection-error files (of ~17k tests). Clean upstream v2026.7.20
+        worktree, same files, same wrapper: 98 failed across 31 files + the
+        SAME 4 collection-error files. Set difference = exactly ONE
+        merged-only failure: `tests/tools/test_windows_native_support.py::
+        TestReadmeNoLongerSaysWindowsUnsupported::test_readme_mentions_powershell_installer`
+        — a new upstream test asserting README.md mentions `install.ps1`;
+        fixed by naming both upstream installer paths in the fork README's
+        installation table (commit `27faa7988`), file now 66/66. Every other
+        failure is pre-existing upstream debt / environment-sensitive
+        (provider/tool suites: tts_mistral, video_generation matrix,
+        ssh_environment, managed_media_gateways, streaming, approval, etc.)
+        — reproduces identically without any fork change; list carried to the
+        PR body; not blocked on per conflict-resolution.md.
+- [x] `ui-tui`: typecheck clean; vitest 111 files / 1207 tests green (after
+      `npm run build:ink` — the workspace package build is a test
+      prerequisite, not a regression).
+- [x] `apps/desktop`: typecheck green for BOTH tsconfigs after 8 mechanical
+      TS fixes to the re-applied fork code in electron/main.ts (`77e5fa5da`);
+      vitest `ui` project 2198/2200 passed (2 timeout flakes under full box
+      load; pass in isolation), `electron` project 483/483 (includes the
+      converted first-run-choice + connection-config suites).
+- [x] `uv lock --check` — clean (233 packages resolved).
+- [x] `python scripts/docs/validate_docs.py` — OK (1 benign warning) +
+      Docusaurus website build SUCCESS for all locales (zh-Hans broken-anchor
+      warnings are pre-existing upstream state). Transient skill-docs
+      regeneration outputs were reverted/deleted — CI regenerates them per
+      build; they are not committed (upstream behaviour).
+- [x] hadolint — not installed in this env; deferred to CI (`docker-lint.yml` runs it on the PR).
+- [x] `scripts/graphify-refresh.sh` + refreshed `graphify-out/GRAPH_REPORT.md`
+      committed.
 
 Deferred to local (user): full Docker image builds + `tests/docker` fixture (if
 no daemon in cloud), desktop packaging + interactive smoke (zoom/Text Size
@@ -168,10 +190,10 @@ No amend/force-push after anything is pushed. Sequence:
 
 - [x] 1. `docs:` this plan file (pushed immediately).
 - [x] 2. Merge commit M (pushed only after the Phase 3 workflow-trigger audit).
-- [ ] 3. `fix(sync): ...` single-topic fixups (inventory pass + test triage).
-- [ ] 4. `chore: bump FORK_UPSTREAM_BASE to v2026.7.20`.
-- [ ] 5. `docs(fork): update compatibility/changes/release docs for v2026.7.20`.
-- [ ] 6. `chore: refresh Graphify report` (last).
+- [x] 3. `fix(sync): ...` single-topic fixups (inventory pass + test triage).
+- [x] 4. `chore: bump FORK_UPSTREAM_BASE to v2026.7.20`.
+- [x] 5. `docs(fork): update compatibility/changes/release docs for v2026.7.20`.
+- [x] 6. `chore: refresh Graphify report` (last).
 
 ## Phase 10 — Final phase (user-driven, local)
 
