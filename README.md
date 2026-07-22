@@ -67,7 +67,7 @@ can do, remains the upstream product.
 
 | Path | Intended use | Where |
 |---|---|---|
-| **Upstream native installer** | Install Hermes directly on your machine (the canonical, fully upstream-supported path) | [Upstream quickstart](https://hermes-agent.nousresearch.com/docs/getting-started/quickstart) |
+| **Upstream native installer** | Install Hermes directly on your machine — `install.sh` for Linux/macOS/WSL2, `install.ps1` (PowerShell) for native Windows (the canonical, fully upstream-supported path) | [Upstream quickstart](https://hermes-agent.nousresearch.com/docs/getting-started/quickstart) |
 | **ForgeGuard runtime image** | A persistent, supervised server with a web dashboard and durable state | [Runtime images](./docs/site/deployment/runtime-images.md) |
 | **ForgeGuard CLI image (distrobox)** | An interactive terminal install with host integration, containerised | [Distrobox / CLI image](./docs/site/deployment/distrobox-cli.md) |
 | **ForgeGuard desktop installers** | Prebuilt Linux / macOS builds of the Hermes Desktop app | [Desktop artifacts](./docs/site/deployment/desktop-artifacts.md) |
