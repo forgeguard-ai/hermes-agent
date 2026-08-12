@@ -58,11 +58,32 @@ falls back through F1 instead of returning the unresolved slug verbatim.
 the existing `new_provider != "custom"` guard also stops wrongly clearing the
 slot's base_url/credentials.
 
-**F4 — resolver defense in `hermes_cli/auth.py` (~1812)**: before raising
-`Unknown provider`, attempt the F1 resolution for `custom:*` strings; if it
-yields `custom` (or a resolvable id), proceed instead of failing init. A
-config written by a UI must degrade, not brick startup. Keep the raise for
-genuinely unknown providers.
+**F4 — resolver defense in `hermes_cli/auth.py` (~1812)**: resolve the exact
+string `custom:custom` — the BARE endpoint's row slug — to `custom` instead
+of raising, so a config the settings UI already wrote does not brick init.
+
+> **Narrowed during implementation (CI caught it).** The plan originally said
+> "for `custom:*` strings", i.e. a `startswith` prefix match. That is wrong
+> here, in two independent ways, and the fork's test suite proved both:
+>
+> 1. **Named entries must keep raising.** Three call sites in
+>    `runtime_provider.py` use `resolve_provider(x) == "custom"` as the signal
+>    to rewrite `requested_norm` to bare `"custom"`. Resolving
+>    `custom:mimo-v2.5-pro` there ERASES the entry name those sites exist to
+>    recover, and the legacy-row healing path falls back to placeholder
+>    `no-key-required` credentials instead of the entry's real key
+>    (`tests/tui_gateway/test_custom_provider_session_persistence.py`). Their
+>    `except AuthError: pass` is load-bearing.
+> 2. **`normalized` is not always a `str`.** It is only
+>    `(requested or "auto").strip().lower()`, so a mock (callers pass them) or
+>    a YAML non-string (`provider: 123`) stays duck-typed — and
+>    `mock.startswith("custom:")` returns a TRUTHY object. The prefix form
+>    therefore swallowed EVERY provider into the custom branch, and the
+>    gateway then had no base_url or key: "No provider configured -- cannot
+>    compress." (`tests/gateway/test_compress_command.py`, `test_compress_focus.py`).
+>
+> Equality against the one slug that unambiguously names the bare endpoint
+> avoids both. A regression test pins the non-string case.
 
 **F5 — `/api/providers/validate` custom-aware key probe**: when the key var is
 `OPENAI_API_KEY` **and** a custom base_url is in play (request carries one, or

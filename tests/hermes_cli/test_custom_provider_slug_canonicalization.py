@@ -52,14 +52,56 @@ class TestCanonicalizeProviderSlug:
 
 
 class TestResolveProviderCustomNamespace:
-    def test_namespaced_custom_slug_resolves_to_custom_family(self):
+    def test_bare_endpoint_row_slug_resolves_instead_of_raising(self):
         # Raising here bricked agent init on a config a settings UI wrote.
+        # custom:custom names the BARE endpoint, so bare "custom" is exact.
         assert resolve_provider("custom:custom") == "custom"
-        assert resolve_provider("custom:qwen-lab") == "custom"
+
+    def test_named_entry_slug_still_raises_to_protect_its_identity(self):
+        """A DECLARED entry's slug must not resolve to bare "custom" here.
+
+        Three call sites in runtime_provider.py use
+        ``resolve_provider(x) == "custom"`` as the signal to rewrite
+        ``requested_norm`` to bare "custom". Resolving custom:<name> would
+        therefore erase the entry name those sites exist to recover, and the
+        legacy-row healing path falls back to placeholder "no-key-required"
+        credentials instead of the entry's real key (regression caught by
+        tests/tui_gateway/test_custom_provider_session_persistence.py).
+        Their ``except AuthError: pass`` is load-bearing — keep raising.
+        """
+        with pytest.raises(AuthError):
+            resolve_provider("custom:qwen-lab")
 
     def test_genuinely_unknown_provider_still_raises(self):
         with pytest.raises(AuthError):
             resolve_provider("definitely-not-a-provider")
+
+    def test_non_string_provider_does_not_collapse_to_custom(self):
+        """A duck-typed provider must not be swallowed by the custom: check.
+
+        ``normalized`` is only ``(requested or "auto").strip().lower()``, so a
+        MagicMock (callers pass them) or a YAML non-string (``provider: 123``)
+        stays a non-string — and ``mock.startswith("custom:")`` returns another
+        MagicMock, which is TRUTHY. An unguarded startswith therefore reported
+        every such provider as "custom", and the gateway then took the custom
+        branch with no base_url or key: "No provider configured -- cannot
+        compress." (caught by tests/gateway/test_compress_command.py in CI).
+        The pre-existing contract for a non-string is to raise, which callers
+        catch — keep it.
+        """
+        from unittest.mock import MagicMock
+
+        # A mock survives .strip().lower() and reaches the provider checks —
+        # this is the exact shape that broke, and it must still raise.
+        with pytest.raises(AuthError):
+            resolve_provider(MagicMock())
+
+        # An int dies earlier, in .strip(). Asserting the invariant rather
+        # than the exception type: whatever a non-string does, it must never
+        # come back as a resolved provider.
+        with pytest.raises(Exception) as excinfo:
+            resolve_provider(1234)
+        assert not isinstance(excinfo.value, SystemExit)
 
 
 class TestModelSetCanonicalization:
