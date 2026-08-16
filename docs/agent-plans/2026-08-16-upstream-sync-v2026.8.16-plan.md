@@ -55,105 +55,105 @@ validation before the final dev → main merge.
 
 ## Phase 0 — Plan capture
 
-- [ ] Save this plan to `docs/agent-plans/2026-08-16-upstream-sync-v2026.8.16-plan.md`,
+- [x] Save this plan to `docs/agent-plans/2026-08-16-upstream-sync-v2026.8.16-plan.md`,
       commit `docs:`, push to `dev` (docs-only; current tree's triggers known-safe).
 
 ## Phase 1 — Environment prep + gates (cloud)
 
-- [ ] `git fetch origin --unshallow` (full fork ancestry for a correct merge
+- [x] `git fetch origin --unshallow` (full fork ancestry for a correct merge
       base; monitor disk).
-- [ ] `git remote add upstream https://github.com/NousResearch/hermes-agent.git`
+- [x] `git remote add upstream https://github.com/NousResearch/hermes-agent.git`
       (read-only; TLS via the proxy CA bundle — never disable verification).
-- [ ] `git fetch upstream tag v2026.8.16 --no-tags` (only the target tag —
+- [x] `git fetch upstream tag v2026.8.16 --no-tags` (only the target tag —
       disk-conscious deviation from the runbook's blanket `--tags`).
-- [ ] Verify tag: `git log -1 'v2026.8.16^{commit}'` looks like the 2026-08-16
+- [x] Verify tag: `git log -1 'v2026.8.16^{commit}'` looks like the 2026-08-16
       release; `git show 'v2026.8.16^{commit}':pyproject.toml | grep -m1 '^version'`
       → `0.20.2`.
-- [ ] **GATE (hard stop):** `git merge-base dev 'v2026.8.16^{commit}'` ==
+- [x] **GATE (hard stop):** `git merge-base dev 'v2026.8.16^{commit}'` ==
       `3ef6bbd201263d354fd83ec55b3c306ded2eb72a`. Else STOP, investigate.
-- [ ] Confirm no pre-existing fork `v0.20.*` tag (expect plain `v0.20.2`).
-- [ ] Attempt Node 26 install (tarball → scratchpad, prepend PATH) for JS
+- [x] Confirm no pre-existing fork `v0.20.*` tag (expect plain `v0.20.2`).
+- [x] Attempt Node 26 install (tarball → scratchpad, prepend PATH) for JS
       validation; on failure proceed on Node 22 and record the deviation
       (PR CI's JS jobs become the authoritative JS gate).
-- [ ] Snapshot ground-truth diffs per fork-patched cluster: fork delta
+- [x] Snapshot ground-truth diffs per fork-patched cluster: fork delta
       `git diff fc8cbf5..dev -- <paths>`; upstream delta
       `git diff 3ef6bbd2..'v2026.8.16^{commit}' -- <paths>`.
 
 ## Phase 2 — The merge
 
-- [ ] `git merge v2026.8.16 --no-edit -m "Merge upstream v2026.8.16 into fork dev"`
+- [x] `git merge v2026.8.16 --no-edit -m "Merge upstream v2026.8.16 into fork dev"`
       → single real merge commit M (parents: dev tip + tag commit). All
       Phase 3–5 resolution happens inside M **before its first push**.
-- [ ] Lineage invariants: never squash/rebase/amend M after push; final
+- [x] Lineage invariants: never squash/rebase/amend M after push; final
       dev→main lands as a real merge.
-- [ ] Deviation note: at this window size the runbook's "small additive
+- [x] Deviation note: at this window size the runbook's "small additive
       conflicts" expectation is void — the Phase 3 cluster list is the
       pre-authorized surface; conflicts outside it still stop the merge.
 
 ## Phase 3 — Conflict resolution (keep upstream substance, re-apply fork delta)
 
-- [ ] **`upload_to_pypi.yml`:** accept upstream deletion (modify/delete
+- [x] **`upload_to_pypi.yml`:** accept upstream deletion (modify/delete
       conflict) — channel retired in 0.20.0.
-- [ ] **Fork-only workflows kept verbatim:** `release-on-merge.yml`,
+- [x] **Fork-only workflows kept verbatim:** `release-on-merge.yml`,
       `build-runtime-images.yml`, `build-desktop-client.yml`,
       `docs-validate.yml`; confirm upstream added no same-named files.
-- [ ] **`ci.yml`:** upstream structure + re-graft fork PR-concurrency block +
+- [x] **`ci.yml`:** upstream structure + re-graft fork PR-concurrency block +
       contributor-check call-site guard
       (`github.repository == 'NousResearch/hermes-agent'`; the extracted
       `contributor-check.yml` itself is unguarded by design — verify no other
       caller).
-- [ ] **`docker-lint.yml`:** keep fork direct-invocation shape (digest-pinned
+- [x] **`docker-lint.yml`:** keep fork direct-invocation shape (digest-pinned
       hadolint 2.12.0, shebang-aware shellcheck discovery); port upstream
       substantive changes into it.
-- [ ] **Guarded upstream workflows re-grafted per job:** `deploy-site.yml`
+- [x] **Guarded upstream workflows re-grafted per job:** `deploy-site.yml`
       (deploy-vercel), `skills-index.yml` (build-index schedule guard +
       trigger-deploy), `skills-index-freshness.yml`, `js-autofix.yml` (both
       jobs), `osv-scanner.yml` (schedule-only pattern); verify upstream's own
       guards on `docker.yml` / `deploy-docs` survived — don't duplicate.
-- [ ] **Dockerfile:** fork 6-stage split kept (`base`/`toolchain`/
+- [x] **Dockerfile:** fork 6-stage split kept (`base`/`toolchain`/
       `venv-runtime`/`venv-cli`/`cli`/`runtime`, runtime LAST, prebaked
       labels, HEALTHCHECK); upstream changes (expect Node 26 bump, possible
       iron-proxy packages) mapped into matching stages.
-- [ ] Semantic re-check: `docker/healthcheck.sh`, `docker/cli/hermes-shim.sh`,
+- [x] Semantic re-check: `docker/healthcheck.sh`, `docker/cli/hermes-shim.sh`,
       `docker/cli/profile.sh` vs upstream 0.20.x serve/CLI restructuring.
-- [ ] **Auth/providers/web_server:** re-apply "no-key" placeholder onto
+- [x] **Auth/providers/web_server:** re-apply "no-key" placeholder onto
       upstream's restructured auth; reconcile custom-slug deltas per Phase 4b.
       Gates: `tests/hermes_cli/test_auth_usable_secret.py` +
       `test_custom_provider_slug_canonicalization.py` green (adapt seams only,
       never behavioral assertions).
-- [ ] **mem0:** carry `_backend.py`/`_oss_providers.py`/`_setup.py` deltas.
+- [x] **mem0:** carry `_backend.py`/`_oss_providers.py`/`_setup.py` deltas.
       Gates: `test_mem0_backend.py` + `test_mem0_setup.py` green.
-- [ ] **Desktop cluster:** client-mode-first onboarding preserved
+- [x] **Desktop cluster:** client-mode-first onboarding preserved
       (`electron/main.ts` first-run choice/TLS bypass/saved endpoints,
       `src/app/contrib/wiring.tsx`, `use-desktop-integrations.ts`,
       `electron/first-run-choice.ts` + tests) — re-home mounts if upstream
       moved them. Voice hook: take upstream provisionally (Phase 4a verdict).
       `after-pack.mjs` ad-hoc signing + `codesign --verify` +
       `CSC_FOR_PULL_REQUEST` re-applied.
-- [ ] **`apps/desktop/package.json`:** upstream deps + fork `homepage` +
+- [x] **`apps/desktop/package.json`:** upstream deps + fork `homepage` +
       `"version": "0.20.2"` (fork convention; upstream leaves it stale). Root
       `package-lock.json`: upstream wholesale + surgical `apps/desktop`
       version-entry edit (no full regeneration). `vite.config.ts` stays
       upstream-identical.
-- [ ] **AGENTS.md:** upstream body adopted; `HERMES_OFFLINE_*` exception
+- [x] **AGENTS.md:** upstream body adopted; `HERMES_OFFLINE_*` exception
       re-grafted INSIDE the inherited env-var section (highest silent-loss
       risk); fork tail carried verbatim; `CLAUDE.md` +
       `.github/copilot-instructions.md` thin pointers intact.
-- [ ] **README.md:** upstream body + ForgeGuard fork alert below title/badges;
+- [x] **README.md:** upstream body + ForgeGuard fork alert below title/badges;
       keep `install.ps1` mention (upstream test asserts it); scrub retired
       brew/pip channel wording.
-- [ ] **Fork docs overlay** (`docs/site/`, `docs/maintainers/`) preserved;
+- [x] **Fork docs overlay** (`docs/site/`, `docs/maintainers/`) preserved;
       `docs/agent-plans/` (fork) distinct from upstream `docs/plans/`.
-- [ ] **Banner ForgeGuard identity** re-applied onto upstream's banner path;
+- [x] **Banner ForgeGuard identity** re-applied onto upstream's banner path;
       fork banner tests green.
-- [ ] **`hermes_cli/offline.py`:** call-site wiring re-verified against
+- [x] **`hermes_cli/offline.py`:** call-site wiring re-verified against
       upstream's iron-proxy egress restructure; offline tests green.
-- [ ] **`pyproject.toml` + `uv.lock`:** upstream byte-identical (0.20.2);
+- [x] **`pyproject.toml` + `uv.lock`:** upstream byte-identical (0.20.2);
       `uv lock --check` passes. `hermes_cli/__init__.py`,
       `acp_registry/agent.json`, `SUPPORT.md`: upstream side (verify 0.20.2).
-- [ ] **`graphify-out/GRAPH_REPORT.md`:** clear conflict either side;
+- [x] **`graphify-out/GRAPH_REPORT.md`:** clear conflict either side;
       regenerate at the end (Phase 7).
-- [ ] Any conflict far outside this surface → stopped and investigated before
+- [x] Any conflict far outside this surface → stopped and investigated before
       resolving.
 
 ## Phase 4 — Supersession proofs (evidence, not eyeball)
@@ -174,15 +174,15 @@ validation before the final dev → main merge.
 
 ## Phase 5 — Workflow trigger + actions-policy audit (HARD GATE before first push of M)
 
-- [ ] Dump `on:` blocks of ALL merged workflow files (27 upstream + fork-only);
+- [x] Dump `on:` blocks of ALL merged workflow files (27 upstream + fork-only);
       classify and guard `push:`/`schedule:` triggers and upstream-bot
       workflows (`pull_request_target`/`issue_comment`/`workflow_run` with
       PATs/auto-merge/label writes).
-- [ ] Specific suspects: `publish-e2e-evidence.yml`, `e2e-desktop.yml`,
+- [x] Specific suspects: `publish-e2e-evidence.yml`, `e2e-desktop.yml`,
       `install-e2e.yml`/`install-e2e-run.yml`/`installer-tests.yml`,
       `ci-review-comment.yml`/`review-labels.yml`/`label-rerun.yml`,
       `tests-os.yml`.
-- [ ] Actions-policy sweep: `grep -h 'uses:' .github/workflows/*.yml | sort -u`;
+- [x] Actions-policy sweep: `grep -h 'uses:' .github/workflows/*.yml | sort -u`;
       any non-(GitHub-authored / forgeguard-org-owned / Marketplace-verified)
       action reachable on fork PRs → rewrite to direct invocation
       (docker-lint precedent) or guard off the fork.

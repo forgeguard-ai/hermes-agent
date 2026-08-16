@@ -58,6 +58,10 @@ jobs:
   # by both route matrices, so the two routes cover the same set.
   pick-releases:
     name: Pick release tags
+    # ForgeGuard fork guard: the twice-daily cron and the release-tag trigger
+    # exercise upstream's install/update channels; the fork's own release tags
+    # (plain product semver) match the tag patterns and must not fire this.
+    if: github.repository == 'NousResearch/hermes-agent'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -81,7 +85,9 @@ jobs:
 
   # `hermes update` -- the route most users take.
   update:
-    if: github.event_name != 'workflow_dispatch' || inputs.route != 'installer'
+    # ForgeGuard fork guard: explicit `if:` bypasses needs-skip propagation
+    # (upload_to_pypi `sign` precedent), so this job needs its own guard.
+    if: github.repository == 'NousResearch/hermes-agent' && (github.event_name != 'workflow_dispatch' || inputs.route != 'installer')
     needs: pick-releases
     strategy:
       # One release breaking is worth knowing about even if another already
@@ -97,7 +103,8 @@ jobs:
   # Re-running the curl one-liner over an existing checkout: autostash + pull
   # rather than the updater's own git handling.
   installer:
-    if: github.event_name != 'workflow_dispatch' || inputs.route != 'update'
+    # ForgeGuard fork guard: same explicit-`if:` rule as the update job.
+    if: github.repository == 'NousResearch/hermes-agent' && (github.event_name != 'workflow_dispatch' || inputs.route != 'update')
     needs: pick-releases
     strategy:
       fail-fast: false
