@@ -86,6 +86,13 @@ Weigh diffs against AGENTS.md's own rules — flag violations:
   isolation and cleanup semantics.
 - **Dead code without E2E validation** and **squash-merges from stale branches**
   silently reverting fixes — both called out as recurring failure modes.
+- **Upstream 0.20.x surfaces (since the v2026.8.16 base)** — the voice loop is a
+  live-speech streaming pipeline (barge-in, `settleAfterSpeech`); the desktop
+  gained a multi-connection registry, SSH remote mode, plugin SDK, artifacts and
+  multi-window; `tui_gateway/server.py` split into `methods_*.py` modules; A2A
+  agent-to-agent protocol and the iron-proxy egress firewall are new
+  security-relevant paths (verify fork `HERMES_OFFLINE_*` gating still
+  intercepts network egress where it claims to).
 
 ## 5. Validation the reviewer should expect
 

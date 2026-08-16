@@ -220,6 +220,14 @@ jobs:
           > log for `Refusing to bind dashboard to 0.0.0.0` — that means no provider is
           > set. The desktop connection dialog signs in against either provider.
 
+          > [!NOTE]
+          > **Upstream 0.20.x changes (first fork release on this base: `v0.20.2`).**
+          > Upstream retired the Homebrew and pip/PyPI install channels in 0.20.0 —
+          > supported paths are the shell installer, Docker, and Nix. The toolchain
+          > is pinned to **Node 26** across upstream installers; the fork's images
+          > and desktop installers already bundle it, so only source installs need
+          > to act.
+
           ### Desktop installers
 
           Linux (`.AppImage`, `.deb`, `.rpm`) and macOS (`.dmg`, `.zip`) installers are

@@ -49,20 +49,28 @@ directly — that moves under you mid-sync). Confirm it looks right:
 git log -1 <TAG> --format="%H %s %ci"
 ```
 
-### 2. Create the sync branch off fork `main`
+### 2. Reset the `dev` branch off fork `main`
+
+The fork's standing sync branch is **`dev`** (maintainer decision, 2026-08-16
+sync — earlier syncs used per-release `sync/upstream-<TAG>` branches; the
+v2026.7.20 and v2026.8.16 syncs both ran on `dev` and it is now the
+convention):
 
 ```bash
 git checkout main
 git pull origin main
-git checkout -b sync/upstream-<TAG>
+git checkout -B dev main
+git push -u origin dev
 ```
 
-Example branch name: `sync/upstream-v2026.7.1`.
+`dev` carries exactly one in-flight sync at a time: it is fast-forwarded from
+`main` at the start of a sync and lands back into `main` via the sync PR at
+the end. Don't stack unrelated feature work on it mid-sync.
 
 ### 3. Merge the upstream tag (real merge, never squash/rebase)
 
 ```bash
-git merge <TAG> --no-edit -m "Merge upstream <TAG> into fork main"
+git merge <TAG> --no-edit -m "Merge upstream <TAG> into fork dev"
 ```
 
 A real merge commit (two parents: fork `main` + the upstream tag) is required —
@@ -117,10 +125,10 @@ pick an unrelated or stale tag. See the
 ### 7. Push and open the PR
 
 ```bash
-git push -u origin sync/upstream-<TAG>
+git push -u origin dev
 gh pr create --repo ForgeGuard/hermes-agent \
   --title "sync: merge upstream <TAG> into fork main" \
-  --base main --head sync/upstream-<TAG> \
+  --base main --head dev \
   --body "..."
 ```
 
@@ -130,10 +138,10 @@ PR would throw away the two-parent merge commit structure step 3 relies on for
 the *next* sync.
 
 Do **not** open this PR with `head = NousResearch:<branch>` (an upstream branch
-directly) — always push your own `sync/upstream-<TAG>` branch to `origin` first
-and PR from that. Using an upstream branch as the head means every new commit
-pushed to that branch upstream re-triggers a `synchronize` event on your PR,
-flooding the fork's Actions tab with blocked "Action required" runs (harmless but
+directly) — always push the fork's own `dev` branch to `origin` first and PR
+from that. Using an upstream branch as the head means every new commit pushed
+to that branch upstream re-triggers a `synchronize` event on your PR, flooding
+the fork's Actions tab with blocked "Action required" runs (harmless but
 noisy).
 
 ### 8. Verify CI and the resulting release
