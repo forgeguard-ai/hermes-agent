@@ -30,6 +30,22 @@ evolves.
       discovery). An upstream sync touching this file conflicts here; keep the
       direct invocations and port upstream's substantive changes (versions,
       configs, new lint targets) into them.
+- [ ] **`osv-scanner.yml` direct-actions scan job** — the forgeguard-ai org
+      policy only allows reusable workflows FROM forgeguard-ai-owned repos
+      (external reusable workflows fail the whole CI run at startup with
+      "all reusable workflows must be from a repository owned by
+      forgeguard-ai"), while external ACTIONS from verified creators are
+      allowed. Upstream's `scan` job calls
+      `google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml`;
+      the fork's `scan` job invokes the `osv-scanner-action` +
+      `osv-reporter-action` ACTIONS directly instead, producing the same
+      `osv-results.sarif` under the "OSV Scanner SARIF file" artifact the
+      `emit-status` wrapper expects. If upstream changes its reusable-workflow
+      inputs (lockfile list, artifact names), port the substance into the
+      direct steps — never restore the external reusable-workflow call. The
+      same rule applies to ANY new upstream `uses: <owner>/<repo>/.github/...`
+      job-level call: audit for it on every sync (caught live 2026-08-16,
+      first PR CI run of the v2026.8.16 sync).
 - [ ] **`build-runtime-images.yml`** exists at
       `.github/workflows/build-runtime-images.yml`, still matrixes over
       `target: [runtime, cli]`, and pushes both `runtime-*` and `cli-*` tags to

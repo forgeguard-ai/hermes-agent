@@ -14,14 +14,16 @@ name: OSV-Scanner
 # code patterns in PR diffs) by covering the orthogonal "currently-pinned
 # dep became known-vulnerable" case.
 #
-# Uses Google's officially-recommended reusable workflow, pinned by SHA.
+# Uses Google's osv-scanner/osv-reporter ACTIONS directly, pinned by SHA
+# (upstream calls google's reusable workflow instead; the forgeguard-ai org
+# policy only allows forgeguard-ai-owned reusable workflows, so that call
+# fails all of CI at startup — see the scan job's comment).
 # Findings land in the repo's Security tab (Code Scanning > OSV-Scanner).
 # fail-on-vuln is disabled so the job does not block merges on pre-existing
 # vulnerabilities in pinned deps that we may need to patch deliberately.
 #
-# The reusable workflow can't emit custom outputs, so a wrapper job
-# downloads the SARIF result and summarizes the vulnerability count into
-# a review_status for the unified PR comment.
+# A wrapper job downloads the SARIF result and summarizes the vulnerability
+# count into a review_status for the unified PR comment.
 
 on:
   workflow_call:
@@ -42,21 +44,72 @@ jobs:
     name: Scan lockfiles
     # ForgeGuard fork guard: the weekly cron is upstream-infrastructure-only.
     # workflow_call (from ci.yml) and manual dispatch still run on the fork.
+    #
+    # ForgeGuard fork rewrite (same class as docker-lint.yml): upstream calls
+    # google's REUSABLE WORKFLOW here, but the forgeguard-ai org policy only
+    # allows reusable workflows owned by forgeguard-ai — the call fails ALL of
+    # CI at startup ("all reusable workflows must be from a repository owned
+    # by forgeguard-ai"). External ACTIONS from verified creators are allowed,
+    # so this job invokes google's osv-scanner/osv-reporter actions directly
+    # (the shape this file had before upstream's reusable-workflow migration),
+    # preserving upstream's substance: the five lockfile sources of truth, the
+    # `osv-results.sarif` file under the "OSV Scanner SARIF file" artifact that
+    # the emit-status wrapper downloads, fail-on-vuln=false, and the
+    # code-scanning upload the reusable workflow performed internally.
     if: github.event_name != 'schedule' || github.repository == 'NousResearch/hermes-agent'
-    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
-    with:
-      # Scan explicit lockfiles rather than recursing, so we only look at
-      # the five sources of truth and skip vendored / test / worktree dirs.
-      scan-args: |-
-        --lockfile=uv.lock
-        --lockfile=package-lock.json
-        --lockfile=website/package-lock.json
-        --lockfile=plugins/platforms/photon/sidecar/package-lock.json
-        --lockfile=scripts/whatsapp-bridge/package-lock.json
-      # The upstream reusable workflow uploads this exact file under its
-      # fixed artifact name, which the wrapper downloads below.
-      results-file-name: osv-results.sarif
-      fail-on-vuln: false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: 'Run scanner'
+        uses: google/osv-scanner-action/osv-scanner-action@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
+        with:
+          # Scan explicit lockfiles rather than recursing, so we only look at
+          # the five sources of truth and skip vendored / test / worktree dirs.
+          scan-args: |-
+            --output=results.json
+            --format=json
+            --lockfile=uv.lock
+            --lockfile=package-lock.json
+            --lockfile=website/package-lock.json
+            --lockfile=plugins/platforms/photon/sidecar/package-lock.json
+            --lockfile=scripts/whatsapp-bridge/package-lock.json
+        continue-on-error: true
+
+      - name: 'Run osv-scanner-reporter'
+        uses: google/osv-scanner-action/osv-reporter-action@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
+        with:
+          scan-args: |-
+            --output=osv-results.sarif
+            --new=results.json
+            --gh-annotations=false
+            --fail-on-vuln=false
+
+      # The emit-status wrapper below downloads this artifact by name and reads
+      # the osv-results.sarif inside it — keep both names stable.
+      - name: 'Upload artifact'
+        id: 'upload_artifact'
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: OSV Scanner SARIF file
+          path: osv-results.sarif
+          retention-days: 5
+
+      # Upload the results to GitHub's code scanning dashboard.
+      - name: 'Upload to code-scanning'
+        if: ${{ !cancelled() }}
+        uses: github/codeql-action/upload-sarif@cdefb33c0f6224e58673d9004f47f7cb3e328b89 # v4.31.10
+        with:
+          sarif_file: osv-results.sarif
+
+      - name: 'Error troubleshooter'
+        if: ${{ always() && steps.upload_artifact.outcome == 'failure' }}
+        run: |
+          echo "::error::Artifact upload failed. This is most likely caused by a error during scanning earlier in the workflow."
+          exit 1
 
   emit-status:
     name: Emit review status
