@@ -112,7 +112,6 @@ import {
 } from './desktop-uninstall'
 import { describeDevCdpDecision, resolveDevCdpPort } from './dev-cdp'
 import { installEmbedReferer } from './embed-referer'
-import { buildFirstRunChoiceRecord, firstRunChoiceRequired, normalizeFirstRunChoice } from './first-run-choice'
 import { createEventDeduper } from './event-dedupe'
 import {
   buildTerminalScript,
@@ -128,6 +127,7 @@ import {
   performFindAfterIndexingStarted,
   stopFind
 } from './find-in-page'
+import { buildFirstRunChoiceRecord, firstRunChoiceRequired, normalizeFirstRunChoice } from './first-run-choice'
 import { createFirstRunSetupGate } from './first-run-setup-gate'
 import { readDirForIpc } from './fs-read-dir'
 import {
@@ -6343,6 +6343,7 @@ function hostAllowsInvalidCertificate(hostname) {
   if (config.remote?.url && config.remote.allowInvalidCertificate === true) {
     urls.push(config.remote.url)
   }
+
   for (const entry of Object.values(config.profiles || {}) as any[]) {
     if (entry?.mode === 'remote' && entry.url && entry.allowInvalidCertificate === true) {
       urls.push(entry.url)
@@ -7965,15 +7966,20 @@ function sanitizeSavedRemotes(raw) {
 
   const seen = new Set()
   const out = []
+
   for (const entry of raw) {
     if (!entry || typeof entry !== 'object') {
       continue
     }
+
     const url = safeNormalizeRemoteUrl(entry.url)
+
     if (!url || seen.has(url)) {
       continue
     }
+
     seen.add(url)
+
     const cleaned = {
       url,
       authMode: normAuthMode(entry.authMode),
@@ -7981,7 +7987,9 @@ function sanitizeSavedRemotes(raw) {
       lastUsedAt: Number.isFinite(entry.lastUsedAt) ? entry.lastUsedAt : 0,
       ...(entry.token && typeof entry.token === 'object' ? { token: entry.token } : {})
     }
+
     out.push(cleaned)
+
     if (out.length >= SAVED_REMOTES_MAX) {
       break
     }
@@ -7994,6 +8002,7 @@ function sanitizeSavedRemotes(raw) {
 // normalized URL, capped at SAVED_REMOTES_MAX.
 function upsertSavedRemote(remotes, block) {
   const url = safeNormalizeRemoteUrl(block?.url)
+
   if (!url) {
     return remotes
   }
@@ -8126,6 +8135,7 @@ function writeFirstRunChoice(choice) {
   // process after a choice, so without this reset the stale cached `true` would
   // keep every gate deferring forever.
   resetFirstRunChoiceDecision()
+
   return record
 }
 
@@ -8194,6 +8204,7 @@ function desktopFirstRunChoiceRequired() {
         `hasExistingLocalInstall=${hasExistingLocalInstall})`
     )
   }
+
   return _firstRunChoiceRequiredCache
 }
 
@@ -10203,6 +10214,7 @@ async function startHermes() {
         '[boot] startHermes() blocked: first-run choice required — no local backend will start until the user chooses'
       )
     }
+
     throw Object.assign(new Error('FIRST_RUN_CHOICE_REQUIRED: waiting for the first-run connection choice'), {
       code: 'FIRST_RUN_CHOICE_REQUIRED'
     })
@@ -12335,6 +12347,7 @@ ipcMain.handle('hermes:first-run:get', async () => ({ required: desktopFirstRunC
 ipcMain.handle('hermes:first-run:complete', async (_event, payload) => {
   const choice = payload && typeof payload === 'object' ? payload.choice : payload
   writeFirstRunChoice(choice)
+
   return { ok: true, required: desktopFirstRunChoiceRequired() }
 })
 ipcMain.handle('hermes:connection-config:get', async (_event, profile) =>
