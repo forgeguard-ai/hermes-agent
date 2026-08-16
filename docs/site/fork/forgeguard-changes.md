@@ -90,7 +90,15 @@ and are no longer fork deltas: the Settings → Appearance **Text Size** control
 shipped in fork releases on the `v2026.7.1` base was superseded in upstream
 `v2026.7.20` by the equivalent **UI Scale** setting (same persisted zoom, plus
 Ctrl/Cmd+wheel zoom and half-step keyboard shortcuts), which the fork now uses
-unchanged.
+unchanged. Likewise, the fork's voice-conversation **mic re-arm fix** (fork
+releases `v0.19.3` and earlier) was superseded in upstream `v2026.8.16` by the
+live-speech rewrite of the voice loop, which fixes the same dead-mic class
+structurally; the fork keeps only its regression test. The fork's other
+runtime fixes carried onto the `v2026.8.16` base remain fork deltas: the
+`"no-key"` deploy-sentinel placeholder fix, the `custom:<name>` provider-slug
+canonicalization (upstream converged on parts of the slug handling but not the
+bare-endpoint collapse or the validate-probe fix), and the mem0
+embedder-bearer scoping.
 
 ## Supported platforms and signing state
 

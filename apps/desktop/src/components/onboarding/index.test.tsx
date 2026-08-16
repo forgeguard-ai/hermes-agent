@@ -78,7 +78,7 @@ describe('onboarding overlay first-run stand-down', () => {
       visible: false
     })
 
-    const { container } = render(<DesktopOnboardingOverlay enabled={false} requestGateway={overlayCtx.requestGateway} />)
+    const { container } = render(<DesktopOnboardingOverlay enabled={false} profile="default" requestGateway={overlayCtx.requestGateway} />)
 
     expect(container.firstChild).toBeNull()
     expect(screen.queryByRole('status')).toBeNull()
@@ -100,7 +100,7 @@ describe('onboarding overlay first-run stand-down', () => {
       visible: true
     })
 
-    render(<DesktopOnboardingOverlay enabled={false} requestGateway={overlayCtx.requestGateway} />)
+    render(<DesktopOnboardingOverlay enabled={false} profile="default" requestGateway={overlayCtx.requestGateway} />)
 
     expect(screen.getByRole('status')).toBeTruthy()
   })
@@ -113,18 +113,19 @@ describe('onboarding Picker', () => {
 
     expect(screen.getByText('Nous Portal')).toBeTruthy()
     expect(screen.getByText('Recommended')).toBeTruthy()
-    // Fireworks is the always-visible #2 slot (after Nous), even while OAuth
-    // alternatives stay collapsed behind the disclosure.
-    expect(screen.getByText('Fireworks AI')).toBeTruthy()
+    // Fireworks stays behind the disclosure with the other alternatives; only
+    // Nous Portal is visible before the user expands the list.
+    expect(screen.queryByText('Fireworks AI')).toBeNull()
     expect(screen.queryByText('Anthropic API Key')).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'Other providers' }))
 
+    expect(screen.getByText('Fireworks AI')).toBeTruthy()
     expect(screen.getByText('Anthropic API Key')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Collapse' })).toBeTruthy()
   })
 
-  it('shows Fireworks in slot #2 ahead of other OAuth providers', () => {
+  it('shows Fireworks first in the expanded list, ahead of other OAuth providers', () => {
     setProviders([
       provider('openai-codex', 'OpenAI Codex / ChatGPT'),
       provider('minimax-oauth', 'MiniMax'),
@@ -136,13 +137,13 @@ describe('onboarding Picker', () => {
     const labels = screen
       .getAllByRole('button')
       .map(el => el.textContent ?? '')
-      .filter(text => /Nous Portal|Fireworks AI|OpenAI OAuth|MiniMax|OpenRouter/.test(text))
+      .filter(text => /Nous Portal|Fireworks AI|ChatGPT or Codex|MiniMax|OpenRouter/.test(text))
 
     const indexOf = (needle: string) => labels.findIndex(text => text.includes(needle))
     expect(indexOf('Nous Portal')).toBeGreaterThanOrEqual(0)
     expect(indexOf('Fireworks AI')).toBeGreaterThan(indexOf('Nous Portal'))
-    expect(indexOf('OpenAI OAuth')).toBeGreaterThan(indexOf('Fireworks AI'))
-    expect(indexOf('MiniMax')).toBeGreaterThan(indexOf('OpenAI OAuth'))
+    expect(indexOf('ChatGPT or Codex')).toBeGreaterThan(indexOf('Fireworks AI'))
+    expect(indexOf('MiniMax')).toBeGreaterThan(indexOf('ChatGPT or Codex'))
   })
 
   it('shows every provider directly when Nous Portal is absent', () => {
@@ -151,7 +152,7 @@ describe('onboarding Picker', () => {
 
     expect(screen.getByText('Fireworks AI')).toBeTruthy()
     expect(screen.getByText('Anthropic API Key')).toBeTruthy()
-    expect(screen.getByText('OpenAI OAuth (ChatGPT)')).toBeTruthy()
+    expect(screen.getByText('ChatGPT or Codex Subscription')).toBeTruthy()
     expect(screen.queryByText('Other sign-in options')).toBeNull()
     expect(screen.queryByText('Recommended')).toBeNull()
   })

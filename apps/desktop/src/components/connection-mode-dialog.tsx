@@ -1,6 +1,6 @@
 import { useStore } from '@nanostores/react'
 import { useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 
 import { SETTINGS_ROUTE } from '@/app/routes'
 import { useGatewayConnection } from '@/app/settings/use-gateway-connection'
@@ -100,6 +100,7 @@ function DialogBody({ firstRun, prefill }: { firstRun: boolean; prefill: Connect
   // Client Mode seeded with the endpoint (and token, if provided) instead of the
   // bare picker.
   const prefillApplied = useRef(false)
+  // eslint-disable-next-line no-restricted-syntax -- legitimate non-atom ref write (one-shot prefill latch, see eslint rule comment)
   useEffect(() => {
     if (loading || prefillApplied.current || !prefill?.url) {
       return
@@ -129,6 +130,7 @@ function DialogBody({ firstRun, prefill }: { firstRun: boolean; prefill: Connect
   // persists until the user actually connects (or picks Local). A deep-link
   // prefill already lands in Client Mode and wins over this.
   const firstRunDefaultApplied = useRef(false)
+  // eslint-disable-next-line no-restricted-syntax -- legitimate non-atom ref write (one-shot default latch, see eslint rule comment)
   useEffect(() => {
     if (loading || !firstRun || firstRunDefaultApplied.current || prefill?.url) {
       return

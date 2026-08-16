@@ -2,22 +2,38 @@ import { useStore } from '@nanostores/react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Tip } from '@/components/ui/tooltip'
 import type { DesktopAuthProvider, DesktopCloudAgent, DesktopCloudOrg, DesktopConnectionProbeResult } from '@/global'
 import { useI18n } from '@/i18n'
 import { ExternalLink } from '@/lib/external-link'
-import { AlertCircle, Check, Cloud, FileText, Globe, HelpCircle, Loader2, LogIn, Monitor, RefreshCw } from '@/lib/icons'
+import {
+  AlertCircle,
+  Check,
+  Cloud,
+  FileText,
+  Globe,
+  HelpCircle,
+  Loader2,
+  LogIn,
+  Monitor,
+  RefreshCw,
+  Terminal
+} from '@/lib/icons'
+import { coerceRemoteUrlScheme } from '@/lib/remote-url'
 import { selectableCardClass } from '@/lib/selectable-card'
 import { cn } from '@/lib/utils'
-import { notify, notifyError } from '@/store/notifications'
+import { notify, notifyError, readableError } from '@/store/notifications'
 import { $profiles, refreshActiveProfile } from '@/store/profile'
 
 import { CONTROL_TEXT } from './constants'
-import { EmptyState, ListRow, LoadingState, Pill, SettingsContent } from './primitives'
+import { EmptyState, ListRow, Pill, SettingsContent, SettingsSkeleton } from './primitives'
+import { enrichSelectedSshHost, selectSshHost } from './ssh-host-selection'
 
-type Mode = 'local' | 'remote' | 'cloud'
+type Mode = 'local' | 'remote' | 'cloud' | 'ssh'
 type AuthMode = 'oauth' | 'token'
 type ProbeStatus = 'idle' | 'probing' | 'done' | 'error'
 // Hermes Cloud discovery lifecycle for the cloud-mode panel.
@@ -26,25 +42,49 @@ type CloudDiscoverStatus = 'idle' | 'loading' | 'done' | 'error'
 interface GatewaySettingsState {
   envOverride: boolean
   mode: Mode
-  remoteAllowInvalidCertificate: boolean
   remoteAuthMode: AuthMode
   remoteOauthConnected: boolean
   remoteTokenPreview: string | null
   remoteTokenSet: boolean
+  // Whether OS-keychain-backed encryption (Electron safeStorage) is available.
+  // Default true so we never gate on a value we haven't hydrated yet.
+  secureTokenStorage: boolean
+  // Whether the currently-persisted remote token is stored as plain text on
+  // disk (opted-in on a machine without secure storage). Drives the warning banner.
+  remoteTokenPlainText: boolean
   remoteUrl: string
+  // ForgeGuard fork: opt-in TLS bypass for a self-signed / untrusted gateway
+  // certificate.
+  remoteAllowInvalidCertificate: boolean
   cloudOrg: string
+  sshHost: string
+  sshUser: string
+  sshPort: number | null
+  sshKeyPath: string
+  sshRemoteHermesPath: string
+  sshRemoteProfile: string
 }
+
+const SSH_HOST_CUSTOM = '__custom__'
 
 const EMPTY_STATE: GatewaySettingsState = {
   envOverride: false,
   mode: 'local',
-  remoteAllowInvalidCertificate: false,
   remoteAuthMode: 'token',
   remoteOauthConnected: false,
   remoteTokenPreview: null,
   remoteTokenSet: false,
+  secureTokenStorage: true,
+  remoteTokenPlainText: false,
   remoteUrl: '',
-  cloudOrg: ''
+  remoteAllowInvalidCertificate: false,
+  cloudOrg: '',
+  sshHost: '',
+  sshUser: '',
+  sshPort: null,
+  sshKeyPath: '',
+  sshRemoteHermesPath: '',
+  sshRemoteProfile: ''
 }
 
 export function savedCloudConnectionUrl(config: Pick<GatewaySettingsState, 'mode' | 'remoteUrl'>): string {
@@ -131,12 +171,25 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
   const [state, setState] = useState<GatewaySettingsState>(EMPTY_STATE)
   const [remoteToken, setRemoteToken] = useState('')
   const [lastTest, setLastTest] = useState<null | string>(null)
+  const [sshHostSuggestions, setSshHostSuggestions] = useState<string[]>([])
+  const [sshCustomHost, setSshCustomHost] = useState(false)
+  const sshResolveSeq = useRef(0)
+  const sshTestSeq = useRef(0)
+  const saveSeq = useRef(0)
+  const signingSeq = useRef(0)
+  const cloudConnectSeq = useRef(0)
+  const contextSeq = useRef(0)
   const [connectedCloudUrl, setConnectedCloudUrl] = useState('')
 
   const acceptSavedConfig = (config: GatewaySettingsState) => {
     setState(config)
     setConnectedCloudUrl(savedCloudConnectionUrl(config))
   }
+
+  // When set, the plain-text opt-in dialog is open; `apply` remembers whether
+  // the gated action was Save-for-restart (false) or Save-and-reconnect (true)
+  // so confirm resumes the right one.
+  const [plainTextConfirm, setPlainTextConfirm] = useState<null | { apply: boolean }>(null)
 
   // --- Hermes Cloud (cloud mode) state ---
   // One portal session powers discovery + the silent per-agent cascade. These
@@ -174,57 +227,12 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
     void refreshActiveProfile()
   }, [])
 
-  // Auth-mode probe: ask the gateway (via its public /api/status) whether it
-  // gates with OAuth or a static session token, so we can show the right
-  // control (login button vs token box). Deliberately ON-DEMAND — input blur,
-  // TLS-opt-in toggle, saved-remote load — never while the user is typing: a
-  // URL-keyed effect would flash a "Probing…" spinner on every keystroke and
-  // hit the gateway after each pause.
+  // Auth-mode probe: as the user types a remote URL we ask the gateway (via
+  // its public /api/status) whether it gates with OAuth or a static session
+  // token, so we can show the right control (login button vs token box).
   const [probeStatus, setProbeStatus] = useState<ProbeStatus>('idle')
   const [probe, setProbe] = useState<DesktopConnectionProbeResult | null>(null)
   const probeSeq = useRef(0)
-
-  const resetProbe = () => {
-    probeSeq.current += 1
-    setProbe(null)
-    setProbeStatus('idle')
-  }
-
-  const probeWith = async (rawUrl: string, allowInvalidCertificate: boolean) => {
-    const desktop = window.hermesDesktop
-    const url = rawUrl.trim()
-
-    if (!desktop?.probeConnectionConfig || !url || !/^https?:\/\//i.test(url)) {
-      resetProbe()
-
-      return
-    }
-
-    const seq = ++probeSeq.current
-    setProbeStatus('probing')
-
-    try {
-      const result = await desktop.probeConnectionConfig(url, allowInvalidCertificate)
-
-      if (seq !== probeSeq.current) {
-        return
-      }
-
-      setProbe(result)
-      setProbeStatus(result.reachable ? 'done' : 'error')
-    } catch {
-      if (seq !== probeSeq.current) {
-        return
-      }
-
-      setProbe(null)
-      setProbeStatus('error')
-    }
-  }
-
-  // Probe the current remote URL. Callers wire this to deliberate moments —
-  // the URL input's onBlur, the TLS toggle — so a half-typed URL is never probed.
-  const probeRemoteUrl = () => probeWith(state.remoteUrl, state.remoteAllowInvalidCertificate)
 
   useEffect(() => {
     let cancelled = false
@@ -238,12 +246,9 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
 
     setLoading(true)
     // Clear scope-local entry state so a token from one scope can't leak into
-    // the next when switching profiles. Reset the probe too, or the previous
-    // scope's resolved probe (and its authMode) would drive the new scope's UI
-    // until a fresh probe lands.
+    // the next when switching profiles.
     setRemoteToken('')
     setLastTest(null)
-    resetProbe()
 
     desktop
       .getConnectionConfig(scope)
@@ -253,13 +258,6 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
         }
 
         acceptSavedConfig(config)
-
-        // One probe for a saved remote so the auth-mode UI (login button vs
-        // token box) reflects the gateway's CURRENT auth model on open — e.g.
-        // a deployment upgraded from token to OAuth since the config was saved.
-        if (config.mode === 'remote') {
-          void probeWith(config.remoteUrl, config.remoteAllowInvalidCertificate)
-        }
       })
       .catch(err => notifyError(err, g.failedLoad))
       .finally(() => {
@@ -272,7 +270,11 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reload on scope change only; copy is stable
   }, [scope])
 
-  const trimmedUrl = state.remoteUrl.trim()
+  // Debounced probe of the entered remote URL. Only runs in remote mode with a
+  // syntactically plausible URL. The probe result drives whether we render the
+  // OAuth login button or the session-token entry box. The effective auth mode
+  // prefers a fresh probe result over the saved value.
+  const trimmedUrl = coerceRemoteUrlScheme(state.remoteUrl)
 
   // The dashboardUrl of the currently-connected cloud instance (the saved
   // cloud connection's remoteUrl), normalized for comparison against each
@@ -287,6 +289,47 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
 
   const isConnectedAgent = (agent: DesktopCloudAgent) =>
     Boolean(connectedCloudUrl && agent.dashboardUrl && normalizeCloudUrl(agent.dashboardUrl) === connectedCloudUrl)
+
+  useEffect(() => {
+    if (state.mode !== 'remote' || !trimmedUrl || !/^https?:\/\//i.test(trimmedUrl)) {
+      setProbeStatus('idle')
+      setProbe(null)
+
+      return
+    }
+
+    const desktop = window.hermesDesktop
+
+    if (!desktop?.probeConnectionConfig) {
+      return
+    }
+
+    const seq = ++probeSeq.current
+    setProbeStatus('probing')
+
+    const timer = setTimeout(() => {
+      desktop
+        .probeConnectionConfig(trimmedUrl, state.remoteAllowInvalidCertificate)
+        .then(result => {
+          if (seq !== probeSeq.current) {
+            return
+          }
+
+          setProbe(result)
+          setProbeStatus(result.reachable ? 'done' : 'error')
+        })
+        .catch(() => {
+          if (seq !== probeSeq.current) {
+            return
+          }
+
+          setProbe(null)
+          setProbeStatus('error')
+        })
+    }, 500)
+
+    return () => clearTimeout(timer)
+  }, [state.mode, state.remoteAllowInvalidCertificate, trimmedUrl])
 
   // Effective auth mode: a reachable probe wins; otherwise fall back to the
   // saved config's mode so a re-open of settings doesn't flicker.
@@ -350,6 +393,58 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
   // per-profile scopes are the named, non-default profiles.
   const namedProfiles = useMemo(() => profiles.filter(profile => profile.name !== 'default'), [profiles])
 
+  useEffect(() => {
+    // One-directional: a saved host that isn't in the suggestions must render
+    // the free-text input (rehydration). Never force custom OFF here — that
+    // instantly snapped the just-clicked-Custom (empty-host) input back to the
+    // dropdown, making a raw-IP host impossible to type. The way back to the
+    // dropdown is the input's onBlur (empty host + suggestions).
+    if (state.sshHost && !sshHostSuggestions.includes(state.sshHost)) {
+      setSshCustomHost(true)
+    }
+  }, [state.sshHost, sshHostSuggestions])
+
+  useEffect(() => {
+    if (state.mode !== 'ssh' || !window.hermesDesktop?.sshConfigHosts) {
+      return
+    }
+
+    let cancelled = false
+    void window.hermesDesktop
+      .sshConfigHosts()
+      .then(result => {
+        if (!cancelled) {
+          setSshHostSuggestions(result.hosts)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSshHostSuggestions([])
+        }
+      })
+
+    return () => void (cancelled = true)
+  }, [state.mode])
+
+  // eslint-disable-next-line no-restricted-syntax -- monotonic request-sequence counters, not an atom mirror
+  useEffect(() => {
+    contextSeq.current += 1
+    sshTestSeq.current += 1
+    saveSeq.current += 1
+    signingSeq.current += 1
+    cloudConnectSeq.current += 1
+    setLastTest(null)
+  }, [
+    scope,
+    state.mode,
+    state.sshHost,
+    state.sshUser,
+    state.sshPort,
+    state.sshKeyPath,
+    state.sshRemoteHermesPath,
+    state.sshRemoteProfile
+  ])
+
   const oauthConnected = state.remoteOauthConnected
 
   const canUseRemote = useMemo(() => {
@@ -364,49 +459,93 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
     return Boolean(remoteToken.trim()) || state.remoteTokenSet
   }, [authMode, oauthConnected, remoteToken, state.remoteTokenSet, trimmedUrl])
 
-  const setMode = (mode: Mode) => {
-    // Clear any stale probe when leaving/re-entering remote so a prior
-    // success/error doesn't linger; the next blur re-probes.
-    resetProbe()
-    setState(current => ({ ...current, mode }))
-  }
-
-  const setRemoteUrl = (remoteUrl: string) => {
-    // Editing the URL invalidates any probe of the previous URL. Reset quietly
-    // (no spinner, no network); the next deliberate probe happens on blur.
-    resetProbe()
-    // A saved token/OAuth session belongs to the URL it was loaded for. Once the
-    // user edits the URL, clear those flags so Connect disables until a
-    // credential is supplied for the new endpoint — the token is NOT carried to
-    // a different server (the main-process coerce also refuses to inherit it).
-    setState(current => ({
-      ...current,
-      remoteUrl,
-      remoteTokenSet: false,
-      remoteTokenPreview: null,
-      remoteOauthConnected: false
-    }))
-    setRemoteToken('')
-  }
-
-  const setAllowInvalidCertificate = (remoteAllowInvalidCertificate: boolean) => {
-    setState(current => ({ ...current, remoteAllowInvalidCertificate }))
-
-    // The opt-in changes whether a self-signed gateway is even reachable, so
-    // re-probe with the NEW value (the state update hasn't landed yet).
-    if (state.mode === 'remote') {
-      void probeWith(state.remoteUrl, remoteAllowInvalidCertificate)
-    }
-  }
-
-  const payload = () => ({
+  const payload = (allowPlainTextToken?: boolean) => ({
     mode: state.mode,
     profile: scope ?? undefined,
     remoteAllowInvalidCertificate: state.remoteAllowInvalidCertificate,
     remoteAuthMode: authMode,
     remoteToken: authMode === 'token' ? remoteToken.trim() || undefined : undefined,
-    remoteUrl: trimmedUrl
+    remoteUrl: trimmedUrl,
+    sshHost: state.sshHost.trim(),
+    sshUser: state.sshUser.trim() || undefined,
+    sshPort: state.sshPort,
+    sshKeyPath: state.sshKeyPath.trim() || undefined,
+    sshRemoteHermesPath: state.sshRemoteHermesPath.trim(),
+    // Preserve an intentional blank so an existing remote-profile mapping can
+    // be cleared instead of being mistaken for an omitted field.
+    sshRemoteProfile: state.sshRemoteProfile.trim(),
+    ...(allowPlainTextToken ? { allowPlainTextToken: true } : {})
   })
+
+  // A pending Save/Apply would write a NEW token to disk in plain text when
+  // we're on a remote-like connection using token auth, the user typed a token,
+  // and this machine has no OS keyring (safeStorage unavailable). In that case
+  // we must get an explicit opt-in before persisting.
+  const wouldPersistPlainTextToken =
+    (state.mode === 'remote' || state.mode === 'cloud') &&
+    authMode !== 'oauth' &&
+    Boolean(remoteToken.trim()) &&
+    state.secureTokenStorage === false
+
+  const performSave = async (apply: boolean, allowPlainTextToken: boolean) => {
+    const seq = ++saveSeq.current
+    setSaving(true)
+
+    try {
+      const next = apply
+        ? await window.hermesDesktop.applyConnectionConfig(payload(allowPlainTextToken))
+        : await window.hermesDesktop.saveConnectionConfig(payload(allowPlainTextToken))
+
+      if (seq !== saveSeq.current) {
+        return
+      }
+
+      acceptSavedConfig(next)
+      setRemoteToken('')
+      notify({
+        kind: 'success',
+        title: apply ? g.restartingTitle : g.savedTitle,
+        message: apply ? g.restartingMessage : g.savedMessage
+      })
+    } catch (err) {
+      if (seq !== saveSeq.current) {
+        return
+      }
+
+      // The plain-text opt-in path runs inside ConfirmDialog's onConfirm, which
+      // keeps the dialog open with an inline error when it throws — rethrow a
+      // readable message there so a failed save can't play the success beat.
+      if (allowPlainTextToken) {
+        throw new Error(readableError(err, apply ? g.applyFailed : g.saveFailed).message)
+      }
+
+      const sshError = err && typeof err === 'object' && 'sshError' in err ? String(err.sshError) : ''
+
+      const errors = {
+        'auth-failed': g.sshErrAuth,
+        'hermes-not-found': g.sshErrNotInstalled,
+        'host-key-changed': g.sshErrHostKey,
+        timeout: g.sshErrTimeout,
+        unreachable: g.sshErrUnreachable,
+        'unsupported-platform': g.sshErrPlatform,
+        'update-required': g.sshErrUpdateRequired
+      }
+
+      if (state.mode === 'ssh' && sshError) {
+        notify({
+          kind: 'error',
+          title: apply ? g.applyFailed : g.saveFailed,
+          message: (errors as Record<string, string>)[sshError] || g.sshErrUnknown
+        })
+      } else {
+        notifyError(err, apply ? g.applyFailed : g.saveFailed)
+      }
+    } finally {
+      if (seq === saveSeq.current) {
+        setSaving(false)
+      }
+    }
+  }
 
   const save = async (apply: boolean) => {
     if (state.mode === 'remote' && !canUseRemote) {
@@ -419,31 +558,22 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
       return
     }
 
-    setSaving(true)
+    // Defer to the opt-in dialog; confirm resumes with allowPlainTextToken.
+    if (wouldPersistPlainTextToken) {
+      setPlainTextConfirm({ apply })
 
-    try {
-      const next = apply
-        ? await window.hermesDesktop.applyConnectionConfig(payload())
-        : await window.hermesDesktop.saveConnectionConfig(payload())
-
-      acceptSavedConfig(next)
-      setRemoteToken('')
-      notify({
-        kind: 'success',
-        title: apply ? g.restartingTitle : g.savedTitle,
-        message: apply ? g.restartingMessage : g.savedMessage
-      })
-    } catch (err) {
-      notifyError(err, apply ? g.applyFailed : g.saveFailed)
-    } finally {
-      setSaving(false)
+      return
     }
+
+    await performSave(apply, false)
   }
 
   // OAuth sign-in: persist the URL + oauth mode first (so the saved config has
   // the URL the login window needs), then open the gateway login window and
   // refresh the connection status from the saved config once it completes.
   const signIn = async () => {
+    const seq = ++signingSeq.current
+
     if (!trimmedUrl) {
       notify({ kind: 'warning', title: g.incompleteTitle, message: g.enterUrlFirst })
 
@@ -458,14 +588,21 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
       const saved = await window.hermesDesktop.saveConnectionConfig({
         mode: state.mode,
         profile: scope ?? undefined,
-        remoteAllowInvalidCertificate: state.remoteAllowInvalidCertificate,
         remoteAuthMode: 'oauth',
         remoteUrl: trimmedUrl
       })
 
+      if (seq !== signingSeq.current) {
+        return
+      }
+
       acceptSavedConfig(saved)
 
       const result = await window.hermesDesktop.oauthLoginConnectionConfig(trimmedUrl)
+
+      if (seq !== signingSeq.current) {
+        return
+      }
 
       if (result.connected) {
         const refreshed = await window.hermesDesktop.getConnectionConfig(scope)
@@ -479,24 +616,38 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
         })
       }
     } catch (err) {
-      notifyError(err, g.signInFailed)
+      if (seq === signingSeq.current) {
+        notifyError(err, g.signInFailed)
+      }
     } finally {
-      setSigningIn(false)
+      if (seq === signingSeq.current) {
+        setSigningIn(false)
+      }
     }
   }
 
   const signOut = async () => {
+    const seq = ++signingSeq.current
     setSigningIn(true)
 
     try {
       await window.hermesDesktop.oauthLogoutConnectionConfig(trimmedUrl || undefined)
       const refreshed = await window.hermesDesktop.getConnectionConfig(scope)
+
+      if (seq !== signingSeq.current) {
+        return
+      }
+
       acceptSavedConfig(refreshed)
       notify({ kind: 'success', title: g.signedOutTitle, message: g.signedOutMessage })
     } catch (err) {
-      notifyError(err, g.signOutFailed)
+      if (seq === signingSeq.current) {
+        notifyError(err, g.signOutFailed)
+      }
     } finally {
-      setSigningIn(false)
+      if (seq === signingSeq.current) {
+        setSigningIn(false)
+      }
     }
   }
 
@@ -508,6 +659,7 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
   // needsOrgSelection we surface the org list and show a picker instead.
   const discoverCloud = async (org?: string) => {
     const desktop = window.hermesDesktop
+    const seq = contextSeq.current
 
     if (!desktop?.cloud) {
       return
@@ -517,6 +669,10 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
 
     try {
       const result = await desktop.cloud.discover(org)
+
+      if (seq !== contextSeq.current) {
+        return
+      }
 
       if ('needsOrgSelection' in result && result.needsOrgSelection) {
         // Multi-org user with no org chosen yet: show the picker. Don't clear a
@@ -545,6 +701,10 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
 
       setCloudDiscover('done')
     } catch (err) {
+      if (seq !== contextSeq.current) {
+        return
+      }
+
       setCloudAgents([])
       setCloudDiscover('error')
 
@@ -629,6 +789,7 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
 
   const cloudSignIn = async () => {
     const desktop = window.hermesDesktop
+    const seq = ++signingSeq.current
 
     if (!desktop?.cloud) {
       return
@@ -638,20 +799,30 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
 
     try {
       const result = await desktop.cloud.login()
+
+      if (seq !== signingSeq.current) {
+        return
+      }
+
       setCloudSignedIn(result.signedIn)
 
       if (result.signedIn) {
         await discoverCloud()
       }
     } catch (err) {
-      notifyError(err, g.cloudSignInFailed)
+      if (seq === signingSeq.current) {
+        notifyError(err, g.cloudSignInFailed)
+      }
     } finally {
-      setCloudSigningIn(false)
+      if (seq === signingSeq.current) {
+        setCloudSigningIn(false)
+      }
     }
   }
 
   const cloudSignOut = async () => {
     const desktop = window.hermesDesktop
+    const seq = ++signingSeq.current
 
     if (!desktop?.cloud) {
       return
@@ -661,6 +832,11 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
 
     try {
       await desktop.cloud.logout()
+
+      if (seq !== signingSeq.current) {
+        return
+      }
+
       setCloudSignedIn(false)
       setCloudAgents([])
       setCloudOrgs([])
@@ -668,9 +844,13 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
       setCloudDiscover('idle')
       notify({ kind: 'success', title: g.cloudSignedOutTitle, message: g.cloudSignedOutMessage })
     } catch (err) {
-      notifyError(err, g.signOutFailed)
+      if (seq === signingSeq.current) {
+        notifyError(err, g.signOutFailed)
+      }
     } finally {
-      setCloudSigningIn(false)
+      if (seq === signingSeq.current) {
+        setCloudSigningIn(false)
+      }
     }
   }
 
@@ -678,6 +858,8 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
   // prompt — the shared portal session auto-approves), then persist a cloud-mode
   // connection pointed at its dashboardUrl and apply it (soft-reconnects in place).
   const connectCloudAgent = async (agent: DesktopCloudAgent) => {
+    const seq = contextSeq.current
+
     if (!agent.dashboardUrl) {
       return
     }
@@ -692,6 +874,10 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
 
     try {
       const result = await desktop.cloud.agentSignIn(agent.dashboardUrl)
+
+      if (seq !== contextSeq.current) {
+        return
+      }
 
       if (!result.connected) {
         notify({
@@ -715,20 +901,113 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
         cloudOrg: cloudOrgRef.current ?? undefined
       })
 
+      if (seq !== contextSeq.current) {
+        return
+      }
+
       acceptSavedConfig(next)
       notify({ kind: 'success', title: g.cloudConnectedTitle, message: g.cloudConnectedTo(agent.name) })
     } catch (err) {
+      if (seq !== contextSeq.current) {
+        return
+      }
+
       if (err && typeof err === 'object' && 'needsCloudLogin' in err) {
         setCloudSignedIn(false)
       }
 
       notifyError(err, g.cloudConnectFailed)
     } finally {
-      setCloudConnectingId(null)
+      if (seq === contextSeq.current) {
+        setCloudConnectingId(null)
+      }
+    }
+  }
+
+  const resolveSshHost = async (host: string) => {
+    if (!host || !window.hermesDesktop?.sshResolveHost) {
+      return
+    }
+
+    const seq = ++sshResolveSeq.current
+
+    try {
+      const resolved = await window.hermesDesktop.sshResolveHost(host)
+
+      if (seq !== sshResolveSeq.current) {
+        return
+      }
+
+      setState(current => enrichSelectedSshHost(current, host, resolved))
+    } catch {
+      return
+    }
+  }
+
+  const selectHost = (value: string) => {
+    if (value === SSH_HOST_CUSTOM) {
+      setSshCustomHost(true)
+      setState(current => selectSshHost(current, ''))
+
+      return
+    }
+
+    setSshCustomHost(false)
+    setState(current => selectSshHost(current, value))
+    void resolveSshHost(value)
+  }
+
+  const testSsh = async () => {
+    const seq = ++sshTestSeq.current
+
+    if (!state.sshHost.trim()) {
+      notify({ kind: 'warning', title: g.incompleteTitle, message: g.sshIncompleteHost })
+
+      return
+    }
+
+    setTesting(true)
+    setLastTest(null)
+
+    try {
+      const result = await window.hermesDesktop.testConnectionConfig(payload())
+
+      if (seq !== sshTestSeq.current) {
+        return
+      }
+
+      if (!result.reachable) {
+        const errors = {
+          'auth-failed': g.sshErrAuth,
+          'hermes-not-found': g.sshErrNotInstalled,
+          'host-key-changed': g.sshErrHostKey,
+          timeout: g.sshErrTimeout,
+          unreachable: g.sshErrUnreachable,
+          'unsupported-platform': g.sshErrPlatform,
+          'update-required': g.sshErrUpdateRequired,
+          unknown: g.sshErrUnknown
+        }
+
+        throw new Error(errors[result.sshError || 'unknown'] || result.error || g.sshErrUnknown)
+      }
+
+      const message = g.sshReachable(result.host || state.sshHost, result.remotePlatform || '?')
+      setLastTest(message)
+      notify({ kind: 'success', title: g.reachableTitle, message })
+    } catch (err) {
+      if (seq === sshTestSeq.current) {
+        notifyError(err, g.testFailed)
+      }
+    } finally {
+      if (seq === sshTestSeq.current) {
+        setTesting(false)
+      }
     }
   }
 
   const testRemote = async () => {
+    const seq = ++sshTestSeq.current
+
     if (!canUseRemote) {
       notify({
         kind: 'warning',
@@ -746,24 +1025,38 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
       const result = await window.hermesDesktop.testConnectionConfig({
         mode: 'remote',
         profile: scope ?? undefined,
-        remoteAllowInvalidCertificate: state.remoteAllowInvalidCertificate,
         remoteAuthMode: authMode,
         remoteToken: authMode === 'token' ? remoteToken.trim() || undefined : undefined,
         remoteUrl: trimmedUrl
       })
 
-      const message = g.connectedTo(result.baseUrl, result.version ?? undefined)
+      if (seq !== sshTestSeq.current) {
+        return
+      }
+
+      const message = g.connectedTo(result.baseUrl || trimmedUrl, result.version ?? undefined)
       setLastTest(message)
       notify({ kind: 'success', title: g.reachableTitle, message })
     } catch (err) {
-      notifyError(err, g.testFailed)
+      if (seq === sshTestSeq.current) {
+        notifyError(err, g.testFailed)
+      }
     } finally {
-      setTesting(false)
+      if (seq === sshTestSeq.current) {
+        setTesting(false)
+      }
     }
   }
 
   if (loading) {
-    return <LoadingState label={g.loading} />
+    return (
+      <SettingsSkeleton
+        sections={[
+          { heading: true, rows: 3 },
+          { heading: true, rows: 3 }
+        ]}
+      />
+    )
   }
 
   if (!window.hermesDesktop?.getConnectionConfig) {
@@ -821,21 +1114,21 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
         <div className="text-[length:var(--conversation-caption-font-size)] font-medium text-(--ui-text-secondary)">
           {g.modeTitle}
         </div>
-        <div className="grid auto-rows-fr grid-cols-1 gap-2 min-[42rem]:grid-cols-3">
+        <div className="grid auto-rows-fr grid-cols-1 gap-2 sm:grid-cols-2 min-[72rem]:grid-cols-4">
           <ModeCard
             active={state.mode === 'local'}
-            description={g.localDesc}
+            description={scope === null ? g.localDesc : g.inheritDesc}
             disabled={state.envOverride}
             icon={Monitor}
-            onSelect={() => setMode('local')}
-            title={g.localTitle}
+            onSelect={() => setState(current => ({ ...current, mode: 'local' }))}
+            title={scope === null ? g.localTitle : g.inheritTitle}
           />
           <ModeCard
             active={state.mode === 'cloud'}
             description={g.cloudDesc}
             disabled={state.envOverride}
             icon={Cloud}
-            onSelect={() => setMode('cloud')}
+            onSelect={() => setState(current => ({ ...current, mode: 'cloud' }))}
             title={g.cloudTitle}
           />
           <ModeCard
@@ -844,8 +1137,17 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
             disabled={state.envOverride}
             hint={g.remoteAuthHint}
             icon={Globe}
-            onSelect={() => setMode('remote')}
+            onSelect={() => setState(current => ({ ...current, mode: 'remote' }))}
             title={g.remoteTitle}
+          />
+          <ModeCard
+            active={state.mode === 'ssh'}
+            description={g.sshDesc}
+            disabled={state.envOverride}
+            hint={g.sshTrustHint}
+            icon={Terminal}
+            onSelect={() => setState(current => ({ ...current, mode: 'ssh' }))}
+            title={g.sshTitle}
           />
         </div>
       </div>
@@ -1002,8 +1304,7 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
               <Input
                 className={cn('h-8', CONTROL_TEXT)}
                 disabled={state.envOverride}
-                onBlur={() => void probeRemoteUrl()}
-                onChange={event => setRemoteUrl(event.target.value)}
+                onChange={event => setState(current => ({ ...current, remoteUrl: event.target.value }))}
                 placeholder="https://gateway.example.com/hermes"
                 value={state.remoteUrl}
               />
@@ -1022,12 +1323,7 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
           {state.mode === 'remote' && probeStatus === 'error' ? (
             <div className="flex items-start gap-2 py-3 text-[length:var(--conversation-caption-font-size)] text-(--ui-text-tertiary)">
               <AlertCircle className="mt-0.5 size-4 shrink-0" />
-              <span>
-                {g.probeError}
-                {probe?.error ? (
-                  <span className="mt-0.5 block font-mono text-(--ui-text-quaternary)">{probe.error}</span>
-                ) : null}
-              </span>
+              {g.probeError}
             </div>
           ) : null}
 
@@ -1067,39 +1363,175 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
 
           {/* Session-token gateways: keep the existing token entry box. */}
           {state.mode === 'remote' && authResolved && authMode === 'token' ? (
+            <>
+              <ListRow
+                action={
+                  <Input
+                    autoComplete="off"
+                    className={cn('h-8 font-mono', CONTROL_TEXT)}
+                    disabled={state.envOverride}
+                    onChange={event => setRemoteToken(event.target.value)}
+                    placeholder={
+                      state.remoteTokenSet
+                        ? g.existingToken(state.remoteTokenPreview ?? g.savedToken)
+                        : g.pasteSessionToken
+                    }
+                    type="password"
+                    value={remoteToken}
+                  />
+                }
+                description={g.tokenDesc}
+                title={g.tokenTitle}
+              />
+
+              {/* The saved token is on disk in plain text (no OS keyring). Same
+                  banner idiom as envOverride so it reads as a real warning. */}
+              {state.remoteTokenPlainText ? (
+                <div className="mt-2 flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-[length:var(--conversation-caption-font-size)] text-destructive">
+                  <AlertCircle className="mt-0.5 size-4 shrink-0" />
+                  <div>
+                    <div className="font-medium">{g.plainTextStoredTitle}</div>
+                    <div className="mt-1 leading-5">{g.plainTextStoredDesc}</div>
+                  </div>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+
+          {/* ForgeGuard fork: TLS bypass for a self-signed / untrusted gateway
+              certificate. Toggling re-probes via the debounced effect above. */}
+          {state.mode === 'remote' ? (
+            <ListRow
+              action={
+                <Switch
+                  checked={state.remoteAllowInvalidCertificate}
+                  disabled={state.envOverride}
+                  onCheckedChange={checked =>
+                    setState(current => ({ ...current, remoteAllowInvalidCertificate: checked }))
+                  }
+                />
+              }
+              description={g.insecureCertDesc}
+              title={g.insecureCertTitle}
+            />
+          ) : null}
+        </div>
+      ) : null}
+
+      {state.mode === 'ssh' && !state.envOverride ? (
+        <div className="mt-5 grid gap-1">
+          {sshHostSuggestions.length > 0 && !sshCustomHost ? (
+            <ListRow
+              action={
+                <Select
+                  onValueChange={selectHost}
+                  value={sshHostSuggestions.includes(state.sshHost) ? state.sshHost : SSH_HOST_CUSTOM}
+                >
+                  <SelectTrigger className={cn('h-8', CONTROL_TEXT)}>
+                    <SelectValue placeholder={g.sshHostPick} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sshHostSuggestions.map(host => (
+                      <SelectItem key={host} value={host}>
+                        {host}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value={SSH_HOST_CUSTOM}>{g.sshHostCustom}</SelectItem>
+                  </SelectContent>
+                </Select>
+              }
+              description={g.sshHostPickDesc}
+              title={g.sshHostPickTitle}
+            />
+          ) : (
             <ListRow
               action={
                 <Input
-                  autoComplete="off"
-                  className={cn('h-8 font-mono', CONTROL_TEXT)}
-                  disabled={state.envOverride}
-                  onChange={event => setRemoteToken(event.target.value)}
-                  placeholder={
-                    state.remoteTokenSet
-                      ? g.existingToken(state.remoteTokenPreview ?? g.savedToken)
-                      : g.pasteSessionToken
-                  }
-                  type="password"
-                  value={remoteToken}
+                  autoFocus={sshCustomHost}
+                  className={cn('h-8', CONTROL_TEXT)}
+                  onBlur={() => {
+                    // Empty host on blur with suggestions available = the user backed
+                    // out of Custom; return to the dropdown.
+                    if (!state.sshHost.trim() && sshHostSuggestions.length > 0) {
+                      setSshCustomHost(false)
+
+                      return
+                    }
+
+                    void resolveSshHost(state.sshHost)
+                  }}
+                  onChange={event => setState(current => selectSshHost(current, event.target.value))}
+                  value={state.sshHost}
                 />
               }
-              description={g.tokenDesc}
-              title={g.tokenTitle}
+              description={g.sshHostDesc}
+              title={g.sshHostTitle}
             />
-          ) : null}
-
-          {/* TLS bypass for a self-signed / untrusted gateway certificate. */}
+          )}
           <ListRow
             action={
-              <Switch
-                checked={state.remoteAllowInvalidCertificate}
-                disabled={state.envOverride}
-                onCheckedChange={setAllowInvalidCertificate}
+              <Input
+                className={cn('h-8', CONTROL_TEXT)}
+                onChange={event => setState(current => ({ ...current, sshUser: event.target.value }))}
+                placeholder={g.sshUserPlaceholder}
+                value={state.sshUser}
               />
             }
-            description={g.insecureCertDesc}
-            title={g.insecureCertTitle}
+            description={g.sshUserDesc}
+            title={g.sshUserTitle}
           />
+          <ListRow
+            action={
+              <Input
+                className={cn('h-8', CONTROL_TEXT)}
+                inputMode="numeric"
+                onChange={event =>
+                  setState(current => ({ ...current, sshPort: event.target.value ? Number(event.target.value) : null }))
+                }
+                placeholder="22"
+                value={state.sshPort ?? ''}
+              />
+            }
+            description={g.sshPortDesc}
+            title={g.sshPortTitle}
+          />
+          <ListRow
+            action={
+              <Input
+                className={cn('h-8 font-mono', CONTROL_TEXT)}
+                onChange={event => setState(current => ({ ...current, sshKeyPath: event.target.value }))}
+                value={state.sshKeyPath}
+              />
+            }
+            description={g.sshKeyDesc}
+            title={g.sshKeyTitle}
+          />
+          <ListRow
+            action={
+              <Input
+                className={cn('h-8 font-mono', CONTROL_TEXT)}
+                onChange={event => setState(current => ({ ...current, sshRemoteHermesPath: event.target.value }))}
+                placeholder={g.sshHermesPathPlaceholder}
+                value={state.sshRemoteHermesPath}
+              />
+            }
+            description={g.sshHermesPathDesc}
+            title={g.sshHermesPathTitle}
+          />
+          {scope !== null ? (
+            <ListRow
+              action={
+                <Input
+                  className={cn('h-8 font-mono', CONTROL_TEXT)}
+                  onChange={event => setState(current => ({ ...current, sshRemoteProfile: event.target.value }))}
+                  placeholder={scope}
+                  value={state.sshRemoteProfile}
+                />
+              }
+              description={g.sshRemoteProfileDesc}
+              title={g.sshRemoteProfileTitle}
+            />
+          ) : null}
         </div>
       ) : null}
 
@@ -1120,6 +1552,17 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
             >
               {testing ? <Loader2 className="animate-spin" /> : null}
               {g.testRemote}
+            </Button>
+          ) : state.mode === 'ssh' ? (
+            <Button
+              className="mr-auto"
+              disabled={testing || !state.sshHost.trim()}
+              onClick={() => void testSsh()}
+              size="sm"
+              variant="text"
+            >
+              {testing ? <Loader2 className="animate-spin" /> : null}
+              {g.sshTestConnection}
             </Button>
           ) : null}
           {embedded ? null : (
@@ -1153,6 +1596,24 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
           />
         </div>
       )}
+
+      {/* Plain-text token opt-in: gated when secure storage is unavailable and a
+          new token would be persisted. Confirm resumes the remembered save/apply. */}
+      <ConfirmDialog
+        confirmLabel={g.plainTextConfirmAction}
+        description={g.plainTextConfirmDesc}
+        destructive
+        onClose={() => setPlainTextConfirm(null)}
+        onConfirm={async () => {
+          if (!plainTextConfirm) {
+            return
+          }
+
+          await performSave(plainTextConfirm.apply, true)
+        }}
+        open={plainTextConfirm !== null}
+        title={g.plainTextConfirmTitle}
+      />
     </SettingsContent>
   )
 }

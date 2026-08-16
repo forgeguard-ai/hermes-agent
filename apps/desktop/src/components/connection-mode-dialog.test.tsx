@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { DesktopConnectionConfig, DesktopConnectionConfigInput, DesktopConnectionProbeResult } from '@/global'
@@ -25,7 +25,15 @@ const LOCAL_CONFIG: DesktopConnectionConfig = {
   remoteTokenPreview: null,
   remoteTokenSet: false,
   remoteUrl: '',
-  savedRemotes: []
+  savedRemotes: [],
+  secureTokenStorage: true,
+  remoteTokenPlainText: false,
+  sshHost: '',
+  sshUser: '',
+  sshPort: null,
+  sshKeyPath: '',
+  sshRemoteHermesPath: '',
+  sshRemoteProfile: ''
 }
 
 const REMOTE_CONFIG: DesktopConnectionConfig = {
@@ -39,7 +47,15 @@ const REMOTE_CONFIG: DesktopConnectionConfig = {
   remoteTokenPreview: '••••1234',
   remoteTokenSet: true,
   remoteUrl: 'https://gateway.example.com/hermes',
-  savedRemotes: []
+  savedRemotes: [],
+  secureTokenStorage: true,
+  remoteTokenPlainText: false,
+  sshHost: '',
+  sshUser: '',
+  sshPort: null,
+  sshKeyPath: '',
+  sshRemoteHermesPath: '',
+  sshRemoteProfile: ''
 }
 
 const TOKEN_PROBE: DesktopConnectionProbeResult = {
