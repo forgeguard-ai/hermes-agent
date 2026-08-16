@@ -181,7 +181,26 @@ class TestValidateCustomEndpointKeyProbe:
                 seen["headers"] = headers or {}
                 return fake_response
 
+        class _FakeAsyncClient:
+            # The fixed-table probe went async upstream (v2026.8.16) while the
+            # custom-endpoint branch stays sync; fake both transports so these
+            # tests pin the PROBE TARGET, not the HTTP client flavor.
+            def __init__(self, *a, **kw):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def get(self, url, headers=None, params=None):
+                seen["url"] = url
+                seen["headers"] = headers or {}
+                return fake_response
+
         monkeypatch.setattr("httpx.Client", _FakeClient)
+        monkeypatch.setattr("httpx.AsyncClient", _FakeAsyncClient)
         monkeypatch.setattr(web_server, "load_config", lambda: cfg)
         monkeypatch.setattr(web_server, "_require_token", lambda request: None)
 
