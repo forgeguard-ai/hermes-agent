@@ -129,6 +129,11 @@ evolves.
       version (`pyproject.toml`), not upstream's stale desktop version — bump it
       (and the `"apps/desktop"` entry in the root `package-lock.json`) on every
       sync that changes the product version.
+- [ ] **`apps/desktop/src/app/settings/gateway-settings.test.tsx`** carries the
+      fork's `localDesc` wording ("… Works offline.", no "This is the default")
+      in its two label assertions — the fork is client-mode-first, so upstream's
+      wording (re-)appearing here means an auto-merge silently restored
+      upstream's string; re-adapt the assertions, not the fork's i18n.
 - [ ] **`apps/desktop/package.json`** has a top-level `"homepage"` field
       (`https://github.com/forgeguard-ai/hermes-agent#readme`) — required by
       electron-builder's Linux `deb` target; its absence fails `dist:linux` with

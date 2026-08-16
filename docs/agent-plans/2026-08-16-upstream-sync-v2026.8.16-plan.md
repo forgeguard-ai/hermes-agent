@@ -158,14 +158,14 @@ validation before the final dev → main merge.
 
 ## Phase 4 — Supersession proofs (evidence, not eyeball)
 
-- [ ] **4a voice hook:** run fork's `use-voice-conversation.test.tsx`
+- [x] **4a voice hook:** run fork's `use-voice-conversation.test.tsx`
       unmodified on the merged tree. Pass → superseded (drop fork patch;
       keep/retire test per upstream's own coverage). Seam-only failures →
       rewrite test seams, re-run. Behavioral failure → re-apply minimal fork
       delta onto upstream's new hook shape. Verdict recorded here +
       `forgeguard-changes.md` + patch inventory. Real-mic smoke deferred to
       user local.
-- [ ] **4b custom-slug + no-key truth table:** copy
+- [x] **4b custom-slug + no-key truth table:** copy
       `test_custom_provider_slug_canonicalization.py` +
       `test_auth_usable_secret.py` into the clean upstream worktree and run
       against pristine v2026.8.16 — each passing test = behavior converged
@@ -186,19 +186,19 @@ validation before the final dev → main merge.
       any non-(GitHub-authored / forgeguard-org-owned / Marketplace-verified)
       action reachable on fork PRs → rewrite to direct invocation
       (docker-lint precedent) or guard off the fork.
-- [ ] Branch-protection reconciliation: fork `main` required checks vs new
+- [x] Branch-protection reconciliation: fork `main` required checks vs new
       upstream job names — unguardable-new checks must skip, not block.
-- [ ] Record every new/changed guard in `patch-inventory.md` (Phase 6). Only
+- [x] Record every new/changed guard in `patch-inventory.md` (Phase 6). Only
       after this audit may M be pushed.
 
 ## Phase 6 — Patch-inventory re-verification + updates
 
-- [ ] Every checkbox in `docs/maintainers/upstream-sync/patch-inventory.md`
+- [x] Every checkbox in `docs/maintainers/upstream-sync/patch-inventory.md`
       re-verified on the merged tree, by grep, not memory.
-- [ ] Especially: `inputs.upload`/`inputs.push` gated **directly** in both
+- [x] Especially: `inputs.upload`/`inputs.push` gated **directly** in both
       build workflows (2026-07-02 silent-skip class); no `push:` trigger on
       either build workflow; release-on-merge gating intact.
-- [ ] Inventory edits: retire `upload_to_pypi.yml` entry (strike-through,
+- [x] Inventory edits: retire `upload_to_pypi.yml` entry (strike-through,
       dated); reword contributor-check (guard at ci.yml call site); **add**
       missing `docker-lint.yml` direct-invocation entry (org actions-policy
       rationale); add all new Phase 5 guards; add carried-runtime-patch
@@ -209,23 +209,23 @@ validation before the final dev → main merge.
 
 ## Phase 7 — Validation (cloud)
 
-- [ ] `uv sync` → `.venv`; `uv lock --check` clean.
-- [ ] `scripts/run_tests.sh` full suite (~17k tests; never bare pytest);
+- [x] `uv sync` → `.venv`; `uv lock --check` clean.
+- [x] `scripts/run_tests.sh` full suite (~17k tests; never bare pytest);
       triage every failure vs a clean upstream worktree
       (`git worktree add <scratchpad>/upstream-clean 'v2026.8.16^{commit}'`,
       `uv sync`, same wrapper): failure-set difference = merge regressions
       (fix before PR) vs upstream debt (list in PR body). Also run Phase 4b
       here. Remove worktree after; monitor disk.
-- [ ] Targeted fork suites explicitly green: custom-slug, auth-usable-secret,
+- [x] Targeted fork suites explicitly green: custom-slug, auth-usable-secret,
       mem0 ×2, offline, banner, first-run/connection-config,
       `tests/tools/test_windows_native_support.py` (README install.ps1).
-- [ ] JS (Node 26 if installed, else Node 22 + recorded deviation): root
+- [x] JS (Node 26 if installed, else Node 22 + recorded deviation): root
       `npm install`; `ui-tui` — `npm run build:ink`, typecheck, vitest;
       `apps/desktop` — both tsconfigs typecheck, vitest `ui` + `electron`
       projects (voice-hook focus).
-- [ ] `python scripts/docs/validate_docs.py`.
-- [ ] hadolint: deferred to PR CI (fork's `docker-lint.yml` runs it).
-- [ ] `scripts/graphify-refresh.sh` → commit refreshed
+- [x] `python scripts/docs/validate_docs.py`.
+- [x] hadolint: deferred to PR CI (fork's `docker-lint.yml` runs it).
+- [x] `scripts/graphify-refresh.sh` → commit refreshed
       `graphify-out/GRAPH_REPORT.md` (final content commit).
 
 Deferred to local (user): full Docker builds of both targets + `tests/docker`
@@ -234,40 +234,40 @@ E2E against the ForgeGuard deployment manager, GHCR image pull checks.
 
 ## Phase 8 — Docs updates
 
-- [ ] `docs/site/fork/compatibility.md`: base `v2026.8.16`, release `v0.20.2`,
+- [x] `docs/site/fork/compatibility.md`: base `v2026.8.16`, release `v0.20.2`,
       product 0.19.3 → 0.20.2.
-- [ ] `docs/site/fork/forgeguard-changes.md`: voice-hook verdict, per-behavior
+- [x] `docs/site/fork/forgeguard-changes.md`: voice-hook verdict, per-behavior
       custom-slug outcome, upload_to_pypi retirement, docker-lint rewrite,
       new workflow guards.
-- [ ] `docs/site/operations/releases-and-upgrades.md` **and** the
+- [x] `docs/site/operations/releases-and-upgrades.md` **and** the
       release-notes heredoc in `release-on-merge.yml`: Node 26 requirement +
       brew/pip retirement; scrub stale install-channel references across
       `docs/site/` (incl. `migration-from-upstream.md`, `upstream.md`).
-- [ ] `docs/maintainers/development/review.md`: refresh for upstream 0.20
+- [x] `docs/maintainers/development/review.md`: refresh for upstream 0.20
       structure (voice/TTS, A2A, iron-proxy, desktop artifacts/plugin SDK).
-- [ ] **Codify `dev` as the standard sync branch** in
+- [x] **Codify `dev` as the standard sync branch** in
       `docs/maintainers/upstream-sync/sync-policy.md` (user decision #1);
       keep "never PR from an upstream head"; update cross-references naming
       the old `sync/upstream-<TAG>` convention.
 
 ## Phase 9 — FORK_UPSTREAM_BASE + version
 
-- [ ] `echo "v2026.8.16" > FORK_UPSTREAM_BASE`, committed as
+- [x] `echo "v2026.8.16" > FORK_UPSTREAM_BASE`, committed as
       `chore: bump FORK_UPSTREAM_BASE to v2026.8.16`.
-- [ ] `grep -m1 '^version' pyproject.toml` → `0.20.2` on the merged tree;
+- [x] `grep -m1 '^version' pyproject.toml` → `0.20.2` on the merged tree;
       desktop package.json/package-lock at 0.20.2.
 
 ## Phase 10 — Commit/push sequencing on dev
 
 No amend/force-push after anything is pushed. Sequence:
 
-- [ ] 1. `docs:` this plan file (pushed immediately).
-- [ ] 2. Merge commit M (pushed only after the Phase 5 audit).
-- [ ] 3. `fix(sync): ...` single-topic fixups (inventory pass, test triage,
+- [x] 1. `docs:` this plan file (pushed immediately).
+- [x] 2. Merge commit M (pushed only after the Phase 5 audit).
+- [x] 3. `fix(sync): ...` single-topic fixups (inventory pass, test triage,
       supersession adaptations).
-- [ ] 4. `chore: bump FORK_UPSTREAM_BASE to v2026.8.16`.
-- [ ] 5. `docs(fork): update compatibility/changes/release docs for v2026.8.16`.
-- [ ] 6. `chore: refresh Graphify report` (last).
+- [x] 4. `chore: bump FORK_UPSTREAM_BASE to v2026.8.16`.
+- [x] 5. `docs(fork): update compatibility/changes/release docs for v2026.8.16`.
+- [x] 6. `chore: refresh Graphify report` (last).
 
 ## Phase 11 — PR + CI green, then stop (user decision #2)
 
@@ -309,4 +309,47 @@ No amend/force-push after anything is pushed. Sequence:
 
 ## Decisions & findings log (2026-08-16, cloud session)
 
-(Appended as work proceeds.)
+- 31 conflicted files, ALL inside the pre-authorized surface (63-file overlap
+  predicted from the parents' diffs).
+- Verdicts proven: no-key placeholder NOT upstream (fork test red on pristine
+  v2026.8.16); custom-slug cluster cannot even import there
+  (canonicalize_provider_slug absent); mem0 scoping absent; voice mic re-arm
+  SUPERSEDED by upstream's live-speech rewrite — fork patch dropped, regression
+  scenario kept as use-voice-conversation.rearm.test.tsx with adapted seams.
+- Custom-slug merged behavior: upstream chokepoint + fork's custom:custom
+  bare-bucket collapse; NAMED unresolved slugs stay verbatim (upstream's
+  typo-preservation, consistent with fork commit 20ac314's own lesson).
+- Dockerfile: sqlite_build + fixed-SQLite install placed in `base` (both
+  published images inherit), Node 26/no-corepack, libatomic1, otlp extra
+  (runtime venv only), photon sidecar bake (runtime only), new
+  entrypoint-dispatch ENTRYPOINT — its COPY --chmod=0755 is load-bearing (the
+  script is committed 0644).
+- TLS bypass centralized: fetchJson/fetchPublicJson fall back to
+  hostAllowsInvalidCertificate() when a call site passes no explicit
+  rejectUnauthorized, so upstream's rewritten waitForHermes/revalidation/
+  profile-fetch paths inherit the bypass without signature threading.
+- isBootstrapComplete (fork-only) re-expressed via upstream's
+  classifyActiveRuntime/activeRuntimeState.
+- tui_gateway: fork's gateway.ping kept in server.py; fork copies of
+  session.active_list/activate dropped (moved upstream to methods_session.py,
+  #38950 liveness filter intact).
+- Workflow audit: NEW guards on install-e2e.yml (all 3 jobs; fork release tags
+  match its v* patterns!) + publish-e2e-evidence.yml (upstream PAT);
+  ci-review-comment.yml + label-rerun.yml left unguarded on purpose
+  (GITHUB_TOKEN-only, useful on fork PRs). Actions-policy sweep clean; watch
+  the osv-scanner reusable-workflow call form on the first PR CI run.
+- Env notes: container uv 0.8.17 cannot parse upstream's uv.lock
+  (per-package exclude-newer) — uv 0.11.6 (upstream's pin) installed and used
+  for sync + `uv lock --check` (clean, 249 pkgs). JS validated on Node 26.7.0
+  (tarball; container default is 22).
+- Full-suite triage (CI-parity extras: all+dev+anthropic+mistral+fal+modal+
+  daytona+hindsight+parallel-web): merged tree = 13 files / 20 failed tests +
+  test_teams.py collection error; pristine upstream worktree = IDENTICAL set.
+  ZERO merge regressions. First run with only --extra dev showed 47
+  collection errors — venv parity matters, recorded here for the next sync.
+- Desktop vitest: 5773 tests, green after (1) adapting
+  gateway-settings.test.tsx's two label assertions to the fork's
+  client-mode-first localDesc wording (recorded in patch inventory), and
+  (2) two load-contention timeouts (skills/index, cursorDriftRegression in
+  ui-tui) that pass in isolation. ui-tui: build + typecheck + 1630 tests
+  green. Desktop typecheck: all three tsconfigs green.
