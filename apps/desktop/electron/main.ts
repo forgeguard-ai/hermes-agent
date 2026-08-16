@@ -4020,6 +4020,16 @@ function activeRuntimeState() {
   return classifyActiveRuntime(readBootstrapMarker(), BOOTSTRAP_MARKER_SCHEMA_VERSION, isActiveRuntimeUsable())
 }
 
+// ForgeGuard fork: "a desktop-managed bootstrap completed here AND the runtime
+// it left behind is actually usable" — the first-run chooser's
+// existing-local-install bypass. Expressed through upstream's runtime
+// classifier (rather than re-reading the marker) so the two can't disagree.
+function isBootstrapComplete() {
+  const state = activeRuntimeState()
+
+  return state.hasValidMarker && state.shouldUseActiveRuntime
+}
+
 function writeBootstrapMarker(payload) {
   fs.mkdirSync(path.dirname(BOOTSTRAP_COMPLETE_MARKER), { recursive: true })
 

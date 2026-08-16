@@ -1,6 +1,6 @@
 import { useStore } from '@nanostores/react'
 import { useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 
 import { SETTINGS_ROUTE } from '@/app/routes'
 import { useGatewayConnection } from '@/app/settings/use-gateway-connection'

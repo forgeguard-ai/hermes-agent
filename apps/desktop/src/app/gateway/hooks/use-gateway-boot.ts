@@ -353,7 +353,7 @@ export function useGatewayBoot({
 
           // Same override rule as boot(): a profile-pinned helper window stays
           // on its pinned profile's backend across a soft switch.
-          let conn = await desktop.getConnection(windowProfileOverride() ?? undefined)
+          const conn = await desktop.getConnection(windowProfileOverride() ?? undefined)
 
           if (cancelled) {
             return
@@ -590,7 +590,7 @@ export function useGatewayBoot({
           // A profile-pinned helper window (the HUD) dials its target profile's
           // backend directly — ensureBackend spawns/reuses it from the pool.
           // Everything else keeps dialing the primary.
-          const conn = await desktop.getConnection(windowProfileOverride() ?? undefined)
+          let conn = await desktop.getConnection(windowProfileOverride() ?? undefined)
 
           if (cancelled) {
             return

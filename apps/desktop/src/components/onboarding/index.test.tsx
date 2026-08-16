@@ -78,7 +78,7 @@ describe('onboarding overlay first-run stand-down', () => {
       visible: false
     })
 
-    const { container } = render(<DesktopOnboardingOverlay enabled={false} requestGateway={overlayCtx.requestGateway} />)
+    const { container } = render(<DesktopOnboardingOverlay enabled={false} profile="default" requestGateway={overlayCtx.requestGateway} />)
 
     expect(container.firstChild).toBeNull()
     expect(screen.queryByRole('status')).toBeNull()
@@ -100,7 +100,7 @@ describe('onboarding overlay first-run stand-down', () => {
       visible: true
     })
 
-    render(<DesktopOnboardingOverlay enabled={false} requestGateway={overlayCtx.requestGateway} />)
+    render(<DesktopOnboardingOverlay enabled={false} profile="default" requestGateway={overlayCtx.requestGateway} />)
 
     expect(screen.getByRole('status')).toBeTruthy()
   })

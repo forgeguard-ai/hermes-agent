@@ -10,10 +10,11 @@ export type ConnectionProbeStatus = 'idle' | 'probing' | 'done' | 'error'
 
 export interface GatewayConnectionState {
   envOverride: boolean
-  // The saved config may also be a Hermes Cloud connection ('cloud'); the
-  // connection-mode dialog treats it like remote for display but only ever
-  // creates local/remote configs itself (cloud connects live in Settings).
-  mode: 'cloud' | ConnectionMode
+  // The saved config may also be a Hermes Cloud connection ('cloud') or an
+  // SSH connection ('ssh', since upstream v2026.8.16); the connection-mode
+  // dialog treats those like remote for display but only ever creates
+  // local/remote configs itself (cloud + ssh connects live in Settings).
+  mode: 'cloud' | 'ssh' | ConnectionMode
   // Persisted Hermes Cloud org for a 'cloud' connection; '' otherwise. Carried
   // through untouched so loading a cloud config into the form is lossless.
   cloudOrg: string
@@ -24,6 +25,16 @@ export interface GatewayConnectionState {
   remoteTokenSet: boolean
   remoteUrl: string
   savedRemotes: DesktopSavedRemote[]
+  // Carried through from DesktopConnectionConfig (upstream v2026.8.16 fields)
+  // so a loaded config assigns losslessly; the dialog itself ignores them.
+  secureTokenStorage: boolean
+  remoteTokenPlainText: boolean
+  sshHost: string
+  sshUser: string
+  sshPort: number | null
+  sshKeyPath: string
+  sshRemoteHermesPath: string
+  sshRemoteProfile: string
 }
 
 export const EMPTY_CONNECTION_STATE: GatewayConnectionState = {
@@ -36,7 +47,15 @@ export const EMPTY_CONNECTION_STATE: GatewayConnectionState = {
   remoteTokenPreview: null,
   remoteTokenSet: false,
   remoteUrl: '',
-  savedRemotes: []
+  savedRemotes: [],
+  secureTokenStorage: true,
+  remoteTokenPlainText: false,
+  sshHost: '',
+  sshUser: '',
+  sshPort: null,
+  sshKeyPath: '',
+  sshRemoteHermesPath: '',
+  sshRemoteProfile: ''
 }
 
 /**
@@ -444,7 +463,7 @@ export function useGatewayConnection(scope: null | string) {
         remoteUrl: trimmedUrl
       })
 
-      const message = g.connectedTo(result.baseUrl, result.version ?? undefined)
+      const message = g.connectedTo(result.baseUrl ?? trimmedUrl, result.version ?? undefined)
       setLastTest(message)
       notify({ kind: 'success', title: g.reachableTitle, message })
     } catch (err) {
