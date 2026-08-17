@@ -1625,6 +1625,10 @@ def restore_primary_runtime(agent) -> bool:
 
         # ── Restore context engine state ──
         cc = agent.context_compressor
+        from agent.output_reservation import (
+            reservation_kwargs,
+            resolve_output_reservation,
+        )
         cc.update_model(
             model=rt["compressor_model"],
             context_length=rt["compressor_context_length"],
@@ -1632,6 +1636,16 @@ def restore_primary_runtime(agent) -> bool:
             api_key=rt["compressor_api_key"],
             provider=rt["compressor_provider"],
             api_mode=rt.get("compressor_api_mode", ""),
+            # The primary's provider may reserve a different output budget
+            # than the fallback we are leaving; re-derive it so the trigger
+            # tracks the usable input budget (#43547).
+            **reservation_kwargs(
+                cc,
+                resolve_output_reservation(
+                    rt["compressor_provider"], rt["compressor_model"],
+                    getattr(agent, "max_tokens", None),
+                ),
+            ),
         )
 
         # ── Rebind and re-select the primary credential pool ──
@@ -2919,6 +2933,10 @@ def switch_model(agent, new_model, new_provider, api_key='', base_url='', api_mo
             config_context_length=_effective_context_length,
             custom_providers=_sm_custom_providers,
         )
+        from agent.output_reservation import (
+            reservation_kwargs,
+            resolve_agent_output_reservation,
+        )
         agent.context_compressor.update_model(
             model=agent.model,
             context_length=new_context_length,
@@ -2926,6 +2944,9 @@ def switch_model(agent, new_model, new_provider, api_key='', base_url='', api_mo
             api_key=agent.api_key,  # context_compressor forwards to call_llm; callable preserved
             provider=agent.provider,
             api_mode=agent.api_mode,
+            **reservation_kwargs(
+                agent.context_compressor, resolve_agent_output_reservation(agent),
+            ),
         )
 
     # ── Re-resolve reasoning_config from per-model override ──

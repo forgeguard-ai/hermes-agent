@@ -2775,6 +2775,10 @@ def try_activate_fallback(agent, reason: "FailoverReason | None" = None) -> bool
                 config_context_length=getattr(agent, "_config_context_length", None),
                 custom_providers=getattr(agent, "_custom_providers", None),
             )
+            from agent.output_reservation import (
+                reservation_kwargs,
+                resolve_agent_output_reservation,
+            )
             agent.context_compressor.update_model(
                 model=agent.model,
                 context_length=fb_context_length,
@@ -2782,6 +2786,9 @@ def try_activate_fallback(agent, reason: "FailoverReason | None" = None) -> bool
                 api_key=getattr(agent, "api_key", ""),  # callable preserved → call_llm
                 provider=agent.provider,
                 api_mode=agent.api_mode,
+                **reservation_kwargs(
+                    agent.context_compressor, resolve_agent_output_reservation(agent),
+                ),
             )
 
         # Re-resolve reasoning_config for the new fallback model (Closes #21256).
