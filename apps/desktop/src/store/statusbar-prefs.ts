@@ -16,12 +16,16 @@ export function toggleStatusbarVisible() {
 // bar's job is to answer "is the backend healthy, where am I, what's it doing" —
 // route shortcuts (cron/webhooks/agents), the terminal toggle, and the approval
 // pill are navigation, not status, so they start out of the way. The per-turn
-// session readouts (running/session timers, context meter) are diagnostics most
-// users don't watch, so they start hidden too and the bar stays quiet mid-turn.
+// session readouts (running/session timers) are diagnostics most users don't
+// watch, so they start hidden too and the bar stays quiet mid-turn.
+//
+// The context meter is the exception (ForgeGuard fork): on a self-hosted
+// gateway with a large window the operator watches where the conversation sits
+// against the compaction trigger, so it starts VISIBLE. (Upstream hides it by
+// default; the toggle in the bar's context menu still hides it here.)
 export const STATUSBAR_HIDDEN_BY_DEFAULT: readonly string[] = [
   'agents',
   'approval-mode',
-  'context-usage',
   'cron',
   'running-timer',
   'session-timer',

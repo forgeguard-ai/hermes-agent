@@ -111,9 +111,12 @@ describe('statusbar item visibility', () => {
       item('gateway-health', 'Gateway')
     ])
 
-    for (const label of ['Turn timer', 'Context meter', 'Session timer']) {
+    for (const label of ['Turn timer', 'Session timer']) {
       expect(screen.queryByText(label)).toBeNull()
     }
+
+    // ForgeGuard fork: the context meter is the one readout that starts visible.
+    expect(within(statusbar).getByText('Context meter')).toBeTruthy()
 
     openContextMenu(statusbar)
 
