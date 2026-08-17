@@ -1,4 +1,5 @@
 import { useStore } from '@nanostores/react'
+import { FORK_UPDATE_CHECKS_ENABLED } from '@/lib/fork-config'
 import { useMemo } from 'react'
 
 import type { CommandCenterSection } from '@/app/command-center'
@@ -324,12 +325,14 @@ export function useStatusbarItems({
       id: 'version-client',
       label: status.label,
       // Update state is not a preference: hiding it is how a user misses that
-      // their client is behind. Listed in the menu, but locked on.
-      lockedVisible: true,
-      onSelect: () => openUpdateOverlayFor('client'),
+      // their client is behind. Listed in the menu, but locked on — while the
+      // fork's update checks are on. With them off there is no update state to
+      // miss, so the pill is a plain, hideable version readout. (ForgeGuard fork)
+      lockedVisible: FORK_UPDATE_CHECKS_ENABLED,
+      ...(FORK_UPDATE_CHECKS_ENABLED ? { onSelect: () => openUpdateOverlayFor('client') } : {}),
       title: status.tooltip,
       toggleLabel: copy.toggleVersion,
-      variant: 'action'
+      variant: FORK_UPDATE_CHECKS_ENABLED ? 'action' : 'text'
     }
   }, [
     desktopVersion?.appVersion,
@@ -369,11 +372,11 @@ export function useStatusbarItems({
       icon: applying ? <Loader2 className="size-3 animate-spin" /> : <Hash className="size-3" />,
       id: 'version-backend',
       label: status.label,
-      lockedVisible: true,
-      onSelect: () => openUpdateOverlayFor('backend'),
+      lockedVisible: FORK_UPDATE_CHECKS_ENABLED,
+      ...(FORK_UPDATE_CHECKS_ENABLED ? { onSelect: () => openUpdateOverlayFor('backend') } : {}),
       title: status.tooltip,
       toggleLabel: copy.toggleBackendVersion,
-      variant: 'action'
+      variant: FORK_UPDATE_CHECKS_ENABLED ? 'action' : 'text'
     }
   }, [
     connection?.mode,

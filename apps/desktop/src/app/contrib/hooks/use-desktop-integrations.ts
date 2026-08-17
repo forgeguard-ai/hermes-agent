@@ -17,6 +17,7 @@ import {
 } from '@/store/session'
 import { onSessionsChanged } from '@/store/session-sync'
 import { openUpdatesWindow, startUpdatePoller, stopUpdatePoller } from '@/store/updates'
+import { FORK_UPDATE_CHECKS_ENABLED } from '@/lib/fork-config'
 import { isHudWindow, isSecondaryWindow } from '@/store/windows'
 import type { SessionInfo } from '@/types/hermes'
 
@@ -61,15 +62,23 @@ export function useDesktopIntegrations({
   // statusbar version pill and the update toasts. Also honors the main
   // process's "open updates" menu request.
   useEffect(() => {
-    startUpdatePoller()
+    // ForgeGuard fork: the update poller (upstream-repo checks, the update toast,
+    // the "(+N behind)" pill state) is off by build-time switch — see fork-config.
+    if (FORK_UPDATE_CHECKS_ENABLED) {
+      startUpdatePoller()
+    }
     // Background MCP health: HTTP/SSE servers only (never spawns stdio),
     // notifies on transitions into needs-auth/error with a Sign in action.
     startMcpHealthChecker()
-    const unsubscribe = window.hermesDesktop?.onOpenUpdatesRequested?.(() => openUpdatesWindow())
+    const unsubscribe = FORK_UPDATE_CHECKS_ENABLED
+      ? window.hermesDesktop?.onOpenUpdatesRequested?.(() => openUpdatesWindow())
+      : undefined
 
     return () => {
       unsubscribe?.()
-      stopUpdatePoller()
+      if (FORK_UPDATE_CHECKS_ENABLED) {
+        stopUpdatePoller()
+      }
       stopMcpHealthChecker()
     }
   }, [])

@@ -306,6 +306,10 @@ RUN if [ -n "${HERMES_GIT_SHA}" ]; then \
 # venv relies on them for opt-in backends.
 ENV HERMES_TUI_DIR=/opt/hermes/ui-tui
 ENV PATH="/opt/hermes/.venv/bin:${PATH}"
+# This image is pinned from the fork's own releases; "is upstream ahead of me?"
+# is not a question it should put to the network on every boot. Standalone
+# switch — offline mode proper stays the profile's decision (hermes_cli/offline.py).
+ENV HERMES_DISABLE_UPDATE_CHECKS=1
 
 LABEL com.forgeguard.hermes.prebaked="1"
 LABEL com.forgeguard.hermes.variant="cli"
@@ -515,6 +519,9 @@ ENV HERMES_TUI_DIR=/opt/hermes/ui-tui
 ENV HERMES_HOME=/opt/data
 ENV HERMES_WRITE_SAFE_ROOT=/opt/data
 ENV HERMES_DISABLE_LAZY_INSTALLS=1
+# Same reason as the cli stage: a release-pinned image never checks upstream
+# for updates (banner, `hermes update`, GET /api/hermes/update/check).
+ENV HERMES_DISABLE_UPDATE_CHECKS=1
 # The published image seals /opt/hermes (root-owned, read-only) so a runtime
 # lazy install can't mutate the agent's own venv and brick it. But opt-in
 # backends (Firecrawl web search, Exa, Feishu, …) keep their SDKs in

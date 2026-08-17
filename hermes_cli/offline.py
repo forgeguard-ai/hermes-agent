@@ -65,8 +65,18 @@ def remote_metadata_disabled() -> bool:
 
 
 def update_checks_disabled() -> bool:
-    """Skip update-availability checks (git ls-remote / PyPI)."""
-    return _disable_flag("HERMES_OFFLINE_DISABLE_UPDATE_CHECKS")
+    """Skip update-availability checks (git ls-remote / PyPI).
+
+    Two switches, deliberately: the ``HERMES_OFFLINE_DISABLE_UPDATE_CHECKS``
+    gate above belongs to the deployment manager's offline-mode set and, like
+    every ``OFFLINE_DISABLE_*`` gate, requires the master switch. The
+    standalone ``HERMES_DISABLE_UPDATE_CHECKS`` is the image's own default
+    (ForgeGuard fork): the runtime image ships pinned from the fork's releases,
+    so "is upstream ahead of me?" is not a question it should ask the network
+    on every boot — while offline mode proper (catalog, metadata, portal
+    calls) stays the profile's decision.
+    """
+    return _flag("HERMES_DISABLE_UPDATE_CHECKS") or _disable_flag("HERMES_OFFLINE_DISABLE_UPDATE_CHECKS")
 
 
 def portal_checks_disabled() -> bool:

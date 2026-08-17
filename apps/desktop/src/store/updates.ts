@@ -4,6 +4,7 @@
  */
 
 import { atom } from 'nanostores'
+import { FORK_UPDATE_CHECKS_ENABLED } from '@/lib/fork-config'
 
 import type {
   DesktopUpdateApplyOptions,
@@ -205,6 +206,12 @@ export function reportInstallMethodWarning(message: string | undefined): void {
  * on every new commit. The snooze is persisted, so it survives relaunches too.
  */
 export function maybeNotifyUpdateAvailable(status: DesktopUpdateStatus | null) {
+  // ForgeGuard fork: no update toast, ever, while update checks are off — the
+  // poller never runs, but the manual check paths could still call this.
+  if (!FORK_UPDATE_CHECKS_ENABLED) {
+    return
+  }
+
   if (!status || status.supported === false || status.error || !status.targetSha) {
     return
   }

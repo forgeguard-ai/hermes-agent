@@ -72,8 +72,11 @@ Beyond upstream's Docker image, the ForgeGuard images add: the multi-target
 `Dockerfile` split (runtime vs CLI), the `com.forgeguard.hermes.*` labels,
 pre-baked distrobox host-integration in the CLI image, and the
 `HERMES_UID`/`HERMES_GID` (with `PUID`/`PGID` alias) volume-ownership remapping.
-Dashboard authentication, persistence, ports, and health semantics otherwise
-follow upstream.
+Both images also set `HERMES_DISABLE_UPDATE_CHECKS=1`: a release-pinned image
+never asks upstream whether it is behind (the banner check, `hermes update`,
+`GET /api/hermes/update/check` all short-circuit) — a standalone switch, so
+offline mode proper stays the profile's decision. Dashboard authentication,
+persistence, ports, and health semantics otherwise follow upstream.
 
 ## Desktop app behaviour
 
@@ -84,6 +87,27 @@ The connection dialog supports an opt-in TLS bypass for self-signed
 certificates and remembers recent endpoints. See the upstream
 [desktop guide](https://hermes-agent.nousresearch.com/docs/user-guide/desktop)
 for the shared product behaviour.
+
+Three further fork defaults, all in service of a static self-hosted client:
+
+- **No update checks.** Upstream's desktop polls its own repository (`git
+  ls-remote` / a GitHub compare every 30 minutes), decorates the version pills
+  with "N commits behind", and raises an "Update ready" toast; there is no
+  config flag for any of it. The fork turns the whole mechanism off at build
+  time (`apps/desktop/src/lib/fork-config.ts`): the poller never starts, the
+  toast never shows, and the client/backend version pills are plain, hideable
+  readouts.
+- **The context meter starts visible.** Upstream `v2026.8.16` hid it by
+  default; on a self-hosted gateway with a large window it is the readout the
+  operator watches most, so the fork shows it (the status bar's context menu
+  still hides it).
+- **Re-authentication after the backend is recreated never costs settings.**
+  A recreated agent container answers the client's WebSocket-ticket refresh
+  with 401; the fork carries the HTTP status on that error, drops only the
+  stale native token, and offers **Sign in** on the boot-failure dialog — the
+  connection, first-run choice and appearance preferences stay put. (Before
+  this the dialog offered everything but sign-in, and the only way out was
+  deleting the app's Application Support data.)
 
 Some earlier fork-only desktop features have since been absorbed by upstream
 and are no longer fork deltas: the Settings → Appearance **Text Size** control
