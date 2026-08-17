@@ -1,0 +1,86 @@
+# Delete stale remote branches that are fully merged into the default branch.
+#
+# workflow_dispatch ONLY, dry_run defaults to true — accept the defaults and hit
+# "Run workflow" to see the plan, then re-run with dry_run unchecked.
+#
+# A branch is deleted only when it is not the default branch, not in `keep`, not
+# protected, not the head of an open PR, and has no commits the default branch
+# lacks. `force_delete` is the sole escape hatch for a branch whose work landed
+# by another route, and it must name the branch explicitly — the script verifies
+# reachability, not intent, so confirm supersession yourself first.
+#
+# Every dispatch input reaches the script through `env:`, never through `${{ }}`
+# inside `run:` — this job holds contents write, so an input interpolated into
+# the shell would be a command-injection sink.
+name: branch-cleanup
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Report the plan without deleting anything.'
+        required: true
+        type: boolean
+        default: true
+      keep:
+        description: 'Space-separated branches to keep even when merged (the default branch is always kept).'
+        required: false
+        type: string
+        default: 'dev'
+      force_delete:
+        description: 'Space-separated branches to delete even with unmerged commits. Verify supersession first.'
+        required: false
+        type: string
+        default: ''
+      max_delete:
+        description: 'Abort if the plan exceeds this many branches.'
+        required: false
+        type: string
+        default: '20'
+
+permissions:
+  contents: write      # delete branch refs
+  pull-requests: read  # never delete a branch with an open PR
+
+concurrency:
+  group: branch-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+          sparse-checkout-cone-mode: false
+
+      - name: Clean up branches
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          KEEP: ${{ inputs.keep }}
+          FORCE_DELETE: ${{ inputs.force_delete }}
+          MAX_DELETE: ${{ inputs.max_delete }}
+        run: |
+          set -euo pipefail
+
+          case "$MAX_DELETE" in ''|*[!0-9]*) echo "::error::max_delete must be a positive integer"; exit 2 ;; esac
+
+          args=(--repo "$REPO" --max-delete "$MAX_DELETE")
+
+          # Intentional word-splitting: both inputs are space-separated lists.
+          # Safe because each word expands into an array element, not shell syntax.
+          for branch in $KEEP; do
+            args+=(--keep "$branch")
+          done
+          for branch in $FORCE_DELETE; do
+            args+=(--force-delete "$branch")
+          done
+
+          if [ "$DRY_RUN" != "true" ]; then
+            args+=(--apply)
+          fi
+
+          python3 .github/scripts/prune_branches.py "${args[@]}"

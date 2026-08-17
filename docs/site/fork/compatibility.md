@@ -16,8 +16,8 @@ engine, and architecture support, see
 | Field | Value | Source |
 |---|---|---|
 | Upstream base (`FORK_UPSTREAM_BASE`) | `v2026.8.16` | `FORK_UPSTREAM_BASE` marker at the repository root (surfaced as the "Upstream release" line in each release's notes). |
-| Fork release line | `v0.20.2` (re-cuts: `v0.20.2-forgeguard.<n>`) | Latest [fork release](https://github.com/forgeguard-ai/hermes-agent/releases). |
-| Hermes product version | `0.20.2` | `pyproject.toml` (names the release tag and title). |
+| Fork release line | `v0.20.3` (re-cuts: `v0.20.3-forgeguard.<n>`) | Latest [fork release](https://github.com/forgeguard-ai/hermes-agent/releases). |
+| Hermes product version | `0.20.3` | `pyproject.toml` (names the release tag and title). |
 | Runtime/CLI images | `runtime-<version>`, `cli-<version>` (+ `-<sha>`, `-latest`) | `ghcr.io/forgeguard-ai/hermes-agent`. |
 | Desktop artifacts | `.AppImage`/`.deb`/`.rpm`, `.dmg`/`.zip` | Attached to the fork release (versioned by the Release tag). |
 
@@ -27,7 +27,7 @@ engine, and architecture support, see
 > advances quickly. The fork tag is the Hermes *product version* it ships
 > (`v<hermes-version>`, since Hermes 0.19.0; a re-cut of an already-released
 > version adds `-forgeguard.<n>`); the upstream base it tracks is in the
-> release notes. Releases up to `v2026.7.1-forgeguard.3` carry older
+> release notes. Releases up to `v2026.7.1-forgeguard.6` carry older
 > date-shaped tags named after the upstream base instead.
 
 ## What the fork tracks

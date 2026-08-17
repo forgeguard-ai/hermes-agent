@@ -51,7 +51,7 @@ version — such as a fork-only fix before the next upstream sync — adds a
 `-forgeguard.<n>` suffix (`v0.19.0-forgeguard.2`, counting the plain tag as
 cut 1). The upstream release the fork's `main` is synced to (recorded in the
 `FORK_UPSTREAM_BASE` marker) appears in each release's notes for traceability.
-Releases up to `v2026.7.1-forgeguard.3` used older date-shaped
+Releases up to `v2026.7.1-forgeguard.6` used older date-shaped
 `<upstream-base>-forgeguard.<n>` tags. Image `-<version>` tags are immutable;
 `-latest` tags roll. See
 [Releases and upgrades](../operations/releases-and-upgrades.md) and
