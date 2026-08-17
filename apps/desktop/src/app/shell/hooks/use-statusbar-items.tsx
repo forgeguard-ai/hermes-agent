@@ -1,5 +1,4 @@
 import { useStore } from '@nanostores/react'
-import { FORK_UPDATE_CHECKS_ENABLED } from '@/lib/fork-config'
 import { useMemo } from 'react'
 
 import type { CommandCenterSection } from '@/app/command-center'
@@ -12,6 +11,7 @@ import { Codicon } from '@/components/ui/codicon'
 import { GlyphSpinner } from '@/components/ui/glyph-spinner'
 import { useI18n } from '@/i18n'
 import { displayPath, pathLeaf } from '@/lib/display-path'
+import { FORK_UPDATE_CHECKS_ENABLED } from '@/lib/fork-config'
 import { Activity, AlertCircle, Clock, Command, FolderOpen, Globe, Hash, Loader2, Terminal } from '@/lib/icons'
 import type { RuntimeReadinessResult } from '@/lib/runtime-readiness'
 import { contextBarLabel, LiveDuration, usageContextLabel } from '@/lib/statusbar'

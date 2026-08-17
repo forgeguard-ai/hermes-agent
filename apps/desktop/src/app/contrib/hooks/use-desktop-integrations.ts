@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 
 import { closeActiveTab } from '@/app/chat/close-tab'
 import { openSession } from '@/app/open-session'
+import { FORK_UPDATE_CHECKS_ENABLED } from '@/lib/fork-config'
 import { storedSessionIdForNotification } from '@/lib/session-ids'
 import { openConnectionModeDialog } from '@/store/connection-mode'
 import { requestMcpInstallFromDeepLink } from '@/store/mcp-deeplink-install'
@@ -17,7 +18,6 @@ import {
 } from '@/store/session'
 import { onSessionsChanged } from '@/store/session-sync'
 import { openUpdatesWindow, startUpdatePoller, stopUpdatePoller } from '@/store/updates'
-import { FORK_UPDATE_CHECKS_ENABLED } from '@/lib/fork-config'
 import { isHudWindow, isSecondaryWindow } from '@/store/windows'
 import type { SessionInfo } from '@/types/hermes'
 
@@ -67,18 +67,22 @@ export function useDesktopIntegrations({
     if (FORK_UPDATE_CHECKS_ENABLED) {
       startUpdatePoller()
     }
+
     // Background MCP health: HTTP/SSE servers only (never spawns stdio),
     // notifies on transitions into needs-auth/error with a Sign in action.
     startMcpHealthChecker()
+
     const unsubscribe = FORK_UPDATE_CHECKS_ENABLED
       ? window.hermesDesktop?.onOpenUpdatesRequested?.(() => openUpdatesWindow())
       : undefined
 
     return () => {
       unsubscribe?.()
+
       if (FORK_UPDATE_CHECKS_ENABLED) {
         stopUpdatePoller()
       }
+
       stopMcpHealthChecker()
     }
   }, [])

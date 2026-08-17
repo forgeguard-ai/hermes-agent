@@ -4,7 +4,6 @@
  */
 
 import { atom } from 'nanostores'
-import { FORK_UPDATE_CHECKS_ENABLED } from '@/lib/fork-config'
 
 import type {
   DesktopUpdateApplyOptions,
@@ -17,6 +16,7 @@ import type {
 } from '@/global'
 import { checkHermesUpdate, getActionStatus, updateHermes } from '@/hermes'
 import { translateNow } from '@/i18n'
+import { FORK_UPDATE_CHECKS_ENABLED } from '@/lib/fork-config'
 import { persistString, storedString } from '@/lib/storage'
 import { dismissNotification, notify } from '@/store/notifications'
 import { $connection } from '@/store/session'
