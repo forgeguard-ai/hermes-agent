@@ -1,6 +1,6 @@
 # 2026-08-17 — Upstream sync v2026.8.16 → v2026.8.16.2, fork release v0.20.4
 
-Status: in progress on `dev` · Procedure: `docs/maintainers/upstream-sync/sync-policy.md`
+Status: implemented on `dev` (PR dev → main pending) · Procedure: `docs/maintainers/upstream-sync/sync-policy.md`
 · Previous worked example: `2026-08-16-upstream-sync-v2026.8.16-plan.md`
 
 ## Gate (Phase 1)
@@ -30,17 +30,33 @@ fork), `pyproject.toml`, `hermes_cli/__init__.py`, `uv.lock` (upstream, then set
 Anything outside this list stops the merge.
 
 ## After the merge, on dev (single-topic commits)
-- [ ] fix(desktop): reauth after container recreate — statusCode on fetchJson/fetchPublicJson,
+- [x] fix(desktop): reauth after container recreate — statusCode on fetchJson/fetchPublicJson,
       clear native tokens on 401/403 in mintGatewayWsTicket (credential only, never prefs),
       Sign-in action on the remoteFailure boot dialog, wider isRemoteReauthError; tests
-- [ ] fix(desktop): context meter shown by default (drop 'context-usage' from hidden defaults)
-- [ ] feat(desktop): update checks hard-off (fork constant): no poller, no toast, pills without
+- [x] fix(desktop): context meter shown by default (drop 'context-usage' from hidden defaults)
+- [x] feat(desktop): update checks hard-off (fork constant): no poller, no toast, pills without
       "(+N)", user-hideable; `offline._disable_flag` honours an explicit truthy value without
       offline mode; Dockerfile `HERMES_OFFLINE_DISABLE_UPDATE_CHECKS=1`
-- [ ] feat(desktop): Windows nsis + portable artifacts (package.json targets/artifactNames,
+- [x] feat(desktop): Windows nsis + portable artifacts (package.json targets/artifactNames,
       build-windows job, release download step, docs)
-- [ ] Version 0.20.4 (fork line is its own line — release-process.md convention updated),
+- [x] Version 0.20.4 (fork line is its own line — release-process.md convention updated),
       `FORK_UPSTREAM_BASE` = v2026.8.16.2, compatibility.md
-- [ ] Validation: uv sync/lock --check, scripts/run_tests.sh (diff vs clean worktree), fork
+- [x] Validation (this container: fork suites 187+82+44 green, desktop electron 1329, targeted ui suites, all four tsconfigs; the full ui suite and scripts/run_tests.sh run in CI — the 3 GB container times out on them; graphify refresh deferred, tool not installed here): uv sync/lock --check, scripts/run_tests.sh (diff vs clean worktree), fork
       suites, JS gates, validate_docs.py, graphify
 - [ ] PR dev → main "sync: merge upstream v2026.8.16.2 into fork main", real merge → v0.20.4
+
+## Merge resolution record
+9 conflicts, all inside the pre-authorized cluster: `hermes_cli/__init__.py`
+(upstream), `apps/desktop/package.json` (upstream `repository` key kept, URL
+pointed at the fork; upstream's new publish test adapted to assert `forgeguard-ai`),
+`connection-config.ts(+test)` (headers + allowInvalidCertificate both kept),
+`store/boot.ts` (both functions kept), `gateway-menu-panel.tsx` (both buttons;
+upstream's new test mock gained the fork's `connectionMode` i18n key),
+`use-gateway-boot.test.tsx` (imports), `use-gateway-boot.ts` (fork version taken,
+upstream's 12 additions — bounded boot retry, registerGatewayReconnect,
+onActiveConnectionInvalidated, refreshActiveProfile, primary-only publish —
+re-applied by hand inside the fork's initGatewayBoot wrapper), `electron/main.ts`
+(11 hunks: buildRemoteBlock/buildRemoteConnection carry both
+allowInvalidCertificate and headers; test-connection keeps the self-signed WS skip
+and passes headers). `agent/agent_init.py`, `agent_runtime_helpers.py`,
+`hermes_cli/web_server.py` auto-merged; proven by the fork suites.
