@@ -10,6 +10,8 @@ import { Globe, LayoutDashboard, RefreshCw } from '@/lib/icons'
 import type { RuntimeReadinessResult } from '@/lib/runtime-readiness'
 import { cn } from '@/lib/utils'
 import { openConnectionModeDialog } from '@/store/connection-mode'
+import { reconnectGateway } from '@/store/gateway-reconnect'
+import { notifyError } from '@/store/notifications'
 import { runGatewayRestart } from '@/store/system-actions'
 import type { StatusResponse } from '@/types/hermes'
 
@@ -97,6 +99,7 @@ export function GatewayMenuPanel({
 }: GatewayMenuPanelProps) {
   const { t } = useI18n()
   const copy = t.shell.gatewayMenu
+  const [reconnecting, setReconnecting] = useState(false)
 
   // Both jumps open the system panel, which owns the full view — so dismiss the
   // little status popover on the way out.
@@ -117,6 +120,17 @@ export function GatewayMenuPanel({
   const restart = () => {
     onClose()
     void runGatewayRestart()
+  }
+
+  const reconnect = () => {
+    if (reconnecting) {
+      return
+    }
+
+    setReconnecting(true)
+    void reconnectGateway()
+      .catch(err => notifyError(err, copy.reconnectGateway))
+      .finally(() => setReconnecting(false))
   }
 
   const gatewayOpen = gatewayState === 'open'
@@ -176,6 +190,20 @@ export function GatewayMenuPanel({
               <Globe />
             </Button>
           </Tip>
+          {!gatewayOpen && (
+            <Tip label={copy.reconnectGateway}>
+              <Button
+                aria-label={copy.reconnectGateway}
+                className="text-muted-foreground hover:text-foreground"
+                disabled={reconnecting}
+                onClick={reconnect}
+                size="icon-xs"
+                variant="ghost"
+              >
+                <RefreshCw className={cn(reconnecting && 'animate-spin')} />
+              </Button>
+            </Tip>
+          )}
           <Tip label={t.commandCenter.restartGateway}>
             <Button
               aria-label={t.commandCenter.restartGateway}
