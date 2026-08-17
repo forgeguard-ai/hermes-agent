@@ -34,6 +34,9 @@ from agent.context_compressor import ContextCompressor
 from agent.iteration_budget import IterationBudget
 from agent.memory_manager import StreamingContextScrubber
 from agent.session_activity import ActivityProvenance
+from agent.output_reservation import (
+    resolve_agent_output_reservation as _resolve_agent_output_reservation,
+)
 from agent.model_metadata import (
     MINIMUM_CONTEXT_LENGTH,
     fetch_model_metadata,
@@ -2615,7 +2618,11 @@ def init_agent(
             provider=agent.provider,
             api_mode=agent.api_mode,
             abort_on_summary_failure=compression_abort_on_summary_failure,
-            max_tokens=agent.max_tokens,
+            # The reservation the transport will actually send — user tier
+            # or the provider profile's default — not agent.max_tokens alone,
+            # which is None whenever the user hasn't set model.max_tokens
+            # while the wire still carries the profile default (#43547).
+            max_tokens=_resolve_agent_output_reservation(agent),
             model_thresholds=compression_model_thresholds,
             threshold_tokens_cap=compression_threshold_tokens,
             proactive_prune_tokens=compression_proactive_prune_tokens,
