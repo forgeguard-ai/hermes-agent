@@ -88,6 +88,23 @@ xattr -cr /Applications/Hermes.app
 Downloading the `.zip` with `curl -L` avoids the quarantine attribute entirely.
 See [Desktop artifacts](../deployment/desktop-artifacts.md).
 
+## Windows: "Windows protected your PC"
+
+**Symptom.** Launching `hermes-desktop-client-<version>-win-x64-setup.exe` or
+`…-portable.exe` shows a blue SmartScreen dialog with only a **Don't run**
+button visible.
+
+**Cause.** The Windows builds are unsigned — this fork has no code-signing
+certificate — and SmartScreen warns on any binary without reputation. It says
+nothing about the download's integrity.
+
+**Fix.** Click **More info**, then **Run anyway**. The warning is per binary:
+you will see it once for the installer (or once per portable `.exe` you keep),
+not on every launch of the installed app. If your organisation's policy blocks
+"Run anyway", use the portable build from a user-writable folder, or ask an
+administrator to allow the file. See
+[Desktop artifacts](../deployment/desktop-artifacts.md#install-on-windows).
+
 ## Related
 
 - [Runtime images](../deployment/runtime-images.md)

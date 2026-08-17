@@ -41,6 +41,7 @@
     "dist:win": "npm run build && npm run builder -- --win",
     "dist:win:msi": "npm run build && npm run builder -- --win msi",
     "dist:win:nsis": "npm run build && npm run builder -- --win nsis",
+    "dist:win:portable": "npm run build && npm run builder -- --win portable",
     "dist:linux": "npm run build && npm run builder -- --linux AppImage deb rpm",
     "perf": "node scripts/perf/run.mjs",
     "update:shim": "bash ../../scripts/desktop-update/repro.sh shim",
@@ -271,7 +272,7 @@
       "legalTrademarks": "Hermes",
       "target": [
         "nsis",
-        "msi"
+        "portable"
       ],
       "signAndEditExecutable": false
     },
@@ -286,12 +287,16 @@
       ]
     },
     "nsis": {
+      "artifactName": "hermes-desktop-client-${version}-win-${arch}-setup.${ext}",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "perMachine": false,
       "shortcutName": "Hermes",
       "uninstallDisplayName": "Hermes",
       "warningsAsErrors": false
+    },
+    "portable": {
+      "artifactName": "hermes-desktop-client-${version}-win-${arch}-portable.${ext}"
     }
   }
 }

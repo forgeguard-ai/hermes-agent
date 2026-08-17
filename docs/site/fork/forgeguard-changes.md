@@ -39,7 +39,8 @@ Prebuilt Hermes Desktop installers are attached to each fork release:
 - **Linux:** `.AppImage`, `.deb`, `.rpm` (unsigned).
 - **macOS:** `.dmg`, `.zip` (ad-hoc signed, **not notarized** — no Apple
   Developer credentials on this fork).
-- **Windows:** not currently built.
+- **Windows:** `-setup.exe` (NSIS, per-user) and `-portable.exe` (unsigned, x64;
+  SmartScreen "More info → Run anyway" on first launch). From `v0.20.4`.
 
 See [Desktop artifacts](../deployment/desktop-artifacts.md).
 
@@ -127,7 +128,7 @@ embedder-bearer scoping.
 ## Supported platforms and signing state
 
 - Images: `linux/amd64`.
-- Desktop: Linux + macOS (ad-hoc signed, not notarized); Windows not built.
+- Desktop: Linux + macOS (ad-hoc signed, not notarized) + Windows (unsigned, x64).
 
 See [Platform compatibility](../reference/compatibility.md) for the full matrix
 and [Compatibility](./compatibility.md) for the version mapping.

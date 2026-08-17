@@ -107,6 +107,12 @@ Desktop `.dmg`/`.zip` builds are ad-hoc signed and not notarized; after
 installing, run `xattr -cr /Applications/Hermes.app` once. See
 [Desktop artifacts](../deployment/desktop-artifacts.md).
 
+## Windows desktop installer note
+
+The `-setup.exe` and `-portable.exe` builds are unsigned; SmartScreen shows
+"Windows protected your PC" on first launch — **More info → Run anyway**. See
+[Desktop artifacts](../deployment/desktop-artifacts.md#install-on-windows).
+
 ## Related
 
 - [Image tag families](../reference/image-tags.md)

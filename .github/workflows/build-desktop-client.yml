@@ -1,19 +1,20 @@
 name: Build Desktop Client
 
-# Fork-oriented desktop artifact builder. Produces unsigned Linux and macOS
+# Fork-oriented desktop artifact builder. Produces Linux, macOS and Windows
 # installers for the Electron desktop app (apps/desktop) so users have a
 # downloadable client that can connect to a remote/self-hosted Hermes
 # deployment via Client Mode (or run a local backend).
 #
-# Linux + macOS for now. No Developer ID / notarization credentials exist on
-# the fork (scripts/notarize.cjs no-ops without Apple API key env vars), so
-# macOS builds are AD-HOC signed (scripts/after-pack.cjs) rather than fully
+# No Developer ID / notarization credentials exist on the fork
+# (scripts/notarize.cjs no-ops without Apple API key env vars), so macOS
+# builds are AD-HOC signed (scripts/after-pack.cjs) rather than fully
 # unsigned: on Apple Silicon a completely unsigned quarantined app fails
 # Gatekeeper with "damaged and can't be opened" and never launches at all
 # (shipped that way in v2026.7.1-forgeguard.1). Ad-hoc-signed installs still
 # need a one-time `xattr -cr /Applications/Hermes.app` after download — the
 # release notes and website/docs/user-guide/desktop.md carry the instructions.
-# Windows stays a follow-up until it's been tested there.
+# Windows builds (added for v0.20.4) are unsigned NSIS + portable .exe files;
+# SmartScreen's "More info → Run anyway" is the expected first-launch step.
 #
 # The desktop workspace resolves its dependencies from the ROOT install (npm
 # workspaces + staged native deps), so this always runs `npm ci` at the repo
@@ -198,5 +199,74 @@ jobs:
           path: |
             apps/desktop/release/*.dmg
             apps/desktop/release/*.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  build-windows:
+    name: Build Windows desktop installers
+    runs-on: windows-latest
+    timeout-minutes: 45
+    # Every `run:` below is bash on purpose: the desktop scripts (assert-root-
+    # install, stage-native-deps, run-electron-builder) are POSIX-shaped node
+    # invocations that behave the same under Git Bash as on the other two
+    # runners, and the retry action is a bash composite already.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Root install, never package-local: apps/desktop/scripts/assert-root-
+      # install.mjs hard-fails the build unless vite/react resolve from the
+      # workspace root (same rule as the Linux and macOS jobs).
+      - name: Install dependencies (root)
+        uses: ./.github/actions/retry
+        with:
+          command: npm ci
+
+      - name: Desktop main-process tests
+        run: npm run --prefix apps/desktop test:desktop:platforms
+
+      # See the matching step in build-linux for why this is non-blocking.
+      - name: Desktop renderer tests
+        continue-on-error: true
+        run: npm run --prefix apps/desktop test:ui
+
+      - name: Typecheck desktop
+        run: npm run --prefix apps/desktop typecheck
+
+      - name: Build renderer + main
+        run: npm run --prefix apps/desktop build
+
+      # Package the Windows installers per apps/desktop's electron-builder
+      # "win.target": an NSIS per-user installer (no UAC — perMachine is false)
+      # and a portable single .exe, each with its own artifactName so the two
+      # .exe outputs cannot clobber each other. UNSIGNED: build.win
+      # .signAndEditExecutable is false on purpose (it keeps electron-builder's
+      # signtool step — and its 7-Zip-hostile winCodeSign download — out of the
+      # build; PE identity is stamped by scripts/set-exe-identity.mjs in
+      # afterPack instead), and no code-signing certificate exists on the fork.
+      # SmartScreen will show "Windows protected your PC" until the binaries
+      # accrue reputation; the release notes and desktop-artifacts.md say so.
+      # x64 only: get-windows publishes no win32-arm64 prebuild.
+      - name: Package Windows installers
+        run: npm run --prefix apps/desktop dist:win
+
+      # See the matching NOTE on "Upload Linux installers" above. The glob
+      # excludes *.exe.blockmap (electron-builder's differential-update
+      # sidecar) by construction — it does not end in .exe.
+      - name: Upload Windows installers
+        if: inputs.upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hermes-desktop-windows
+          path: apps/desktop/release/*.exe
           if-no-files-found: error
           retention-days: 14

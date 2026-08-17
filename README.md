@@ -46,8 +46,8 @@ Research at **[hermes-agent.nousresearch.com](https://hermes-agent.nousresearch.
 
 **ForgeGuard** maintains a distribution of that product. It syncs to upstream
 **tagged releases** and adds a packaging and release overlay: versioned
-`runtime-*` and `cli-*` container images on GitHub Container Registry, and Linux
-and macOS desktop installers attached to each fork release. ForgeGuard does not
+`runtime-*` and `cli-*` container images on GitHub Container Registry, and Linux,
+macOS and Windows desktop installers attached to each fork release. ForgeGuard does not
 change how the agent behaves — it packages and ships it. This README and the
 [`docs/site/`](./docs/site/index.md) documentation cover the ForgeGuard artifacts;
 for how Hermes itself works, follow the links to the upstream product docs.
@@ -70,7 +70,7 @@ can do, remains the upstream product.
 | **Upstream native installer** | Install Hermes directly on your machine — `install.sh` for Linux/macOS/WSL2, `install.ps1` (PowerShell) for native Windows (the canonical, fully upstream-supported path) | [Upstream quickstart](https://hermes-agent.nousresearch.com/docs/getting-started/quickstart) |
 | **ForgeGuard runtime image** | A persistent, supervised server with a web dashboard and durable state | [Runtime images](./docs/site/deployment/runtime-images.md) |
 | **ForgeGuard CLI image (distrobox)** | An interactive terminal install with host integration, containerised | [Distrobox / CLI image](./docs/site/deployment/distrobox-cli.md) |
-| **ForgeGuard desktop installers** | Prebuilt Linux / macOS builds of the Hermes Desktop app | [Desktop artifacts](./docs/site/deployment/desktop-artifacts.md) |
+| **ForgeGuard desktop installers** | Prebuilt Linux / macOS / Windows builds of the Hermes Desktop app | [Desktop artifacts](./docs/site/deployment/desktop-artifacts.md) |
 
 ForgeGuard's artifacts exist for persistent container deployments, containerised
 CLI use, and prebuilt desktop installers — they do not replace the upstream
@@ -183,8 +183,9 @@ marker and surfaced in each release's notes. Runtime and CLI images
 are published to `ghcr.io/forgeguard-ai/hermes-agent` with immutable
 `*-<version>` and `*-<git-sha>` tags plus rolling `*-latest` tags; pin an
 immutable tag for durable deployments. Images are built for `linux/amd64`;
-desktop builds cover Linux (`.AppImage`/`.deb`/`.rpm`) and macOS (`.dmg`/`.zip`,
-ad-hoc signed and **not** notarized). This fork advances quickly — always confirm
+desktop builds cover Linux (`.AppImage`/`.deb`/`.rpm`), macOS (`.dmg`/`.zip`,
+ad-hoc signed and **not** notarized) and Windows (`-setup.exe`/`-portable.exe`,
+unsigned, x64). This fork advances quickly — always confirm
 against the live marker and the newest [release](https://github.com/forgeguard-ai/hermes-agent/releases).
 See [Compatibility](./docs/site/fork/compatibility.md).
 

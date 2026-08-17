@@ -45,8 +45,9 @@ CI-only merges don't produce releases. For qualifying merges it:
    on a re-cut; `FORK_UPSTREAM_BASE` feeds only the release-notes traceability
    line.
 2. Calls `build-desktop-client.yml` with `upload: true` → unsigned Linux
-   installers (`.AppImage`, `.deb`, `.rpm`) and ad-hoc-signed macOS installers
-   (`.dmg`, `.zip`). It does **not** pass a `version:` input; desktop artifacts
+   installers (`.AppImage`, `.deb`, `.rpm`), ad-hoc-signed macOS installers
+   (`.dmg`, `.zip`) and unsigned Windows installers (`-setup.exe`,
+   `-portable.exe`). It does **not** pass a `version:` input; desktop artifacts
    are versioned only by the Release tag.
 3. Calls `build-runtime-images.yml` with `push: true` and
    `version: <computed version>` → builds, tests, and pushes both image variants
@@ -112,8 +113,9 @@ After a merge that should release, confirm:
   images rather than silently skipping.
 - The GitHub Release is tagged with the product semver (plus the `-forgeguard.<n>`
   re-cut suffix when that version had already released), its notes carry the
-  expected "Upstream release" line, and it has all five installers attached
-  (`*.deb`, `*.AppImage`, `*.rpm`, `*.dmg`, `*.zip`).
+  expected "Upstream release" line, and it has all seven installers attached
+  (`*.deb`, `*.AppImage`, `*.rpm`, `*.dmg`, `*.zip`, `*-setup.exe`,
+  `*-portable.exe`).
 
 See [Artifact verification](./artifact-verification.md) for provenance checks on
 the published images and installers.

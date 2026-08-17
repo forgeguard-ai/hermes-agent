@@ -157,8 +157,8 @@ After merging, confirm:
   branch — e.g. `v0.19.0`; a sync normally bumps the product version, so expect
   the plain tag, or the next `-forgeguard.<n>` re-cut suffix if that version
   had already released — its notes' "Upstream release" line shows `<TAG>`, and
-  it has all 5 installers attached (`*.deb`, `*.AppImage`, `*.rpm`, `*.dmg`,
-  `*.zip`).
+  it has all 7 installers attached (`*.deb`, `*.AppImage`, `*.rpm`, `*.dmg`,
+  `*.zip`, `*-setup.exe`, `*-portable.exe`).
 
 ## Why a real merge, not rebase or squash
 
