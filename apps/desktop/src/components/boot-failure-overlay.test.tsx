@@ -94,6 +94,51 @@ describe('BootFailureOverlay', () => {
       await waitFor(() => expect(screen.queryByRole('button', { name: /repair/i })).toBeNull())
       expect(screen.getByRole('button', { name: /gateway settings/i })).toBeTruthy()
       expect(screen.getByRole('button', { name: /use local gateway/i })).toBeTruthy()
+      // Token-mode remotes have no OAuth session to renew: no sign-in offered.
+      expect(screen.queryByRole('button', { name: /sign in/i })).toBeNull()
+    } finally {
+      restore()
+    }
+  })
+
+  // ForgeGuard fork: after the agent container is recreated, the ws-ticket
+  // refresh fails with a message that need not classify as auth-shaped
+  // (status lost, or a 503 while the provider registry re-seeds), and the
+  // stale native token keeps Settings → Gateway on "Signed in". The generic
+  // remote-failure surface must still offer a sign-in — otherwise every button
+  // re-tries the same dead credential and the only way out is wiping app data.
+  const remoteOauthStale = {
+    ...remoteToken,
+    remoteAuthMode: 'oauth',
+    remoteOauthConnected: true, // a stale native token still on disk reads as "connected"
+    remoteTokenSet: false
+  }
+
+  it('routes the ticket-refresh failure to the sign-in surface even while "connected"', async () => {
+    const restore = stubDesktop(remoteOauthStale)
+    $desktopBoot.set({
+      ...$desktopBoot.get(),
+      error: 'Could not reach the remote Hermes gateway while refreshing its WebSocket ticket. Try reconnecting.'
+    })
+
+    try {
+      render(<BootFailureOverlay />)
+      await waitFor(() => expect(screen.getByRole('button', { name: /sign in/i })).toBeTruthy())
+      expect(screen.getByRole('heading', { name: /sign-in required/i })).toBeTruthy()
+    } finally {
+      restore()
+    }
+  })
+
+  it('still offers Sign in on a generic remote (oauth) failure', async () => {
+    const restore = stubDesktop(remoteOauthStale)
+    $desktopBoot.set({ ...$desktopBoot.get(), error: 'socket timed out' })
+
+    try {
+      render(<BootFailureOverlay />)
+      await waitFor(() => expect(screen.getByRole('button', { name: /sign in/i })).toBeTruthy())
+      expect(screen.getByRole('button', { name: /gateway settings/i })).toBeTruthy()
+      expect(screen.getByRole('button', { name: /retry/i })).toBeTruthy()
     } finally {
       restore()
     }

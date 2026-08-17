@@ -4747,7 +4747,18 @@ function fetchJson(url, token, options: any = {}) {
           const text = Buffer.concat(chunks).toString('utf8')
 
           if ((res.statusCode || 500) >= 400) {
-            reject(new Error(`${res.statusCode}: ${text || res.statusMessage}`))
+            // Carry the HTTP status on the error object, not only in its
+            // message: the gateway auth classifier (isGatewayAuthRejection →
+            // gatewayTicketFailure) decides "session expired, sign in again"
+            // vs "gateway unreachable" from error.statusCode. Without it a
+            // 401 from /api/auth/ws-ticket after the agent container was
+            // recreated read as a transport failure, the stale native token
+            // stayed on disk, and every recovery affordance hid its sign-in
+            // button — the only way out was wiping Application Support.
+            // (ForgeGuard fork)
+            const httpError: any = new Error(`${res.statusCode}: ${text || res.statusMessage}`)
+            httpError.statusCode = res.statusCode || 500
+            reject(httpError)
 
             return
           }
@@ -4910,7 +4921,18 @@ function fetchPublicJson(url, options: any = {}) {
           const text = Buffer.concat(chunks).toString('utf8')
 
           if ((res.statusCode || 500) >= 400) {
-            reject(new Error(`${res.statusCode}: ${text || res.statusMessage}`))
+            // Carry the HTTP status on the error object, not only in its
+            // message: the gateway auth classifier (isGatewayAuthRejection →
+            // gatewayTicketFailure) decides "session expired, sign in again"
+            // vs "gateway unreachable" from error.statusCode. Without it a
+            // 401 from /api/auth/ws-ticket after the agent container was
+            // recreated read as a transport failure, the stale native token
+            // stayed on disk, and every recovery affordance hid its sign-in
+            // button — the only way out was wiping Application Support.
+            // (ForgeGuard fork)
+            const httpError: any = new Error(`${res.statusCode}: ${text || res.statusMessage}`)
+            httpError.statusCode = res.statusCode || 500
+            reject(httpError)
 
             return
           }
@@ -7299,12 +7321,33 @@ async function mintGatewayWsTicket(baseUrl, headers = {}) {
   const nativeAt = await ensureNativeAccessToken(baseUrl).catch(() => null)
 
   if (nativeAt) {
-    const body = (await fetchJson(`${baseUrl}/api/auth/ws-ticket`, null, {
-      method: 'POST',
-      timeoutMs: 8_000,
-      bearer: nativeAt,
-      headers
-    })) as any
+    let body: any
+
+    try {
+      body = await fetchJson(`${baseUrl}/api/auth/ws-ticket`, null, {
+        method: 'POST',
+        timeoutMs: 8_000,
+        bearer: nativeAt,
+        headers
+      })
+    } catch (error: any) {
+      // The gateway refused a bearer it minted itself: the session behind it
+      // is gone (the container was recreated, its provider registry
+      // re-seeded, or the token was revoked). Drop ONLY the native token
+      // pair so hasNativeSession() stops reporting a live session and the
+      // sign-in affordances reappear — connection.json, first-run choice,
+      // update prefs and the renderer's appearance/statusbar localStorage
+      // are untouched, so signing in again costs no settings. A 503 is the
+      // provider being unreachable and keeps the tokens for a retry.
+      // (ForgeGuard fork)
+      const status = Number(error?.statusCode ?? NaN)
+
+      if (status === 401 || status === 403) {
+        _clearNativeTokens(baseUrl)
+      }
+
+      throw error
+    }
 
     const ticket = body?.ticket
 

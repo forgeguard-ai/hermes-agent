@@ -110,6 +110,17 @@ describe('isRemoteReauthError', () => {
     expect(isRemoteReauthError('OAuth: please sign in')).toBe(true)
   })
 
+  // ForgeGuard fork: the gateway's own 401 body and the ticket-refresh failure
+  // a recreated container produces are reauth problems, not transport ones.
+  it('recognizes the gateway session_expired body and the ticket-refresh failure', () => {
+    expect(isRemoteReauthError('401: {"error":"session_expired","detail":"Unauthorized"}')).toBe(true)
+    expect(
+      isRemoteReauthError(
+        'Could not reach the remote Hermes gateway while refreshing its WebSocket ticket. Try reconnecting.'
+      )
+    ).toBe(true)
+  })
+
   it('ignores non-auth boot errors and nullish', () => {
     expect(isRemoteReauthError('Hermes background process exited during startup.')).toBe(false)
     expect(isRemoteReauthError(null)).toBe(false)
