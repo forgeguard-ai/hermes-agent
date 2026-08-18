@@ -9,7 +9,10 @@ Deletes, in this order:
 2. GHCR container versions of ``ghcr.io/<owner>/hermes-agent`` outside a keep
    set derived from the newest ``--keep-builds`` releases.
 3. Workflow artifacts, keeping the newest N per name for the desktop installer
-   artifacts and dropping every other unexpired artifact.
+   artifacts and dropping every other unexpired artifact — except that nothing
+   younger than ``--min-age-hours`` is touched, so a prune dispatched while CI
+   is running never removes an artifact a ``workflow_run`` consumer (the CI
+   review comment, the test-durations merge) is about to download.
 4. Any git tag named by ``--delete-tag`` (for strays whose Release had to go
    first, so a release never dangles at a missing tag).
 
@@ -39,6 +42,7 @@ import argparse
 import json
 import os
 import sys
+from datetime import datetime, timedelta, timezone
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -60,11 +64,21 @@ ALWAYS_KEEP_TAGS = frozenset(
 )
 
 # Artifact names to retain, mapped to how many of the newest to keep. Anything
-# not listed here is dropped when it has not already expired.
+# not listed here is dropped when it has not already expired (and is older than
+# --min-age-hours). These are the per-platform uploads of build-desktop-client.yml
+# that release-on-merge.yml downloads into a release; once released they are
+# only a re-download convenience.
 KEEP_NEWEST_ARTIFACTS = {
     "hermes-desktop-linux": 1,
     "hermes-desktop-macos": 1,
+    "hermes-desktop-windows": 1,
 }
+
+# Artifacts younger than this are never deleted, whatever their name: the
+# review-status-* / test-durations-slice-* / ci-timings-report artifacts are
+# consumed by workflow_run jobs minutes after upload, and the desktop artifacts
+# of an in-flight release are downloaded by release-on-merge.yml.
+DEFAULT_MIN_AGE_HOURS = 24
 
 
 class Http:
@@ -192,7 +206,7 @@ def plan_packages(
         else:
             print(f"  ::warning::could not resolve commit for {tag}; its -<sha> image tags are unprotected")
 
-    print(f"\n=== GHCR (keeping images for the newest {keep_builds} release) ===")
+    print(f"\n=== GHCR (keeping images for the newest {keep_builds} release(s)) ===")
     print("  keep tags: " + ", ".join(sorted(keep_tags)))
 
     for package in PACKAGES:
@@ -230,27 +244,37 @@ def plan_packages(
         print(f"     ({untagged} untagged versions skipped — buildkit cache)")
 
 
-def plan_artifacts(http: Http, repo: str, plan: Plan) -> None:
+def _created_at(artifact: dict) -> datetime:
+    return datetime.fromisoformat(artifact["created_at"].replace("Z", "+00:00"))
+
+
+def plan_artifacts(http: Http, repo: str, plan: Plan, min_age_hours: int) -> None:
     artifacts = collect(http, f"/repos/{repo}/actions/artifacts", plan, "artifacts")
     if artifacts is None:
         print("\n=== Workflow artifacts: unreadable, skipped ===")
         return
     live = [a for a in artifacts if not a["expired"]]
     live.sort(key=lambda a: a["created_at"], reverse=True)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=min_age_hours)
 
     print(
         f"\n=== Workflow artifacts ({len(artifacts)} total, "
-        f"{len(live)} unexpired, {sum(a['size_in_bytes'] for a in live) / 1e9:.2f} GB) ==="
+        f"{len(live)} unexpired, {sum(a['size_in_bytes'] for a in live) / 1e9:.2f} GB; "
+        f"anything newer than {min_age_hours} h is left alone) ==="
     )
 
     seen: dict[str, int] = {}
     freed = 0
+    too_young = 0
     for artifact in live:
         name = artifact["name"]
         budget = KEEP_NEWEST_ARTIFACTS.get(name, 0)
         seen[name] = seen.get(name, 0) + 1
         if seen[name] <= budget:
             print(f"  KEEP    {name:<34} {artifact['size_in_bytes'] / 1e6:8.1f} MB  {artifact['created_at']}")
+            continue
+        if _created_at(artifact) > cutoff:
+            too_young += 1
             continue
         freed += artifact["size_in_bytes"]
         plan.add(
@@ -261,7 +285,8 @@ def plan_artifacts(http: Http, repo: str, plan: Plan) -> None:
 
     doomed = plan.of("artifact")
     print(f"  DELETE  {len(doomed)} artifacts, reclaiming {freed / 1e9:.2f} GB")
-    print(f"  (skipped {len(artifacts) - len(live)} already-expired entries)")
+    print(f"  (skipped {len(artifacts) - len(live)} already-expired entries, "
+          f"{too_young} younger than {min_age_hours} h)")
 
 
 def plan_tags(http: Http, repo: str, tags: list[str], plan: Plan) -> None:
@@ -296,8 +321,14 @@ def main() -> int:
     parser.add_argument(
         "--keep-builds",
         type=int,
-        default=1,
+        default=2,
         help="How many of the kept releases retain their GHCR images.",
+    )
+    parser.add_argument(
+        "--min-age-hours",
+        type=int,
+        default=DEFAULT_MIN_AGE_HOURS,
+        help="Never delete a workflow artifact younger than this.",
     )
     parser.add_argument(
         "--delete-tag",
@@ -319,6 +350,9 @@ def main() -> int:
         return 2
     if args.keep_builds > args.keep_releases:
         print("::error::--keep-builds cannot exceed --keep-releases", file=sys.stderr)
+        return 2
+    if args.min_age_hours < 0:
+        print("::error::--min-age-hours must be >= 0", file=sys.stderr)
         return 2
 
     token = os.environ.get("GITHUB_TOKEN", "")
@@ -355,7 +389,7 @@ def main() -> int:
     if args.skip_artifacts:
         print("\n=== Workflow artifacts: skipped ===")
     else:
-        plan_artifacts(http, args.repo, plan)
+        plan_artifacts(http, args.repo, plan, args.min_age_hours)
 
     plan_tags(http, args.repo, args.delete_tag, plan)
 

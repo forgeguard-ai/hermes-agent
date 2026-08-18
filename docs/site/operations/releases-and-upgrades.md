@@ -15,12 +15,12 @@ operate a deployment.
 ## Release and version scheme
 
 ForgeGuard releases are tagged with the Hermes Agent product version they ship,
-for example `v0.20.3`:
+for example `v0.20.4`:
 
 - `v<hermes-version>` is the product version (semver, from `pyproject.toml`).
 - If an already-released product version is re-cut — for example a fork-only
   fix lands before the next upstream sync — the re-cut gets a `-forgeguard.<n>`
-  suffix instead of colliding on the tag: `v0.20.3-forgeguard.2`, counting the
+  suffix instead of colliding on the tag: `v0.20.4-forgeguard.2`, counting the
   plain tag as cut 1.
 
 Each release's notes also record the upstream `NousResearch/hermes-agent`
@@ -30,6 +30,8 @@ release this fork's `main` is synced to (the "Upstream release" line, from the
 
 > **History.** Releases up to `v2026.7.1-forgeguard.6` were named after the
 > upstream base instead — date-shaped `<upstream-base>-forgeguard.<n>` tags.
+> Those tags remain valid; the product-version scheme applies from Hermes
+> 0.19.0 onward.
 
 ## What is kept
 
@@ -39,16 +41,14 @@ unbounded. What you can rely on being downloadable:
 | Artifact | Retained |
 |---|---|
 | GitHub Releases and their desktop installers | the **2 most recent** releases |
-| `runtime-<version>` / `cli-<version>` images | the **newest** release's pair |
-| `runtime-<git-sha>` / `cli-<git-sha>` images | the newest build's pair |
+| `runtime-<version>` / `cli-<version>` images | the same **2** releases' pairs |
+| `runtime-<git-sha>` / `cli-<git-sha>` images | the same 2 builds' pairs |
 | `runtime-latest` / `cli-latest` images | always (rolling) |
 
 Release **git tags** are kept even after their Release and installers are
 pruned, so an older version can always be rebuilt from source at the exact
 commit. If you need a specific older image to stay pullable, mirror it into your
 own registry — do not rely on this one retaining it.
-> Those tags remain valid; the product-version scheme applies from Hermes
-> 0.19.0 onward.
 
 ## Image tags to use
 

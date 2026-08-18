@@ -93,7 +93,7 @@ docker run -d \
   -e HERMES_DASHBOARD_BASIC_AUTH_PASSWORD="$(openssl rand -hex 24)" \
   -e HERMES_DASHBOARD_BASIC_AUTH_SECRET="$(openssl rand -hex 32)" \
   -e HERMES_UID="$(id -u)" -e HERMES_GID="$(id -g)" \
-  ghcr.io/forgeguard-ai/hermes-agent:runtime-v0.20.3 gateway run
+  ghcr.io/forgeguard-ai/hermes-agent:runtime-v0.20.4 gateway run
 ```
 
 Verify it is up:
@@ -175,10 +175,11 @@ they may not reflect ForgeGuard artifacts or the current fork release.
 
 ## Compatibility and releases
 
-ForgeGuard releases are tagged with the Hermes product version they ship (e.g.
-`v0.20.3`; a re-cut of an already-released version adds a `-forgeguard.<n>`
-suffix). The current fork ships Hermes **`0.20.3`** and tracks upstream
-**`v2026.8.16`**, recorded in the [`FORK_UPSTREAM_BASE`](./FORK_UPSTREAM_BASE)
+ForgeGuard releases carry the fork's own version line (`v0.20.4`, bumping by
+one on every fork release; it started from the Hermes product version, so it
+can run ahead of upstream's number). The current fork release is **`v0.20.4`**
+and tracks upstream
+**`v2026.8.16.2`**, recorded in the [`FORK_UPSTREAM_BASE`](./FORK_UPSTREAM_BASE)
 marker and surfaced in each release's notes. Runtime and CLI images
 are published to `ghcr.io/forgeguard-ai/hermes-agent` with immutable
 `*-<version>` and `*-<git-sha>` tags plus rolling `*-latest` tags; pin an

@@ -21,8 +21,8 @@ The `-<version>` and `-<git-sha>` tags for one release point at the same image
 bytes as the tested build — the push step retags the exact tested image rather
 than rebuilding.
 
-> **Retention bounds this check.** Only the newest build's `-<version>` and
-> `-<git-sha>` tags are retained; older ones are pruned by
+> **Retention bounds this check.** Only the two newest releases' `-<version>`
+> and `-<git-sha>` tags are retained; older ones are pruned by
 > [`artifact-retention.yml`](../../../.github/workflows/artifact-retention.yml).
 > The fork publishes no cosign signatures or SLSA attestations, so tag
 > provenance is the *only* mechanism available — once a `-<git-sha>` tag is

@@ -138,12 +138,21 @@ Published artifacts are pruned by
 | Artifact | Retained |
 |---|---|
 | GitHub Releases + installers | newest 2 (`keep_releases`) |
-| `runtime-<version>` / `cli-<version>` images | newest 1 (`keep_builds`) |
-| `runtime-<git-sha>` / `cli-<git-sha>` images | newest 1 build's pair |
+| `runtime-<version>` / `cli-<version>` images | newest 2 releases' pairs (`keep_builds`) |
+| `runtime-<git-sha>` / `cli-<git-sha>` images | the same 2 builds' pairs |
 | `runtime-latest` / `cli-latest` | always |
 | `buildcache-runtime-amd64` / `buildcache-cli-amd64` | always |
 | Untagged GHCR versions | always (they back the buildcache index) |
-| `hermes-desktop-linux` / `-macos` artifacts | newest 1 each |
+| `hermes-desktop-linux` / `-macos` / `-windows` artifacts | newest 1 each |
+| Every other workflow artifact | dropped once older than `min_age_hours` (24 h) |
+
+`keep_builds` equals `keep_releases` on purpose: the roll-back path in
+[Releases and upgrades](../../site/operations/releases-and-upgrades.md#roll-back)
+promises the *previous* release's image is still pullable, and a
+`keep_builds` of 1 would break that promise the moment a release is cut. The
+24 h floor on workflow artifacts exists because `review-status-*`,
+`test-durations-slice-*` and the desktop uploads are read by `workflow_run`
+consumers minutes after upload — a prune dispatched mid-CI must not race them.
 
 **Release git tags are never pruned** — only the Release object and its uploaded
 installers. Every version therefore stays rebuildable from source at its exact
@@ -162,8 +171,9 @@ Two things to know before running it:
   create it. Inert while the version line moves forward; check the tag list
   first if you ever deliberately re-cut an old line.
 
-The first run is recorded in
-[2026-08-17 cleanup record](./2026-08-17-cleanup-record.md).
+The inventory captured before the first run is in the
+[2026-08-17 cleanup record](./2026-08-17-cleanup-record.md); the run itself
+is a maintainer dispatch (dry-run first, read the plan, then apply).
 
 ## Related
 

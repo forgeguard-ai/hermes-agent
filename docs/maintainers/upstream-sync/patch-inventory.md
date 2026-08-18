@@ -53,7 +53,7 @@ evolves.
       `release-on-merge.yml` is the single merge-time builder (a push trigger
       here re-introduces double builds on qualifying merges).
 - [ ] **`build-desktop-client.yml`** exists at
-      `.github/workflows/build-desktop-client.yml` with both Linux and macOS
+      `.github/workflows/build-desktop-client.yml` with the Linux, macOS and Windows
       jobs, and **no `push:` trigger** (same single-builder rule as above).
 - [ ] **`artifact-retention.yml`** exists at
       `.github/workflows/artifact-retention.yml` with its helper

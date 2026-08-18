@@ -1,12 +1,24 @@
 # Release and artifact cleanup record — 2026-08-17
 
-Pre-deletion snapshot of everything removed by the 2026-08-17 retention cleanup.
-Retention policy applied: **keep the two most recent releases and the most recent
-full package build**. Companion to the [Release process](./release-process.md).
+Pre-deletion inventory captured on 2026-08-17 while the retention policy was
+being written. **Nothing had been deleted when this was taken** — the authoring
+session could not delete (see the
+[plan](../../agent-plans/2026-08-17-release-artifact-cleanup.md), "Capability
+boundary"); the prune is a maintainer dispatch of
+[`artifact-retention.yml`](../../../.github/workflows/artifact-retention.yml).
+Retention policy: **keep the two most recent releases and their image builds**
+(`keep_releases` = `keep_builds` = 2 — the policy was tightened from one
+retained build to two before it merged, so the previous release's image always
+survives for roll-back). Companion to the [Release process](./release-process.md).
+
+The tables below are the inventory *at snapshot time*. `v0.20.4` shipped on
+2026-08-18 before any run, so the first real run keeps `v0.20.4` + `v0.20.3`
+and also removes `v0.20.2` — the workflow's own dry-run output is the
+authoritative plan; this file is the historical inventory behind it.
 
 This is append-only history. Do not edit it to reflect later state.
 
-## Retained
+## Retained (at snapshot time)
 
 | Release | Release id | Published | Assets | Commit |
 |---|---|---|---|---|

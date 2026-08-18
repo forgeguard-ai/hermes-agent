@@ -29,10 +29,15 @@ on:
         type: string
         default: '2'
       keep_builds:
-        description: 'How many of the kept releases retain their GHCR images.'
+        description: 'How many of the kept releases retain their GHCR images (<= keep_releases).'
         required: false
         type: string
-        default: '1'
+        default: '2'
+      min_age_hours:
+        description: 'Never delete a workflow artifact younger than this many hours.'
+        required: false
+        type: string
+        default: '24'
       delete_tags:
         description: 'Space-separated git tags to delete outright (strays only; normally blank).'
         required: false
@@ -75,6 +80,7 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run }}
           KEEP_RELEASES: ${{ inputs.keep_releases }}
           KEEP_BUILDS: ${{ inputs.keep_builds }}
+          MIN_AGE_HOURS: ${{ inputs.min_age_hours }}
           DELETE_TAGS: ${{ inputs.delete_tags }}
           SCOPE: ${{ inputs.scope }}
         run: |
@@ -82,11 +88,13 @@ jobs:
 
           case "$KEEP_RELEASES" in ''|*[!0-9]*) echo "::error::keep_releases must be a positive integer"; exit 2 ;; esac
           case "$KEEP_BUILDS"   in ''|*[!0-9]*) echo "::error::keep_builds must be a positive integer";   exit 2 ;; esac
+          case "$MIN_AGE_HOURS" in ''|*[!0-9]*) echo "::error::min_age_hours must be a non-negative integer"; exit 2 ;; esac
 
           args=(
             --repo "$REPO"
             --keep-releases "$KEEP_RELEASES"
             --keep-builds "$KEEP_BUILDS"
+            --min-age-hours "$MIN_AGE_HOURS"
           )
 
           case "$SCOPE" in

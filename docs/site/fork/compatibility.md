@@ -30,7 +30,7 @@ engine, and architecture support, see
 > upstream's product number (`v0.20.4` ships upstream `v2026.8.16.2`, which is
 > product `0.20.3`). The upstream base a release tracks is always the
 > "Upstream release" line in its notes / `FORK_UPSTREAM_BASE`. Releases up to
-> `v2026.7.1-forgeguard.3` carry older date-shaped tags named after the
+> `v2026.7.1-forgeguard.6` carry older date-shaped tags named after the
 > upstream base; `-forgeguard.<n>` re-cut suffixes appear only if a version is
 > ever re-released.
 

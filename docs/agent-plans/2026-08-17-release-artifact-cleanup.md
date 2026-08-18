@@ -18,6 +18,12 @@ type: plan
 - [x] Phase 5 — voice fix rescued to PR #16 (agent-command); branch prune
       **staged** in `branch-cleanup.yml` (ref deletion returned 403)
 - [x] Phase 6 — validation: docs gate, typecheck, lint, test:ts, build
+- [x] Phase 7 (2026-08-18) — branch merged onto post-sync `main` (`v0.20.4`,
+      upstream `v2026.8.16.2`) with adjustments: `keep_builds` default 1 → 2
+      (roll-back promise), `hermes-desktop-windows` added to the retained
+      artifacts, a 24 h `min_age_hours` floor so a mid-CI dispatch never races
+      `workflow_run` consumers, the split History blockquote repaired, and
+      every doc pin moved to `v0.20.4`.
 - [ ] **Maintainer action** — dispatch both workflows dry-run, read the plans,
       then re-run with `dry_run` unchecked; delete the 6 backup tags by hand
 

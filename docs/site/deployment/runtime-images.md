@@ -18,7 +18,7 @@ Anyone can pull and run it; no other ForgeGuard tooling is required. Images are
 published to `ghcr.io/forgeguard-ai/hermes-agent`.
 
 > **Version-sensitive behaviour.** This page documents the fork tracking
-> upstream `v2026.8.16` (Hermes `v0.20.3`). Dashboard authentication is
+> upstream `v2026.8.16.2` (fork release `v0.20.4`). Dashboard authentication is
 > mandatory on non-loopback binds since upstream `v2026.7.1` — see
 > [Dashboard authentication](../operations/dashboard-authentication.md). Check
 > [Compatibility](../fork/compatibility.md) for the current mapping.
@@ -33,11 +33,11 @@ published to `ghcr.io/forgeguard-ai/hermes-agent`.
 ## Run a persistent server
 
 Prefer an immutable tag for anything you care about. Replace
-`runtime-v0.20.3` with the tag of the [release](../operations/releases-and-upgrades.md)
+`runtime-v0.20.4` with the tag of the [release](../operations/releases-and-upgrades.md)
 you are pinning to:
 
 ```bash
-docker pull ghcr.io/forgeguard-ai/hermes-agent:runtime-v0.20.3
+docker pull ghcr.io/forgeguard-ai/hermes-agent:runtime-v0.20.4
 docker run -d \
   --name hermes \
   --restart unless-stopped \
@@ -48,7 +48,7 @@ docker run -d \
   -e HERMES_DASHBOARD_BASIC_AUTH_PASSWORD="$(openssl rand -hex 24)" \
   -e HERMES_DASHBOARD_BASIC_AUTH_SECRET="$(openssl rand -hex 32)" \
   -e HERMES_UID="$(id -u)" -e HERMES_GID="$(id -g)" \
-  ghcr.io/forgeguard-ai/hermes-agent:runtime-v0.20.3 gateway run
+  ghcr.io/forgeguard-ai/hermes-agent:runtime-v0.20.4 gateway run
 ```
 
 The generated password is printed nowhere — set it to a value you control if you
