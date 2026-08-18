@@ -102,6 +102,11 @@ Three further fork defaults, all in service of a static self-hosted client:
   default; on a self-hosted gateway with a large window it is the readout the
   operator watches most, so the fork shows it (the status bar's context menu
   still hides it).
+- **Cmd+Q quits in one press.** Upstream's quit handler deferred for its
+  async teardown without returning, tore the overlays/PTYs down on the
+  cancelled pass and left the process in the Dock until a second Cmd+Q; the
+  fork runs the teardown once and lets the last window closing end the process
+  during a quit (`v0.20.5`).
 - **Re-authentication after the backend is recreated never costs settings.**
   A recreated agent container answers the client's WebSocket-ticket refresh
   with 401; the fork carries the HTTP status on that error, drops only the
@@ -123,7 +128,18 @@ runtime fixes carried onto the `v2026.8.16` base remain fork deltas: the
 `"no-key"` deploy-sentinel placeholder fix, the `custom:<name>` provider-slug
 canonicalization (upstream converged on parts of the slug handling but not the
 bare-endpoint collapse or the validate-probe fix), and the mem0
-embedder-bearer scoping.
+embedder-bearer scoping. Added in `v0.20.5`: a stored session's model is
+restored as a per-chat pin only when the user chose it (a chat that merely
+inherited the default follows a later `config.yaml` model change — the
+served-model rename case — with a status line saying so); the desktop's Model
+settings **Apply** against a deployment-manager endpoint (`model.provider:
+custom` + `base_url`) is idempotent, keeps the endpoint credential across the
+bare-custom ↔ named-entry rename, registers the named entry with the key
+reference the config already holds, and collapses an undeclared
+`custom:<name>` back to the routable bare endpoint; auxiliary slots on
+`provider: main` read as inheriting (not "still run on main"); the settings
+panel writes agent defaults from a fresh config read; the ComfyUI skill
+honours `COMFYUI_HOST`.
 
 ## Supported platforms and signing state
 
