@@ -40,7 +40,12 @@ except ImportError:  # pragma: no cover - exercised via stdlib fallback
 # Constants & catalogs
 # =============================================================================
 
-DEFAULT_LOCAL_HOST = "http://127.0.0.1:8188"
+# The server every script talks to when no --host is given. COMFYUI_HOST lets a
+# deployment point the whole skill at a managed ComfyUI (Agent Command writes
+# it into the agent's environment alongside COMFY_CLOUD_API_KEY, which the
+# scripts already send as X-API-Key) without the model having to pass --host on
+# every call. (ForgeGuard fork.)
+DEFAULT_LOCAL_HOST = os.environ.get("COMFYUI_HOST", "").strip().rstrip("/") or "http://127.0.0.1:8188"
 DEFAULT_CLOUD_HOST = "https://cloud.comfy.org"
 ENV_API_KEY = "COMFY_CLOUD_API_KEY"  # env var NAME (placeholder, not a secret value)
 
