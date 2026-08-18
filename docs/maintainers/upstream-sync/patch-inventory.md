@@ -53,8 +53,27 @@ evolves.
       `release-on-merge.yml` is the single merge-time builder (a push trigger
       here re-introduces double builds on qualifying merges).
 - [ ] **`build-desktop-client.yml`** exists at
-      `.github/workflows/build-desktop-client.yml` with both Linux and macOS
+      `.github/workflows/build-desktop-client.yml` with the Linux, macOS and Windows
       jobs, and **no `push:` trigger** (same single-builder rule as above).
+- [ ] **`artifact-retention.yml`** exists at
+      `.github/workflows/artifact-retention.yml` with its helper
+      `.github/scripts/prune_artifacts.py`. Fork-only; upstream has no
+      equivalent, so a sync will not carry it — confirm both files survived.
+      It must stay **`workflow_dispatch`-only with `dry_run` defaulting to
+      `true`**, must keep passing dispatch inputs through `env:` rather than
+      `${{ }}` inside `run:` (the job holds contents/packages/actions write),
+      and the script must keep its two guards: `PACKAGES` naming only
+      `hermes-agent`, and skipping every untagged GHCR version (the
+      `buildcache-*` registry cache lives there). If `build-runtime-images.yml`
+      ever changes its tag families, update `TARGETS`/`ALWAYS_KEEP_TAGS` to
+      match or the prune will delete live tags.
+- [ ] **`branch-cleanup.yml`** exists at `.github/workflows/branch-cleanup.yml`
+      with its helper `.github/scripts/prune_branches.py`. Fork-only, so a sync
+      will not carry it. It must stay **`workflow_dispatch`-only with `dry_run`
+      defaulting to `true`**, must keep `keep` defaulting to `dev` (the
+      upstream-sync staging branch — deleting it would break
+      [`sync-policy.md`](./sync-policy.md)), and must keep refusing to delete a
+      branch that has an open PR or unmerged commits unless explicitly forced.
 - [ ] **`release-on-merge.yml`** exists at
       `.github/workflows/release-on-merge.yml`, calls `build-runtime-images.yml`
       with `version:` (not the retired `extra_tag`), still carries its

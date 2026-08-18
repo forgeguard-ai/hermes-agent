@@ -21,6 +21,15 @@ The `-<version>` and `-<git-sha>` tags for one release point at the same image
 bytes as the tested build — the push step retags the exact tested image rather
 than rebuilding.
 
+> **Retention bounds this check.** Only the two newest releases' `-<version>`
+> and `-<git-sha>` tags are retained; older ones are pruned by
+> [`artifact-retention.yml`](../../../.github/workflows/artifact-retention.yml).
+> The fork publishes no cosign signatures or SLSA attestations, so tag
+> provenance is the *only* mechanism available — once a `-<git-sha>` tag is
+> pruned, that build is no longer verifiable by any means here. If a release
+> needs to stay auditable beyond the retention window, mirror its image and
+> record the digest before the next prune runs.
+
 ### Variant and prebake labels
 
 Both published targets carry ForgeGuard OCI labels. Confirm you have the intended

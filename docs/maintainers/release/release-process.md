@@ -38,7 +38,7 @@ notes. The marker must still always be present and correct: if it is missing,
 `compute-version` falls back to `git describe --tags --abbrev=0`, which can pick
 an unrelated or stale tag.
 
-Releases up to `v2026.7.1-forgeguard.3` used the old date-shaped
+Releases up to `v2026.7.1-forgeguard.6` used the old date-shaped
 `<upstream-base>-forgeguard.<n>` scheme and keep those tags.
 
 ## What gets published, and when
@@ -129,8 +129,55 @@ After a merge that should release, confirm:
 See [Artifact verification](./artifact-verification.md) for provenance checks on
 the published images and installers.
 
+## Retention
+
+Published artifacts are pruned by
+[`artifact-retention.yml`](../../../.github/workflows/artifact-retention.yml)
+(`workflow_dispatch` only; `dry_run` defaults to true). Its policy:
+
+| Artifact | Retained |
+|---|---|
+| GitHub Releases + installers | newest 2 (`keep_releases`) |
+| `runtime-<version>` / `cli-<version>` images | newest 2 releases' pairs (`keep_builds`) |
+| `runtime-<git-sha>` / `cli-<git-sha>` images | the same 2 builds' pairs |
+| `runtime-latest` / `cli-latest` | always |
+| `buildcache-runtime-amd64` / `buildcache-cli-amd64` | always |
+| Untagged GHCR versions | always (they back the buildcache index) |
+| `hermes-desktop-linux` / `-macos` / `-windows` artifacts | newest 1 each |
+| Every other workflow artifact | dropped once older than `min_age_hours` (24 h) |
+
+`keep_builds` equals `keep_releases` on purpose: the roll-back path in
+[Releases and upgrades](../../site/operations/releases-and-upgrades.md#roll-back)
+promises the *previous* release's image is still pullable, and a
+`keep_builds` of 1 would break that promise the moment a release is cut. The
+24 h floor on workflow artifacts exists because `review-status-*`,
+`test-durations-slice-*` and the desktop uploads are read by `workflow_run`
+consumers minutes after upload — a prune dispatched mid-CI must not race them.
+
+**Release git tags are never pruned** — only the Release object and its uploaded
+installers. Every version therefore stays rebuildable from source at its exact
+commit, which is what makes the retention window safe to keep this tight.
+
+Two things to know before running it:
+
+- The script refuses to apply a **partial** plan. If it cannot read one scope
+  (a packages `403` is the usual cause — set `GHCR_CLEANUP_TOKEN` to a PAT with
+  `read:packages` + `delete:packages`), it aborts rather than pruning releases
+  while silently leaving images behind.
+- Pruning releases changes what `compute-version` sees. It derives the next
+  `-forgeguard.<n>` from `gh release list`, so a **deleted** version line's
+  counter resets while its git tag still exists — re-cutting `v0.19.x` or
+  `v2026.7.1` would compute a suffix whose tag is already taken and fail to
+  create it. Inert while the version line moves forward; check the tag list
+  first if you ever deliberately re-cut an old line.
+
+The inventory captured before the first run is in the
+[2026-08-17 cleanup record](./2026-08-17-cleanup-record.md); the run itself
+is a maintainer dispatch (dry-run first, read the plan, then apply).
+
 ## Related
 
 - [Sync policy](../upstream-sync/sync-policy.md)
 - [Patch inventory](../upstream-sync/patch-inventory.md)
 - [Artifact verification](./artifact-verification.md)
+- [2026-08-17 cleanup record](./2026-08-17-cleanup-record.md)
