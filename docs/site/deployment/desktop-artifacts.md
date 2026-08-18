@@ -1,6 +1,6 @@
 ---
 title: Desktop artifacts
-description: Install the ForgeGuard-built Hermes Desktop app on Linux and macOS, including the macOS Gatekeeper workaround for ad-hoc-signed builds.
+description: Install the ForgeGuard-built Hermes Desktop app on Linux, macOS and Windows, including the macOS Gatekeeper workaround for ad-hoc-signed builds and the Windows SmartScreen step for unsigned ones.
 order: 22
 status: stable
 ---
@@ -14,9 +14,10 @@ the installers.
 
 > **Signing state (version-sensitive).** macOS builds are **ad-hoc signed and
 > not notarized** — this fork has no Apple Developer credentials. Linux builds
-> are unsigned installers. Windows desktop builds are not currently produced.
-> Verify the current state on the release you are installing; do not assume
-> notarization from older documentation.
+> are unsigned installers. Windows builds (from `v0.20.4`) are **unsigned** —
+> no code-signing certificate on the fork — so SmartScreen warns on first
+> launch. Verify the current state on the release you are installing; do not
+> assume notarization or signing from older documentation.
 
 ## Available formats
 
@@ -24,14 +25,15 @@ the installers.
 |---|---|---|
 | Linux | `.AppImage`, `.deb`, `.rpm` | Unsigned installers. |
 | macOS | `.dmg`, `.zip` | Ad-hoc signed, not notarized. |
-| Windows | — | Not currently built by this fork. |
+| Windows | `-setup.exe` (NSIS, per-user), `-portable.exe` | Unsigned; x64 only; SmartScreen "More info → Run anyway" on first launch. From `v0.20.4`. |
 
 Desktop artifacts are versioned only by the GitHub Release tag they are attached
 to (they do not carry the image `-<version>` tag scheme).
 
 ## Prerequisites
 
-- A supported Linux distribution (for `.AppImage`/`.deb`/`.rpm`) or macOS.
+- A supported Linux distribution (for `.AppImage`/`.deb`/`.rpm`), macOS, or
+  64-bit Windows 10/11 (for the `.exe` builds).
 - Download the artifact for your platform from the
   [releases page](https://github.com/forgeguard-ai/hermes-agent/releases).
 
@@ -64,6 +66,23 @@ unzip Hermes.zip
 
 See [Troubleshooting](../troubleshooting/forgeguard-artifacts.md#macos-hermes-is-damaged-and-cant-be-opened)
 for more detail.
+
+## Install on Windows
+
+Two builds are attached to each release, both unsigned and x64 only:
+
+- `hermes-desktop-client-<version>-win-x64-setup.exe` — an NSIS installer that
+  installs **per user** (no administrator prompt) and lets you choose the
+  directory. It registers an uninstaller and a Start-menu shortcut.
+- `hermes-desktop-client-<version>-win-x64-portable.exe` — a single executable
+  that runs from wherever you save it; nothing is installed.
+
+On first launch of either, Windows SmartScreen shows *"Windows protected your
+PC"* because the binary carries no code-signing certificate. Click **More info
+→ Run anyway**. The warning is per binary and stops once Microsoft has seen the
+file enough times; it does not indicate a problem with the download. See
+[Troubleshooting](../troubleshooting/forgeguard-artifacts.md#windows-windows-protected-your-pc)
+for the details.
 
 ## Verify
 

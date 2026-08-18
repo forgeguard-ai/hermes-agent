@@ -179,6 +179,12 @@ jobs:
           name: hermes-desktop-macos
           path: release-assets
 
+      - name: Download Windows installers
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: hermes-desktop-windows
+          path: release-assets
+
       - name: Write release notes
         env:
           VERSION: ${{ needs.compute-version.outputs.version }}
@@ -230,11 +236,18 @@ jobs:
 
           ### Desktop installers
 
-          Linux (`.AppImage`, `.deb`, `.rpm`) and macOS (`.dmg`, `.zip`) installers are
-          attached below. They are **not notarized** (no Apple Developer credentials on
-          this fork); the macOS build is ad-hoc signed.
+          Linux (`.AppImage`, `.deb`, `.rpm`), macOS (`.dmg`, `.zip`) and Windows
+          (`-setup.exe` installer, `-portable.exe`) installers are attached below. None
+          is signed with a paid certificate (no Apple Developer or Windows code-signing
+          credentials on this fork); the macOS build is ad-hoc signed, the Windows
+          builds are unsigned.
 
           **Linux:** no extra step.
+
+          **Windows:** SmartScreen shows *"Windows protected your PC"* on first launch of
+          an unsigned binary — click **More info → Run anyway**. The `-setup.exe` installs
+          per-user (no administrator prompt); the `-portable.exe` runs from wherever it is
+          saved. x64 only.
 
           **macOS:** because the app isn't notarized, Gatekeeper quarantines it on
           download and shows *"Hermes is damaged and can't be opened"* — right-click →

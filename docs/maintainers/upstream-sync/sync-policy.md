@@ -115,9 +115,10 @@ git commit -m "chore: bump FORK_UPSTREAM_BASE to <TAG>"
 
 This file is read by `release-on-merge.yml`'s version-computation step for the
 "Upstream release" traceability line in the release notes. Since Hermes 0.19.0
-it no longer names the release — release tags are the `pyproject.toml` product
-semver (`v<hermes-version>`, with a `-forgeguard.<n>` suffix only on a re-cut
-of an already-released version) — but the marker must still be correct: without
+it no longer names the release — release tags are the `pyproject.toml` version,
+which since `v0.20.4` is the **fork's own patch line** (bumped by one on every
+fork release; hand-set during a sync rather than taken upstream byte-identical —
+see the release process) — but the marker must still be correct: without
 it, that workflow falls back to `git describe --tags --abbrev=0`, which can
 pick an unrelated or stale tag. See the
 [Release process](../release/release-process.md).
@@ -157,8 +158,8 @@ After merging, confirm:
   branch — e.g. `v0.19.0`; a sync normally bumps the product version, so expect
   the plain tag, or the next `-forgeguard.<n>` re-cut suffix if that version
   had already released — its notes' "Upstream release" line shows `<TAG>`, and
-  it has all 5 installers attached (`*.deb`, `*.AppImage`, `*.rpm`, `*.dmg`,
-  `*.zip`).
+  it has all 7 installers attached (`*.deb`, `*.AppImage`, `*.rpm`, `*.dmg`,
+  `*.zip`, `*-setup.exe`, `*-portable.exe`).
 
 ## Why a real merge, not rebase or squash
 

@@ -15,11 +15,20 @@ semver, e.g. `v0.19.0`:
 
 - `<hermes-version>` is read from `pyproject.toml` by `compute-version` —
   aligning fork releases with ForgeGuard project versioning conventions.
-- The product version only bumps on upstream syncs, but the workflow fires on
-  every release-relevant merge — so a **re-cut** of an already-released product
-  version (e.g. a fork-only fix) gets a `-forgeguard.<n>` suffix instead of
-  colliding on a duplicate tag: `v0.19.0-forgeguard.2`, counting the plain tag
-  as cut 1. `<n>` is computed by scanning existing release tags.
+- **Since `v0.20.4` the fork version is its own line.** It started equal to the
+  Hermes product version and bumps the patch number by one on *every* fork
+  release — an upstream sync, a fork-only fix, or both in one PR — so the tag
+  sequence stays strictly increasing and unambiguous (`v0.20.3` was a fork-only
+  cut; upstream's `v2026.8.16.2` is *also* product `0.20.3`, and following the
+  old rule would have collided into `v0.20.3-forgeguard.2`). Consequences:
+  `pyproject.toml`, `hermes_cli/__init__.py`, `uv.lock`, `apps/desktop/package.json`
+  and the desktop entry in `package-lock.json` are **hand-set** to the fork
+  version at every release (a sync no longer takes them upstream byte-identical);
+  the upstream product version is recorded by `FORK_UPSTREAM_BASE` and the
+  release notes' "Upstream release" line, and the mapping lives in
+  `docs/site/fork/compatibility.md`.
+- The `-forgeguard.<n>` re-cut suffix remains as the workflow's safety net if a
+  version is ever released twice; under the rule above it should not fire.
 
 The upstream base tag no longer names the release. It is still read from the
 `FORK_UPSTREAM_BASE` marker file at the repo root — which the
@@ -45,8 +54,9 @@ CI-only merges don't produce releases. For qualifying merges it:
    on a re-cut; `FORK_UPSTREAM_BASE` feeds only the release-notes traceability
    line.
 2. Calls `build-desktop-client.yml` with `upload: true` → unsigned Linux
-   installers (`.AppImage`, `.deb`, `.rpm`) and ad-hoc-signed macOS installers
-   (`.dmg`, `.zip`). It does **not** pass a `version:` input; desktop artifacts
+   installers (`.AppImage`, `.deb`, `.rpm`), ad-hoc-signed macOS installers
+   (`.dmg`, `.zip`) and unsigned Windows installers (`-setup.exe`,
+   `-portable.exe`). It does **not** pass a `version:` input; desktop artifacts
    are versioned only by the Release tag.
 3. Calls `build-runtime-images.yml` with `push: true` and
    `version: <computed version>` → builds, tests, and pushes both image variants
@@ -112,8 +122,9 @@ After a merge that should release, confirm:
   images rather than silently skipping.
 - The GitHub Release is tagged with the product semver (plus the `-forgeguard.<n>`
   re-cut suffix when that version had already released), its notes carry the
-  expected "Upstream release" line, and it has all five installers attached
-  (`*.deb`, `*.AppImage`, `*.rpm`, `*.dmg`, `*.zip`).
+  expected "Upstream release" line, and it has all seven installers attached
+  (`*.deb`, `*.AppImage`, `*.rpm`, `*.dmg`, `*.zip`, `*-setup.exe`,
+  `*-portable.exe`).
 
 See [Artifact verification](./artifact-verification.md) for provenance checks on
 the published images and installers.

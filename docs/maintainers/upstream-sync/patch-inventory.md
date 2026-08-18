@@ -109,7 +109,7 @@ evolves.
       `cancel-in-progress` for pull-request refs (never cancelling `main` runs);
       keep it through the merge.
 - [ ] **`workflow_call` upload/push gating** — in both
-      `build-desktop-client.yml`'s "Upload Linux/macOS installers" steps and
+      `build-desktop-client.yml`'s "Upload Linux/macOS/Windows installers" steps and
       `build-runtime-images.yml`'s "Push image to GHCR" step, the `if:` must gate
       on `inputs.upload` / `inputs.push` directly. **Do not** reintroduce
       `github.event_name == 'workflow_call'` — `github.event_name` inside a

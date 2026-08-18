@@ -15,20 +15,24 @@ engine, and architecture support, see
 
 | Field | Value | Source |
 |---|---|---|
-| Upstream base (`FORK_UPSTREAM_BASE`) | `v2026.8.16` | `FORK_UPSTREAM_BASE` marker at the repository root (surfaced as the "Upstream release" line in each release's notes). |
-| Fork release line | `v0.20.2` (re-cuts: `v0.20.2-forgeguard.<n>`) | Latest [fork release](https://github.com/forgeguard-ai/hermes-agent/releases). |
-| Hermes product version | `0.20.2` | `pyproject.toml` (names the release tag and title). |
+| Upstream base (`FORK_UPSTREAM_BASE`) | `v2026.8.16.2` | `FORK_UPSTREAM_BASE` marker at the repository root (surfaced as the "Upstream release" line in each release's notes). |
+| Fork release line | `v0.20.4` | Latest [fork release](https://github.com/forgeguard-ai/hermes-agent/releases). |
+| Hermes product version | `0.20.4` (fork line; upstream `v2026.8.16.2` is product `0.20.3`) | `pyproject.toml` (names the release tag and title). |
 | Runtime/CLI images | `runtime-<version>`, `cli-<version>` (+ `-<sha>`, `-latest`) | `ghcr.io/forgeguard-ai/hermes-agent`. |
-| Desktop artifacts | `.AppImage`/`.deb`/`.rpm`, `.dmg`/`.zip` | Attached to the fork release (versioned by the Release tag). |
+| Desktop artifacts | `.AppImage`/`.deb`/`.rpm`, `.dmg`/`.zip`, `-setup.exe`/`-portable.exe` | Attached to the fork release (versioned by the Release tag). |
 
 > **Version-sensitive.** These values describe the current fork state. Always
 > confirm against the live `FORK_UPSTREAM_BASE` marker and the newest
 > [release](https://github.com/forgeguard-ai/hermes-agent/releases) — this fork
-> advances quickly. The fork tag is the Hermes *product version* it ships
-> (`v<hermes-version>`, since Hermes 0.19.0; a re-cut of an already-released
-> version adds `-forgeguard.<n>`); the upstream base it tracks is in the
-> release notes. Releases up to `v2026.7.1-forgeguard.3` carry older
-> date-shaped tags named after the upstream base instead.
+> advances quickly. Since `v0.20.4` the fork tag is the fork's **own** patch
+> line: it started from the Hermes product version (`v0.19.0` … `v0.20.3`) and
+> now bumps by one on every fork release, sync or not — so it can run ahead of
+> upstream's product number (`v0.20.4` ships upstream `v2026.8.16.2`, which is
+> product `0.20.3`). The upstream base a release tracks is always the
+> "Upstream release" line in its notes / `FORK_UPSTREAM_BASE`. Releases up to
+> `v2026.7.1-forgeguard.3` carry older date-shaped tags named after the
+> upstream base; `-forgeguard.<n>` re-cut suffixes appear only if a version is
+> ever re-released.
 
 ## What the fork tracks
 

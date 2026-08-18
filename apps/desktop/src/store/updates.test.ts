@@ -31,6 +31,12 @@ vi.mock('@/store/notifications', () => ({
   dismissNotification: (...args: unknown[]) => dismissSpy(...args)
 }))
 
+// ForgeGuard fork: the shipped build has update checks OFF (src/lib/fork-config),
+// which short-circuits the toast and the poller. This file validates upstream's
+// update logic, so pin the switch ON here; updates.fork.test.ts covers the
+// shipped (off) behaviour.
+vi.mock('@/lib/fork-config', () => ({ FORK_UPDATE_CHECKS_ENABLED: true }))
+
 const checkHermesUpdateSpy = vi.fn()
 const updateHermesSpy = vi.fn()
 const getActionStatusSpy = vi.fn()

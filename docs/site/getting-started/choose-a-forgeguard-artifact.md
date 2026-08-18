@@ -17,7 +17,7 @@ Pick the one that matches how you want to run the agent.
 |---|---|---|
 | Run a persistent agent that a client connects to (web dashboard, Desktop Client Mode, messaging platforms, scheduled jobs) | **Runtime image** (`runtime-*`) | Full supervised server: s6 keeps the dashboard and per-profile gateways running; state persists on a volume. |
 | Work interactively in a terminal on a Linux workstation with host integration, without installing the full dependency stack on the host | **CLI image** (`cli-*`) via distrobox | Lean interactive image; your `~/.hermes` is shared with the host and survives upgrades. |
-| Run the graphical Hermes Desktop app on your own machine | **Desktop installers** | Native Linux (`.AppImage`/`.deb`/`.rpm`) and macOS (`.dmg`/`.zip`) builds attached to each fork release. |
+| Run the graphical Hermes Desktop app on your own machine | **Desktop installers** | Native Linux (`.AppImage`/`.deb`/`.rpm`), macOS (`.dmg`/`.zip`) and Windows (`-setup.exe`/`-portable.exe`) builds attached to each fork release. |
 
 ## Prerequisites
 
@@ -26,7 +26,8 @@ Pick the one that matches how you want to run the agent.
   must configure [dashboard authentication](../operations/dashboard-authentication.md).
 - **CLI image:** a Linux host with [distrobox](https://distrobox.it/) and a
   container engine. Plain `docker run -it` also works for one-off use.
-- **Desktop installers:** a supported Linux distribution or macOS. See
+- **Desktop installers:** a supported Linux distribution, macOS, or 64-bit
+  Windows 10/11. See
   [Desktop artifacts](../deployment/desktop-artifacts.md) for formats and the
   macOS Gatekeeper note.
 

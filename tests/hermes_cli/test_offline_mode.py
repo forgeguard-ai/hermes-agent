@@ -35,6 +35,27 @@ def test_gates_require_master_switch(monkeypatch):
     assert offline.remote_catalog_disabled() is False
 
 
+def test_standalone_update_check_switch_needs_no_master(monkeypatch):
+    # ForgeGuard fork: the runtime image pins HERMES_DISABLE_UPDATE_CHECKS=1 so
+    # the box never asks upstream whether it is behind, WITHOUT turning on
+    # offline mode (catalog/metadata/portal gates stay closed-by-default).
+    monkeypatch.delenv("HERMES_OFFLINE_MODE", raising=False)
+    monkeypatch.delenv("HERMES_OFFLINE_DISABLE_UPDATE_CHECKS", raising=False)
+    _set(monkeypatch, HERMES_DISABLE_UPDATE_CHECKS="1")
+    assert offline.offline_enabled() is False
+    assert offline.update_checks_disabled() is True
+    assert offline.remote_catalog_disabled() is False
+    assert offline.remote_metadata_disabled() is False
+
+
+def test_standalone_update_check_switch_falsey_defers_to_offline_gate(monkeypatch):
+    monkeypatch.delenv("HERMES_OFFLINE_MODE", raising=False)
+    _set(monkeypatch, HERMES_DISABLE_UPDATE_CHECKS="0")
+    assert offline.update_checks_disabled() is False
+    _set(monkeypatch, HERMES_OFFLINE_MODE="1")
+    assert offline.update_checks_disabled() is True
+
+
 def test_each_gate_resolves(monkeypatch):
     _set(
         monkeypatch,

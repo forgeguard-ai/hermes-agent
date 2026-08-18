@@ -169,8 +169,8 @@ export function BootFailureOverlay() {
   // an expired session can't silently bounce us back into the same state. On a
   // successful sign-in the cookie is re-established; reload so boot mints a fresh
   // ticket against a live session.
-  const signInRemote = async () => {
-    if (!remoteReauth) {
+  const signInRemote = async (url: string | undefined = remoteReauth?.url) => {
+    if (!url) {
       return
     }
 
@@ -178,7 +178,7 @@ export function BootFailureOverlay() {
 
     try {
       await window.hermesDesktop?.oauthLogoutConnectionConfig?.()
-      const result = await window.hermesDesktop?.oauthLoginConnectionConfig(remoteReauth.url)
+      const result = await window.hermesDesktop?.oauthLoginConnectionConfig(url)
 
       if (result?.connected) {
         notify({ kind: 'success', title: t.boot.failure.signedInTitle, message: t.boot.failure.signedInMessage })
@@ -275,7 +275,28 @@ export function BootFailureOverlay() {
     ]
     hint = copy.remoteSignInHint(label)
   } else if (remoteFailure) {
-    actions = [settingsAction, { ...retryAction, variant: 'secondary' }, localAction, clientModeAction]
+    // A remote failure that did not classify as auth-shaped can still BE an
+    // expired session — the producer may have lost the HTTP status, or the
+    // gateway answered 503 while its provider registry re-seeded after a
+    // container recreate. Offering sign-in here (only for OAuth-mode remotes,
+    // where it can help) means the operator is never left with a dialog whose
+    // every button re-tries the same dead credential. (ForgeGuard fork)
+    const signInUrl =
+      connectionConfig?.remoteAuthMode === 'oauth' && connectionConfig.remoteUrl ? connectionConfig.remoteUrl : ''
+    const remoteSignInAction: RecoveryAction[] = signInUrl
+      ? [
+          {
+            key: 'signin',
+            label: copy.signOutAndSignIn,
+            onClick: () => void signInRemote(signInUrl),
+            icon: <LogIn />,
+            variant: 'secondary',
+            busy: 'signin'
+          }
+        ]
+      : []
+
+    actions = [settingsAction, ...remoteSignInAction, { ...retryAction, variant: 'secondary' }, localAction, clientModeAction]
     hint = copy.remoteFailureHint
   } else {
     // Local failure: Use-local is redundant with Retry (both re-target local), so
