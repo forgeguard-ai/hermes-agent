@@ -4778,8 +4778,21 @@ def _persist_model_switch(result) -> None:
     # `model_fallback`, etc. — when switching models from the TUI (#48305).
     from cli import save_config_value
 
+    # A composer/menu pick hands over the UI slug (``custom:<name>``); persist
+    # the id the credential resolver can load. canonicalize_provider_slug keeps
+    # a declared entry's id and collapses an undeclared name (or the bare
+    # endpoint's ``custom:custom`` row) to ``custom``, so a --global pick can
+    # never write a provider that bricks the next agent init with "Unknown
+    # provider" (ForgeGuard fork, 2026-08-19).
+    provider = result.target_provider
+    try:
+        from hermes_cli.providers import canonicalize_provider_slug
+
+        provider = canonicalize_provider_slug(provider, _load_cfg()) or provider
+    except Exception:
+        logger.debug("provider slug canonicalization failed", exc_info=True)
     save_config_value("model.default", result.new_model)
-    save_config_value("model.provider", result.target_provider)
+    save_config_value("model.provider", provider)
     if result.base_url:
         save_config_value("model.base_url", result.base_url)
     else:
