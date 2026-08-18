@@ -2949,6 +2949,14 @@ def _ensure_session_db_row(session: dict) -> None:
     override = override if isinstance(override, dict) else {}
     row_model = str(override.get("model") or "").strip() or _resolve_model()
     model_config: dict = {}
+    # Who chose the row's model. "user" = an explicit composer/menu pick or a
+    # /model switch (session pin, restored verbatim on resume); "default" = the
+    # global default stamped here because the chat made no pick — such a row
+    # must NOT read as a pin on resume, or a later config.yaml model change
+    # (a renamed vLLM served model, say) never reaches the chat again and it
+    # 404s forever on the retired name. See _stored_session_runtime_overrides
+    # (ForgeGuard fork, 2026-08-19).
+    model_config["model_source"] = "user" if str(override.get("model") or "").strip() else "default"
     for src_key, cfg_key in (
         ("model", "model"),
         ("provider", "provider"),
@@ -4029,7 +4037,17 @@ def _stored_session_runtime_overrides(row: dict | None) -> dict:
             )
         provider = healed or ("" if not base_url else provider)
 
-    if model:
+    # Is the stored model a PIN (the user chose it for this chat) or merely the
+    # default that was current when the row was created? Only a pin is restored
+    # as an override; a default-sourced row resumes on config.yaml's current
+    # model so a config change (a renamed vLLM served model) reaches old chats
+    # instead of leaving them on a name the endpoint no longer serves. Rows
+    # written before model_source existed are treated as default when they
+    # point at the SAME endpoint config does (the rename case) and as a pin
+    # when they name a different endpoint — re-pinning a legacy chat is one
+    # /model away; a chat that 404s forever is not. (ForgeGuard fork.)
+    pinned = _stored_model_is_pinned(model_config, model, provider, base_url)
+    if model and pinned:
         # Use the same dict-shaped override that live /model switches use so a
         # DB-restored session can preserve custom endpoint metadata across both
         # initial resume and later rebuilds (/new). Deliberately do not persist
@@ -4041,7 +4059,7 @@ def _stored_session_runtime_overrides(row: dict | None) -> dict:
             "base_url": base_url or None,
             "api_mode": api_mode or None,
         }
-    if provider:
+    if provider and pinned:
         overrides["provider_override"] = provider
     if isinstance(reasoning_config, dict):
         overrides["reasoning_config_override"] = reasoning_config
@@ -4053,6 +4071,72 @@ def _stored_session_runtime_overrides(row: dict | None) -> dict:
         overrides["service_tier_override"] = service_tier
 
     return overrides
+
+
+def _provider_class(provider: str) -> str:
+    """The billing/routing class of a provider slug: ``custom:<name>`` and
+    ``custom`` are one class (a named custom endpoint), everything else is
+    itself."""
+    p = (provider or "").strip().lower()
+    if p == "custom" or p.startswith("custom:"):
+        return "custom"
+    return p
+
+
+def _stored_model_is_pinned(model_config: dict, model: str, provider: str, base_url: str) -> bool:
+    """Whether a stored session row's model should be restored as a session
+    override. ``model_config.model_source`` is authoritative when present
+    (``user`` = pin, ``default`` = follow config). A legacy row without it
+    keeps the historical pin EXCEPT in the one case that pin is known to be
+    harmful: the row names a different model than config.yaml's current
+    default while pointing at the SAME endpoint — the served-model rename,
+    where restoring the old name 404s on every turn until the operator
+    re-picks. A legacy row on a different endpoint is a real pin and stays."""
+    source = str((model_config or {}).get("model_source") or "").strip().lower()
+    if source == "user":
+        return True
+    if source == "default":
+        return False
+    cfg_model = _load_cfg().get("model")
+    cfg_default = ""
+    cfg_provider = ""
+    cfg_base_url = ""
+    if isinstance(cfg_model, dict):
+        cfg_default = str(cfg_model.get("default") or "").strip()
+        cfg_provider = str(cfg_model.get("provider") or "").strip()
+        cfg_base_url = str(cfg_model.get("base_url") or "").strip()
+    elif isinstance(cfg_model, str):
+        cfg_default = cfg_model.strip()
+    if not cfg_default or not model or model == cfg_default:
+        # Same model (or nothing to compare against): the pin is harmless.
+        return True
+    stored_url = (base_url or "").rstrip("/")
+    config_url = cfg_base_url.rstrip("/")
+    if stored_url and config_url:
+        return stored_url != config_url
+    if provider and cfg_provider:
+        return _provider_class(provider) != _provider_class(cfg_provider)
+    # A different model and no endpoint evidence either way: config's model
+    # is what the operator maintains; the chat follows it.
+    return False
+
+
+def _stored_model_adoption_notice(row: dict | None, overrides: dict) -> str | None:
+    """A one-line status for a resumed chat whose stored model was NOT pinned
+    and differs from config.yaml's current model — so the operator learns the
+    chat moved on rather than wondering why the footer changed."""
+    if not row or overrides.get("model_override"):
+        return None
+    stored = str(row.get("model") or "").strip()
+    if not stored:
+        return None
+    current, _ = _config_model_target()
+    if not current or current == stored:
+        return None
+    return (
+        f"This chat was last on {stored}, which is no longer the configured "
+        f"default; continuing on {current}. Use the model picker to pin a model to this chat."
+    )
 
 
 def _runtime_model_config(agent, existing: dict | None = None) -> dict:
@@ -4116,8 +4200,13 @@ def _runtime_model_config(agent, existing: dict | None = None) -> dict:
     return config
 
 
-def _persist_live_session_runtime(session: dict | None) -> None:
-    """Persist active session runtime so future resumes restore the same footer."""
+def _persist_live_session_runtime(session: dict | None, *, model_source: str | None = None) -> None:
+    """Persist active session runtime so future resumes restore the same footer.
+
+    ``model_source="user"`` marks the row's model as a deliberate per-session
+    pin (a /model switch or composer pick); left None, the row keeps whatever
+    source it had (a config-adoption sync therefore never turns a default row
+    into a pin)."""
     if not session:
         return
     agent = session.get("agent")
@@ -4140,6 +4229,8 @@ def _persist_live_session_runtime(session: dict | None) -> None:
             if isinstance(parsed, dict):
                 existing_config = parsed
         model_config = _runtime_model_config(agent, existing_config)
+        if model_source:
+            model_config["model_source"] = model_source
         create_service_tier_override = session.get("create_service_tier_override")
         if create_service_tier_override is not None:
             # _runtime_model_config sees agent.service_tier=None for explicit
@@ -4908,7 +4999,13 @@ def _apply_model_switch(
                 f"staying on {getattr(agent, 'model', current_model)}."
             ) from exc
         _restart_slash_worker(sid, session)
-        _persist_live_session_runtime(session)
+        _persist_live_session_runtime(
+            session,
+            # A pinning switch is the user's choice for THIS chat and must
+            # survive resume verbatim; a config-adoption sync (pin_session_
+            # override=False) or a one-turn model leaves the row's source alone.
+            model_source="user" if (pin_session_override and not one_turn) else None,
+        )
         _persist_live_session_system_prompt(session)
         _append_model_switch_marker(
             session, model=result.new_model, provider=result.target_provider
@@ -5018,7 +5115,13 @@ def _sync_agent_model_with_config(sid: str, session: dict) -> None:
     keeps the current model and never blocks the turn.
     """
     agent = session.get("agent")
-    if agent is None or session.get("model_override"):
+    if agent is None:
+        return
+    # A resume that deliberately did NOT restore the stored model (see
+    # _stored_session_runtime_overrides) parked a note for the first turn.
+    if notice := session.pop("pending_model_notice", None):
+        _emit("status.update", sid, {"kind": "process", "text": str(notice)})
+    if session.get("model_override"):
         return
     target = _config_model_target()
     if not target[0]:
