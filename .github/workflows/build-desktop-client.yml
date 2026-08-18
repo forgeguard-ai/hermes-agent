@@ -231,7 +231,16 @@ jobs:
         with:
           command: npm ci
 
-      - name: Desktop main-process tests
+      # Non-blocking on Windows ON PURPOSE. This is the same electron vitest
+      # project the Linux and macOS jobs above run — and gate on — so it is
+      # already enforced twice per build. On windows-latest ~30 of its tests are
+      # not Windows-portable (POSIX 0600 chmod assertions, 8.3 short-path
+      # RUNNER~1 vs runneradmin mismatches, symlink plants) and would fail every
+      # run for reasons unrelated to the installers this job exists to produce.
+      # Upstream itself runs only a curated Windows subset (tests-os.yml). Kept
+      # visible rather than skipped so a Windows-portability pass has a signal.
+      - name: Desktop main-process tests (informational on Windows)
+        continue-on-error: true
         run: npm run --prefix apps/desktop test:desktop:platforms
 
       # See the matching step in build-linux for why this is non-blocking.

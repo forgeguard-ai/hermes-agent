@@ -72,6 +72,19 @@ describe('local desktop pack stays out of the publish path', () => {
     assert.match(pack, /--publish\s+never\b/)
   })
 
+  test('every dist script pins --publish never too (ForgeGuard fork)', () => {
+    // The fork's release workflow builds installers with the dist:* scripts
+    // under CI=true and no GH_TOKEN. Once package.json declared a repository,
+    // electron-builder's implicit onTagOrDraft publish policy resolved a GitHub
+    // provider and failed the whole build with "GitHub Personal Access Token is
+    // not set" — on every platform. Publishing is release-on-merge's job, via
+    // gh release create; electron-builder must never try.
+    for (const [name, script] of Object.entries(desktopPkg.scripts)) {
+      if (!name.startsWith('dist')) continue
+      assert.match(script, /--publish\s+never\b/, `${name} must pass --publish never`)
+    }
+  })
+
   test('publish resolution succeeds with a GitHub token present', async () => {
     // The #87758 failure mode: CI=1 makes isPublish true, a GITHUB_TOKEN in the
     // environment auto-selects the github provider, and the provider needs a
