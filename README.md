@@ -93,7 +93,7 @@ docker run -d \
   -e HERMES_DASHBOARD_BASIC_AUTH_PASSWORD="$(openssl rand -hex 24)" \
   -e HERMES_DASHBOARD_BASIC_AUTH_SECRET="$(openssl rand -hex 32)" \
   -e HERMES_UID="$(id -u)" -e HERMES_GID="$(id -g)" \
-  ghcr.io/forgeguard-ai/hermes-agent:runtime-v0.19.0 gateway run
+  ghcr.io/forgeguard-ai/hermes-agent:runtime-v0.20.3 gateway run
 ```
 
 Verify it is up:
@@ -176,13 +176,16 @@ they may not reflect ForgeGuard artifacts or the current fork release.
 ## Compatibility and releases
 
 ForgeGuard releases are tagged with the Hermes product version they ship (e.g.
-`v0.19.0`; a re-cut of an already-released version adds a `-forgeguard.<n>`
-suffix). The current fork ships Hermes **`0.19.0`** and tracks upstream
-**`v2026.7.20`**, recorded in the [`FORK_UPSTREAM_BASE`](./FORK_UPSTREAM_BASE)
+`v0.20.3`; a re-cut of an already-released version adds a `-forgeguard.<n>`
+suffix). The current fork ships Hermes **`0.20.3`** and tracks upstream
+**`v2026.8.16`**, recorded in the [`FORK_UPSTREAM_BASE`](./FORK_UPSTREAM_BASE)
 marker and surfaced in each release's notes. Runtime and CLI images
 are published to `ghcr.io/forgeguard-ai/hermes-agent` with immutable
 `*-<version>` and `*-<git-sha>` tags plus rolling `*-latest` tags; pin an
-immutable tag for durable deployments. Images are built for `linux/amd64`;
+immutable tag for durable deployments. Only the two most recent releases and
+their image builds are retained — see
+[Releases and upgrades](./docs/site/operations/releases-and-upgrades.md).
+Images are built for `linux/amd64`;
 desktop builds cover Linux (`.AppImage`/`.deb`/`.rpm`), macOS (`.dmg`/`.zip`,
 ad-hoc signed and **not** notarized) and Windows (`-setup.exe`/`-portable.exe`,
 unsigned, x64). This fork advances quickly — always confirm

@@ -1,0 +1,110 @@
+# Retention prune for fork publishing artifacts: GitHub Releases, GHCR image
+# versions and workflow artifacts.
+#
+# workflow_dispatch ONLY, and dry_run defaults to true — accept the defaults and
+# hit "Run workflow" to see exactly what a real run would delete, then re-run
+# with dry_run unchecked. There is no schedule on purpose: pruning immutable
+# published artifacts should be a deliberate act with a human reading the plan.
+#
+# Release git tags are NOT deleted, so every pruned release stays rebuildable
+# from source. See docs/maintainers/release/release-process.md, and
+# docs/maintainers/release/2026-08-17-cleanup-record.md for the first run.
+#
+# Every dispatch input reaches the script through `env:`, never through `${{ }}`
+# inside `run:` — this job holds contents/packages/actions write, so an input
+# interpolated into the shell would be a command-injection sink.
+name: artifact-retention
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Report the plan without deleting anything.'
+        required: true
+        type: boolean
+        default: true
+      keep_releases:
+        description: 'How many of the newest releases to keep.'
+        required: false
+        type: string
+        default: '2'
+      keep_builds:
+        description: 'How many of the kept releases retain their GHCR images.'
+        required: false
+        type: string
+        default: '1'
+      delete_tags:
+        description: 'Space-separated git tags to delete outright (strays only; normally blank).'
+        required: false
+        type: string
+        default: ''
+      scope:
+        description: 'What to prune.'
+        required: true
+        type: choice
+        default: all
+        options: [all, releases-only, packages-only, artifacts-only]
+
+permissions:
+  contents: write      # delete releases, and tags named in delete_tags
+  packages: write      # delete GHCR container versions
+  actions: write       # delete workflow artifacts
+
+concurrency:
+  group: artifact-retention
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+          sparse-checkout-cone-mode: false
+
+      - name: Prune
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Optional. GITHUB_TOKEN can normally manage container versions for
+          # packages linked to this repo; if the package is owned by the org
+          # without that link, the packages calls 403 and the script says so.
+          # Set this secret to a PAT with read:packages + delete:packages then.
+          GHCR_CLEANUP_TOKEN: ${{ secrets.GHCR_CLEANUP_TOKEN }}
+          REPO: ${{ github.repository }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          KEEP_RELEASES: ${{ inputs.keep_releases }}
+          KEEP_BUILDS: ${{ inputs.keep_builds }}
+          DELETE_TAGS: ${{ inputs.delete_tags }}
+          SCOPE: ${{ inputs.scope }}
+        run: |
+          set -euo pipefail
+
+          case "$KEEP_RELEASES" in ''|*[!0-9]*) echo "::error::keep_releases must be a positive integer"; exit 2 ;; esac
+          case "$KEEP_BUILDS"   in ''|*[!0-9]*) echo "::error::keep_builds must be a positive integer";   exit 2 ;; esac
+
+          args=(
+            --repo "$REPO"
+            --keep-releases "$KEEP_RELEASES"
+            --keep-builds "$KEEP_BUILDS"
+          )
+
+          case "$SCOPE" in
+            releases-only)  args+=(--skip-packages --skip-artifacts) ;;
+            packages-only)  args+=(--skip-releases --skip-artifacts) ;;
+            artifacts-only) args+=(--skip-releases --skip-packages) ;;
+            all)            ;;
+            *) echo "::error::unknown scope '$SCOPE'"; exit 2 ;;
+          esac
+
+          # Intentional word-splitting: DELETE_TAGS is a space-separated list.
+          # Safe because it expands into an array element, not into shell syntax.
+          for tag in $DELETE_TAGS; do
+            args+=(--delete-tag "$tag")
+          done
+
+          if [ "$DRY_RUN" != "true" ]; then
+            args+=(--apply)
+          fi
+
+          python3 .github/scripts/prune_artifacts.py "${args[@]}"
