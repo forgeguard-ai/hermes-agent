@@ -1695,6 +1695,27 @@ def _normalize_main_model_assignment(provider: str, model: str) -> tuple[str, st
     # silently rebinding the model to the bare endpoint.
     if canonical == "custom:custom":
         return canonicalize_provider_slug(prov_in, cfg if isinstance(cfg, dict) else {}), model_in
+    # ForgeGuard fork (2026-08-19): a named ``custom:<name>`` that resolves to
+    # NO entry (the deployment manager rewrote config.yaml and dropped it, or
+    # the desktop's cached row outlived it) must not be persisted verbatim
+    # when the bare endpoint is ROUTABLE — ``model.base_url`` is set — because
+    # agent init then dies with "Unknown provider 'custom:<name>'" for every
+    # new session while the URL it should use sits right there. Collapse it to
+    # ``custom`` and let the log carry the name. With no base_url there is
+    # nothing to route to, so the slug stays (upstream behaviour: the resolver
+    # reports the missing entry by name).
+    if canonical.startswith("custom:"):
+        model_block = cfg.get("model") if isinstance(cfg, dict) else None
+        routable = isinstance(model_block, dict) and bool(str(model_block.get("base_url") or "").strip())
+        if routable:
+            collapsed = canonicalize_provider_slug(prov_in, cfg if isinstance(cfg, dict) else {})
+            if collapsed != canonical:
+                _log.warning(
+                    "model.provider %r names no configured custom endpoint; storing %r "
+                    "(model.base_url routes the bare endpoint)",
+                    canonical, collapsed,
+                )
+            return collapsed, model_in
 
     if (
         canonical not in _KNOWN_PROVIDER_NAMES
@@ -1765,11 +1786,26 @@ def _apply_main_model_assignment(
         model_cfg = {}
     prev_provider = str(model_cfg.get("provider") or "").strip().lower()
     new_provider = provider.strip().lower()
+    prev_base_url = str(model_cfg.get("base_url") or "").strip().rstrip("/")
+    # ForgeGuard fork: bare ``custom`` and ``custom:<name>`` are the SAME
+    # endpoint when they name the same base_url — the desktop's Model settings
+    # goes bare-custom → named row for the URL it already had (its first Apply
+    # auto-registers the entry, the second selects it). Treating that as a
+    # provider switch cleared model.api_key and the next request went out
+    # with a placeholder bearer (HTTP 401, 2026-08-18). Same endpoint ⇒ same
+    # credentials.
+    same_custom_endpoint = (
+        _is_custom_class(prev_provider)
+        and _is_custom_class(new_provider)
+        and bool(prev_base_url)
+        and (base_url.strip().rstrip("/") or prev_base_url) == prev_base_url
+    )
+    provider_changed = new_provider != prev_provider and not same_custom_endpoint
     model_cfg["provider"] = provider
     model_cfg["default"] = model
     if base_url.strip():
         model_cfg["base_url"] = base_url.strip()
-    elif model_cfg.get("base_url") and new_provider != prev_provider:
+    elif model_cfg.get("base_url") and provider_changed:
         # Switching providers: the old URL belonged to the old provider, drop
         # it so the new provider's default endpoint is used. Same-provider
         # re-assignment keeps the user's configured base_url intact.
@@ -1781,17 +1817,49 @@ def _apply_main_model_assignment(
     if api_key.strip():
         model_cfg["api_key"] = api_key.strip()
         model_cfg.pop("api", None)
-    elif (model_cfg.get("api_key") or model_cfg.get("api")) and new_provider != prev_provider:
+    elif (model_cfg.get("api_key") or model_cfg.get("api")) and provider_changed:
         # A stale endpoint secret can live under the legacy ``api`` alias with
         # no ``api_key`` (the resolver still reads ``model.api`` as a key), so
         # the switch-clears-the-key path must trigger on either field — else the
         # old endpoint's secret survives in config.yaml and contaminates a later
         # custom resolution. clear_model_endpoint_credentials scrubs both.
         clear_model_endpoint_credentials(model_cfg, clear_api_mode=False)
-    if new_provider != prev_provider:
+    if provider_changed:
         clear_model_endpoint_credentials(model_cfg, clear_api_key=False)
     model_cfg.pop("context_length", None)
     return model_cfg
+
+
+def _is_custom_class(provider: str) -> bool:
+    """Bare ``custom`` and any ``custom:<name>`` slug — one endpoint class."""
+    p = (provider or "").strip().lower()
+    return p == "custom" or p.startswith("custom:")
+
+
+def _model_endpoint_credential_for_entry() -> tuple[str, str]:
+    """(api_key, key_env) a ``custom_providers`` entry auto-registered for the
+    CURRENT ``model.*`` endpoint should carry. Reads the RAW config so a
+    ``${HERMES_LLM_API_KEY}``-style reference (the shape deployment managers
+    write) is preserved as ``key_env`` rather than expanded and written to
+    config.yaml as a literal secret."""
+    try:
+        from hermes_cli.config import _env_ref_var_name, read_raw_config_readonly
+
+        raw_model = read_raw_config_readonly().get("model")
+        raw_key = ""
+        if isinstance(raw_model, dict):
+            raw_key = str(raw_model.get("api_key") or raw_model.get("api") or "").strip()
+        if not raw_key:
+            return "", ""
+        import re as _re
+
+        ref = _re.fullmatch(r"\$\{([^}]+)\}", raw_key)
+        if ref:
+            var = _env_ref_var_name(ref.group(1))
+            return ("", var) if var else ("", "")
+        return raw_key, ""
+    except Exception:
+        return "", ""
 
 
 _GATEWAY_HEALTH_URL = os.getenv("GATEWAY_HEALTH_URL")
@@ -7214,7 +7282,13 @@ def _apply_model_assignment_sync(
             raise HTTPException(status_code=400, detail="provider and model required for main")
         provider, model = _normalize_main_model_assignment(provider, model)
         providers_cfg = cfg.get("providers")
-        provider_entry = providers_cfg.get(provider) if isinstance(providers_cfg, dict) else None
+        provider_entry = None
+        if isinstance(providers_cfg, dict):
+            # ``providers:`` entries are keyed by bare name; the slug the UI
+            # hands back is ``custom:<name>``. Look both up (ForgeGuard fork).
+            provider_entry = providers_cfg.get(provider)
+            if provider_entry is None and provider.lower().startswith("custom:"):
+                provider_entry = providers_cfg.get(provider.split(":", 1)[1])
         if not base_url and isinstance(provider_entry, dict) and provider_entry.get("base_url"):
             base_url = str(provider_entry.get("base_url") or "").strip()
         model_cfg = _apply_main_model_assignment(
@@ -7265,11 +7339,22 @@ def _apply_model_assignment_sync(
             try:
                 from hermes_cli.main import _auto_provider_name, _save_custom_provider
 
+                # ForgeGuard fork: the desktop never sends the endpoint key
+                # (secrets do not cross the settings wire), so this used to
+                # register a KEYLESS entry for an endpoint that requires auth
+                # — selecting that row next was HTTP 401 on every request.
+                # Carry the credential model.* already holds: a ${VAR}
+                # reference becomes the entry's key_env (never the literal),
+                # a literal key is copied.
+                entry_key, entry_key_env = api_key, ""
+                if not entry_key:
+                    entry_key, entry_key_env = _model_endpoint_credential_for_entry()
                 _save_custom_provider(
                     base_url,
-                    api_key,
+                    entry_key,
                     model,
                     name=_auto_provider_name(base_url),
+                    key_env=entry_key_env,
                 )
             except Exception:
                 # Never block the assignment on the bookkeeping write —
@@ -7294,9 +7379,12 @@ def _apply_model_assignment_sync(
                 if not isinstance(slot_cfg, dict):
                     continue
                 slot_provider = str(slot_cfg.get("provider", "") or "").strip()
+                # "main" is the runtime alias for the configured main provider
+                # (auxiliary_client._normalize_aux_provider) — it follows the
+                # switch like "auto" and is not a stale pin (ForgeGuard fork).
                 if (
                     slot_provider
-                    and slot_provider.lower() not in {"auto", ""}
+                    and slot_provider.lower() not in {"auto", "main", ""}
                     and slot_provider.lower() != new_provider
                 ):
                     stale_aux.append({

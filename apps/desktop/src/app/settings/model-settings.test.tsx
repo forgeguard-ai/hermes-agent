@@ -384,6 +384,46 @@ describe('ModelSettings', () => {
     // Banner present on load, no switch required.
     expect(await screen.findByText(/still run on/)).toBeTruthy()
   })
+
+  it("does not flag aux slots on 'main' — the runtime alias for the configured main provider", async () => {
+    // Deployment managers write provider: main; auxiliary_client resolves it to
+    // the main provider like 'auto'. It painted a permanent "still run on main,
+    // not your main model" box after every refresh (2026-08-18).
+    getAuxiliaryModels.mockResolvedValueOnce({
+      main: { provider: 'custom', model: 'nemotron-3.5-lightning' },
+      tasks: [
+        { task: 'compression', provider: 'main', model: 'nemotron-3.5-lightning', base_url: '' },
+        { task: 'web_extract', provider: 'main', model: '', base_url: '' },
+        { task: 'vision', provider: 'auto', model: '', base_url: '' }
+      ]
+    })
+
+    await renderModelSettings()
+
+    expect(await screen.findByText(/Auxiliary models/)).toBeTruthy()
+    expect(screen.queryByText(/still run on/)).toBeNull()
+  })
+
+  it('writes an agent default from a FRESH config read, not the cached record', async () => {
+    // The backend's config.yaml can move under the panel (a deployment
+    // manager's refresh); replaying the cached record over it reverted those
+    // changes the moment the Reasoning select was touched.
+    getHermesConfigRecord
+      .mockResolvedValueOnce({ agent: { reasoning_effort: 'medium', service_tier: 'normal' } })
+      .mockResolvedValueOnce({ agent: { reasoning_effort: 'medium', service_tier: 'normal' }, model: { default: 'moved-on' } })
+
+    await renderModelSettings()
+    await waitFor(() => expect(getHermesConfigRecord).toHaveBeenCalled())
+
+    // The fast switch and the Reasoning select share writeAgentDefault; the
+    // switch is the one a test can flip without driving a Radix popover.
+    fireEvent.click(await screen.findByRole('switch'))
+
+    await waitFor(() => expect(saveHermesConfig).toHaveBeenCalled())
+    const written = saveHermesConfig.mock.calls.at(-1)?.[0] as { agent: { service_tier: string }; model?: { default: string } }
+    expect(written.agent.service_tier).toBe('fast')
+    expect(written.model?.default).toBe('moved-on')
+  })
 })
 
 describe('ModelSettings MoA preset editor', () => {

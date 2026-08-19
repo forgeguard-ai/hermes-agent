@@ -22,6 +22,7 @@ import {
   resolveTimeoutMs,
   SAFE_STORAGE_ENCODING,
   SECRET_FILE_MODE,
+  secureStorageUnavailableMessage,
   sensitiveFileBlockReason,
   tightenSecretFileMode,
   writeSecretFileAtomic
@@ -1000,4 +1001,19 @@ test('sanitizeDesktopConnectionConfig exposes secureTokenStorage and remoteToken
   const returned = body.slice(returnIndex)
   assert.match(returned, /\bsecureTokenStorage\b/, 'the renderer needs the secure-storage availability signal')
   assert.match(returned, /\bremoteTokenPlainText\b/, 'the renderer needs the plain-text token signal')
+})
+
+test('secureStorageUnavailableMessage speaks the OS the user is on', () => {
+  // macOS keeps tokens in the "Hermes Safe Storage" keychain item — telling a
+  // Mac user to install GNOME Keyring was the wrong advice.
+  assert.match(secureStorageUnavailableMessage('darwin'), /Hermes Safe Storage/)
+  assert.match(secureStorageUnavailableMessage('darwin'), /Always Allow/)
+  assert.doesNotMatch(secureStorageUnavailableMessage('darwin'), /GNOME Keyring/)
+  assert.match(secureStorageUnavailableMessage('linux'), /GNOME Keyring or KWallet/)
+  assert.match(secureStorageUnavailableMessage('win32'), /DPAPI/)
+
+  for (const platform of ['darwin', 'linux', 'win32'] as const) {
+    assert.match(secureStorageUnavailableMessage(platform), /^Secure token storage is unavailable/)
+    assert.match(secureStorageUnavailableMessage(platform), /HERMES_DESKTOP_REMOTE_TOKEN/)
+  }
 })

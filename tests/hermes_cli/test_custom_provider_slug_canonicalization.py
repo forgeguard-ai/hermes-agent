@@ -225,3 +225,111 @@ class TestValidateCustomEndpointKeyProbe:
         cfg = {"model": {"provider": "openrouter"}}
         _, seen = self._run_validate(monkeypatch, cfg, 200)
         assert seen["url"] == "https://api.openai.com/v1/models"
+
+
+class TestModelSettingsApplyDoesNotBrickTheEndpoint:
+    """The desktop's Model settings → Apply against a deployment-manager config
+    (``model.provider: custom`` + ``base_url`` + ``api_key: ${HERMES_LLM_API_KEY}``,
+    no declared entry). Live failure (2026-08-18): the first Apply
+    auto-registered a KEYLESS ``custom_providers`` entry, the second selected
+    it as ``custom:vllm.forgeguard.internal`` — a provider "switch" that
+    cleared model.api_key — and every request went out with a placeholder
+    bearer (401); a later refresh dropped the entry and agent init died with
+    "Unknown provider 'custom:vllm.forgeguard.internal'"."""
+
+    URL = "https://vllm.forgeguard.internal/v1"
+
+    def _patch(self, monkeypatch, cfg, saved, raw=None):
+        from hermes_cli import web_server, config as config_mod
+
+        monkeypatch.setattr(web_server, "load_config", lambda: cfg)
+        monkeypatch.setattr(web_server, "save_config", lambda c: saved.update(c))
+        monkeypatch.setattr(config_mod, "read_raw_config_readonly", lambda: raw if raw is not None else cfg)
+
+    def test_same_endpoint_rename_keeps_the_credential(self):
+        from hermes_cli import web_server
+
+        model_cfg = {"provider": "custom", "default": "qwen3.8-27b", "base_url": self.URL, "api_key": "sk-lab"}
+        out = web_server._apply_main_model_assignment(
+            model_cfg, "custom:vllm.forgeguard.internal", "nemotron-3.5-lightning", "", ""
+        )
+        assert out["api_key"] == "sk-lab"
+        assert out["base_url"] == self.URL
+        assert out["provider"] == "custom:vllm.forgeguard.internal"
+        # …and back
+        out2 = web_server._apply_main_model_assignment(dict(out), "custom", "nemotron-3.5-lightning", self.URL, "")
+        assert out2["api_key"] == "sk-lab"
+
+    def test_a_real_provider_switch_still_clears_the_old_endpoint_secret(self):
+        from hermes_cli import web_server
+
+        model_cfg = {"provider": "custom", "default": "m", "base_url": self.URL, "api_key": "sk-lab"}
+        out = web_server._apply_main_model_assignment(model_cfg, "anthropic", "claude-sonnet-4-5", "", "")
+        assert not out.get("api_key")
+        assert not out.get("base_url")
+
+    def test_a_different_custom_url_is_a_switch(self):
+        from hermes_cli import web_server
+
+        model_cfg = {"provider": "custom", "default": "m", "base_url": self.URL, "api_key": "sk-lab"}
+        out = web_server._apply_main_model_assignment(
+            model_cfg, "custom:other", "m", "https://other.example/v1", ""
+        )
+        assert not out.get("api_key")
+
+    def test_auto_registered_entry_carries_the_env_ref_as_key_env(self, monkeypatch):
+        from hermes_cli import web_server, main as main_mod
+
+        cfg = {"model": {"provider": "custom", "default": "qwen3.8-27b", "base_url": self.URL, "api_key": "sk-expanded"}}
+        raw = {"model": {"provider": "custom", "default": "qwen3.8-27b", "base_url": self.URL, "api_key": "${HERMES_LLM_API_KEY}"}}
+        saved: dict = {}
+        self._patch(monkeypatch, cfg, saved, raw=raw)
+        registered: dict = {}
+
+        def fake_save(base_url, api_key="", model="", context_length=None, name=None, api_mode=None, key_env=""):
+            registered.update(base_url=base_url, api_key=api_key, name=name, key_env=key_env, model=model)
+
+        monkeypatch.setattr(main_mod, "_save_custom_provider", fake_save)
+        result = web_server._apply_model_assignment_sync("main", "custom", "nemotron-3.5-lightning", "", self.URL, "")
+        assert result["ok"] is True
+        assert registered["key_env"] == "HERMES_LLM_API_KEY"
+        assert registered["api_key"] == ""            # never the expanded literal
+        assert registered["base_url"] == self.URL
+        # model.* itself keeps its credential across the idempotent Apply
+        assert saved["model"]["api_key"] == "sk-expanded"
+
+    def test_auto_registered_entry_copies_a_literal_key(self, monkeypatch):
+        from hermes_cli import web_server, main as main_mod
+
+        cfg = {"model": {"provider": "custom", "default": "m", "base_url": self.URL, "api_key": "sk-literal"}}
+        saved: dict = {}
+        self._patch(monkeypatch, cfg, saved, raw=cfg)
+        registered: dict = {}
+        monkeypatch.setattr(
+            main_mod, "_save_custom_provider",
+            lambda base_url, api_key="", model="", context_length=None, name=None, api_mode=None, key_env="": registered.update(api_key=api_key, key_env=key_env),
+        )
+        web_server._apply_model_assignment_sync("main", "custom", "m", "", self.URL, "")
+        assert registered == {"api_key": "sk-literal", "key_env": ""}
+
+    def test_undeclared_named_slug_collapses_to_custom_on_the_main_branch(self, monkeypatch):
+        from hermes_cli import web_server
+
+        monkeypatch.setattr(web_server, "load_config", lambda: {"model": {"provider": "custom", "base_url": self.URL}})
+        provider, model = web_server._normalize_main_model_assignment("custom:vllm.forgeguard.internal", "m")
+        assert provider == "custom"
+        assert model == "m"
+
+    def test_providers_entry_is_found_through_the_custom_prefix(self, monkeypatch):
+        from hermes_cli import web_server
+
+        cfg = {
+            "model": {"provider": "custom", "default": "m", "base_url": "https://old.example/v1"},
+            "providers": {"lab": {"base_url": self.URL, "api_key": "sk-providers"}},
+        }
+        saved: dict = {}
+        self._patch(monkeypatch, cfg, saved, raw=cfg)
+        result = web_server._apply_model_assignment_sync("main", "custom:lab", "m", "", "", "")
+        assert result["ok"] is True
+        assert saved["model"]["base_url"] == self.URL
+        assert saved["model"]["api_key"] == "sk-providers"

@@ -538,6 +538,7 @@ def _(rid, params: dict) -> dict:
             _enable_gateway_prompts()
             overrides = _stored_session_runtime_overrides(found) or {}
             model_override = overrides.get("model_override") or {}
+            adoption_notice = _stored_model_adoption_notice(found, overrides)
             cwd = profile_resume_cwd or _default_session_cwd()
             record = _deferred_session_record(
                 target,
@@ -554,6 +555,8 @@ def _(rid, params: dict) -> dict:
             record["resume_history_ready"] = threading.Event()
             record["resume_hydrating"] = True
             record["resume_message_count"] = int(found.get("message_count") or 0)
+            if adoption_notice:
+                record["pending_model_notice"] = adoption_notice
             if (live := _claim_or_reuse_live(sid, target, record, lease)) is not None:
                 return _ok(rid, _reuse_live_payload(*live))
 
@@ -633,6 +636,7 @@ def _(rid, params: dict) -> dict:
             # the build drops the provider ("No LLM provider configured").
             overrides = _stored_session_runtime_overrides(found) or {}
             model_override = overrides.get("model_override") or {}
+            adoption_notice = _stored_model_adoption_notice(found, overrides)
             cwd = profile_resume_cwd or _default_session_cwd()
             record = _deferred_session_record(
                 target,
@@ -647,6 +651,8 @@ def _(rid, params: dict) -> dict:
                 model_override=overrides.get("model_override"),
                 resume_runtime_overrides=overrides or None,
             )
+            if adoption_notice:
+                record["pending_model_notice"] = adoption_notice
             if (live := _claim_or_reuse_live(sid, target, record, lease)) is not None:
                 return _ok(rid, _reuse_live_payload(*live))
 
@@ -725,6 +731,7 @@ def _(rid, params: dict) -> dict:
                 # stored session row so switching chats does not inherit whatever
                 # global model another chat last selected.
                 stored_runtime_overrides = _stored_session_runtime_overrides(found)
+                adoption_notice = _stored_model_adoption_notice(found, stored_runtime_overrides)
                 agent = _make_agent(
                     sid,
                     target,
@@ -824,6 +831,8 @@ def _(rid, params: dict) -> dict:
                         _sessions[sid]["model_override"] = stored_runtime_overrides[
                             "model_override"
                         ]
+                    if adoption_notice:
+                        _sessions[sid]["pending_model_notice"] = adoption_notice
                     _sessions[sid]["display_history_prefix"] = display_history_prefix
                     # Remember the profile home so each turn re-binds HERMES_HOME (the
                     # agent persists to its own db, but mid-turn home reads — memory,

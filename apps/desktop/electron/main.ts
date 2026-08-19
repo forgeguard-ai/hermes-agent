@@ -252,6 +252,7 @@ import {
 } from './profile-session-routing'
 import { createQuickEntryShortcut, quickEntryWindowBounds, sanitizeQuickEntrySettings } from './quick-entry'
 import { type ActiveWork, mergeActiveWork, normalizeActiveWork, quitPromptFor } from './quit-guard'
+import { decideQuitPass, shouldQuitOnAllWindowsClosed } from './quit-sequence'
 import * as remoteLifecycle from './remote-lifecycle'
 import {
   RemoteLivenessTracker,
@@ -9061,6 +9062,11 @@ const sshBootstrapCoordinator = createBootstrapCoordinator()
 
 let sshQuitTeardownDone = false
 let backendQuitTeardownDone = false
+// The user asked to quit and the async teardown pass is running (or done):
+// window-all-closed must end the process on darwin from now on, and a repeated
+// Cmd+Q must not restart the teardown. See quit-sequence.ts.
+let quitTeardownStarted = false
+let userQuitInProgress = false
 
 function sshScopeKey(profile) {
   return connectionScopeKey(profile) || ''
@@ -15407,23 +15413,18 @@ function heldQuitForActiveWork(event: Electron.Event): boolean {
   return true
 }
 
-app.on('before-quit', event => {
-  // Runs ahead of every teardown below, so "Keep Running" leaves the app
-  // exactly as it was.
-  if (heldQuitForActiveWork(event)) {
-    return
+// Everything that must finish before the process may exit: the backend
+// children (memoised — a second run is a no-op) and, when SSH is in play, the
+// tunnels and any in-flight bootstrap, bounded so a wedged host cannot pin the
+// quit. Runs ONCE per quit; the caller re-issues app.quit() afterwards.
+async function runQuitAsyncTeardown(): Promise<void> {
+  try {
+    await backendShutdown.run()
+  } finally {
+    backendQuitTeardownDone = true
   }
 
-  if (!backendQuitTeardownDone) {
-    event.preventDefault()
-    void backendShutdown.run().finally(() => {
-      backendQuitTeardownDone = true
-      app.quit()
-    })
-  }
-
-  if ((sshConnections.size > 0 || sshBootstrapCoordinator.promises().length > 0) && !sshQuitTeardownDone) {
-    event.preventDefault()
+  if (sshConnections.size > 0 || sshBootstrapCoordinator.promises().length > 0) {
     sshBootstrapCoordinator.cancelAll()
     const scopes = [...sshConnections.keys()]
 
@@ -15432,11 +15433,61 @@ app.on('before-quit', event => {
       ...sshBootstrapCoordinator.promises()
     ])
 
-    void Promise.race([pending, new Promise(resolve => setTimeout(resolve, 4_000))]).then(async () => {
+    await Promise.race([pending, new Promise(resolve => setTimeout(resolve, 4_000))])
+
+    try {
       await sshBootstrapCoordinator.forceCleanupAll()
-      sshQuitTeardownDone = true
-      app.quit()
-    })
+    } catch {
+      void 0
+    }
+  }
+
+  sshQuitTeardownDone = true
+}
+
+app.on('before-quit', event => {
+  // Runs ahead of every teardown below, so "Keep Running" leaves the app
+  // exactly as it was.
+  if (heldQuitForActiveWork(event)) {
+    return
+  }
+
+  // Cmd+Q used to need two presses on macOS: the first pass preventDefault()ed
+  // for the async teardown but fell through into the destructive body below
+  // (overlays, HUD, quick entry, PTYs), and only an async continuation ever
+  // re-issued app.quit() — with window-all-closed keeping the darwin process
+  // in the Dock meanwhile. The passes are explicit now (quit-sequence.ts):
+  // defer once, swallow repeats while the teardown runs, proceed on the
+  // re-issued quit.
+  const hasAsyncWork =
+    !backendQuitTeardownDone || sshConnections.size > 0 || sshBootstrapCoordinator.promises().length > 0
+
+  const decision = decideQuitPass({
+    teardownStarted: quitTeardownStarted,
+    teardownDone: backendQuitTeardownDone && sshQuitTeardownDone,
+    hasAsyncWork
+  })
+
+  userQuitInProgress = true
+
+  if (decision === 'wait') {
+    event.preventDefault()
+
+    return
+  }
+
+  if (decision === 'defer') {
+    event.preventDefault()
+    quitTeardownStarted = true
+    void runQuitAsyncTeardown()
+      .catch(() => {
+        // A teardown we cannot finish must not become a quit we cannot perform.
+        backendQuitTeardownDone = true
+        sshQuitTeardownDone = true
+      })
+      .finally(() => app.quit())
+
+    return
   }
 
   // Clean quit mid-boot should not trip next-launch --no-sandbox (#38216).
@@ -15502,11 +15553,17 @@ app.on('before-quit', event => {
 app.on('window-all-closed', () => {
   // macOS convention: keep the process alive in the Dock when the user closes
   // the last window. But when we're handing off to a detached updater / swap /
-  // uninstall script, the process MUST exit so the script can replace or remove
-  // the bundle and relaunch — without this the script's PID-wait spins to its
-  // full timeout and the user is left with an invisible app (or an uninstall
-  // that appears to do nothing).
-  if (process.platform !== 'darwin' || isQuittingForHandoff) {
+  // uninstall script — or the user asked to quit and the last window went
+  // during the teardown pass — the process MUST exit: the script's PID-wait
+  // would otherwise spin to its full timeout, and a Cmd+Q would leave a
+  // windowless zombie in the Dock needing a second Cmd+Q.
+  if (
+    shouldQuitOnAllWindowsClosed({
+      platform: process.platform,
+      quittingForHandoff: isQuittingForHandoff,
+      userQuitInProgress
+    })
+  ) {
     app.quit()
   }
 })

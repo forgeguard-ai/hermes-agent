@@ -9,6 +9,7 @@ import {
   getAuxiliaryModels,
   getGlobalModelInfo,
   getGlobalModelOptions,
+  getHermesConfigRecord,
   getMoaModels,
   getRecommendedDefaultModel,
   saveHermesConfig,
@@ -155,6 +156,15 @@ interface StaleAuxWarningProps {
 // current main. Surfaces the silent credit-burn path (e.g. aux pinned to a
 // $0-balance provider after switching main away from it) and offers the
 // existing one-click reset rather than auto-clearing legitimate pins.
+/** Auxiliary providers that inherit the main model at runtime: the documented
+ * 'auto' sentinel and its older alias 'main' (auxiliary_client resolves both
+ * to the configured main provider). Neither is a foreign pin. */
+export function isInheritingAuxProvider(provider: string | undefined): boolean {
+  const p = (provider ?? '').trim().toLowerCase()
+
+  return p === '' || p === 'auto' || p === 'main'
+}
+
 function StaleAuxWarning({ applying, onReset, slots, taskLabel }: StaleAuxWarningProps) {
   if (!slots.length) {
     return null
@@ -487,7 +497,12 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
       .filter(entry => {
         const p = (entry.provider ?? '').toLowerCase()
 
-        return p && p !== 'auto' && p !== mainProvider
+        // 'main' is the runtime's alias for the configured main provider
+        // (auxiliary_client._normalize_aux_provider); a slot on it follows a
+        // main-model change like 'auto' does and is not stale. Deployment
+        // managers wrote it for years — treating it as foreign painted a
+        // permanent "still run on main, not your main model" box.
+        return p && !isInheritingAuxProvider(p) && p !== mainProvider
       })
       .map(entry => ({ task: entry.task, provider: entry.provider, model: entry.model }))
   }, [auxiliary, mainModel])
@@ -516,6 +531,11 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
 
   // Persist a single agent.* default by round-tripping the whole config record
   // (PUT /api/config replaces it) — optimistic, with rollback on failure.
+  // The round-trip starts from a FRESH read, not the cached record: the
+  // backend's config.yaml can have moved under us (a deployment manager's
+  // "refresh config" rewrites model.*, providers, auxiliary…), and replaying a
+  // stale cache over it silently reverted those changes the moment someone
+  // touched the Reasoning select (2026-08-18).
   const writeAgentDefault = useCallback(
     async (key: string, value: string) => {
       if (!config) {
@@ -523,10 +543,12 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
       }
 
       const prev = config
-      const next = setNested(config, key, value)
-      setConfig(next)
+      setConfig(setNested(config, key, value))
 
       try {
+        const fresh = await getHermesConfigRecord().catch(() => config)
+        const next = setNested(fresh, key, value)
+        setConfig(next)
         await saveHermesConfig(next)
       } catch (err) {
         setConfig(prev)
@@ -908,7 +930,7 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
           {AUX_TASKS.map(meta => {
             const copy = m.tasks[meta.key] ?? { label: meta.key, hint: meta.key }
             const current = auxiliary?.tasks.find(entry => entry.task === meta.key)
-            const isAuto = !current || !current.provider || current.provider === 'auto'
+            const isAuto = !current || !current.provider || isInheritingAuxProvider(current.provider)
             const isEditing = editingAuxTask === meta.key
 
             return (
