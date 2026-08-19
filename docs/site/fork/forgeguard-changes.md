@@ -139,7 +139,10 @@ reference the config already holds, and collapses an undeclared
 `custom:<name>` back to the routable bare endpoint; auxiliary slots on
 `provider: main` read as inheriting (not "still run on main"); the settings
 panel writes agent defaults from a fresh config read; the ComfyUI skill
-honours `COMFYUI_HOST`.
+honours `COMFYUI_HOST`. `v0.20.6`: the ComfyUI skill's WebSocket monitor sends
+`X-API-Key` on the upgrade for a local host too (a fronted ComfyUI's key guard
+checks the upgrade like every other request; before, `/prompt` and `/history`
+passed and the monitor 401'd).
 
 ## Supported platforms and signing state
 

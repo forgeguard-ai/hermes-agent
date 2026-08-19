@@ -141,8 +141,16 @@ def main(argv: list[str] | None = None) -> int:
     netloc = parsed.netloc
     base_path = parsed.path.rstrip("/")
     ws_url = f"{scheme}://{netloc}{base_path}/ws?clientId={client_id}"
+    ws_headers = []
     if cloud and api_key:
         ws_url += f"&token={api_key}"
+    elif api_key:
+        # A local server behind an authenticating front (Agent Command's NPM
+        # key guard) checks X-API-Key on the WebSocket upgrade exactly as on
+        # the HTTP calls; without it the front 401s the upgrade and the
+        # monitor dies before the first event, while /prompt and /history
+        # (which do send the header) work — a confusing half-failure.
+        ws_headers.append(f"X-API-Key: {api_key}")
 
     color_on = not args.no_color and sys.stdout.isatty()
 
@@ -155,7 +163,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.prompt_id:
         log(f"Filtering messages to prompt_id={args.prompt_id}")
 
-    ws = websocket.create_connection(ws_url, timeout=args.timeout)
+    ws = websocket.create_connection(ws_url, timeout=args.timeout, header=ws_headers)
     ws.settimeout(args.timeout)
 
     preview_counter = 0
