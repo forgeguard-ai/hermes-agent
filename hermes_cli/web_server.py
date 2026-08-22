@@ -5298,6 +5298,11 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
                binary PCM frames, then ``{"type": "end"}``
       server → ``{"type": "fallback"}`` when the configured provider has no
                chunked API — the client uses the POST endpoint instead.
+      server → ``{"type": "error", "message": "..."}`` instead of ``end``
+               when the provider raised mid-session (bad voice/model, server
+               down). The client falls back to POST /api/audio/speak if no
+               audio was emitted yet, otherwise finishes what played — the
+               same rule as gateway/streaming_tts_consumer.py. Never silence.
     """
     if not _ws_auth_ok(ws):
         await ws.close(code=4401)
@@ -5343,6 +5348,7 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
     stop = threading.Event()
     text_q: queue.Queue = queue.Queue()  # str deltas; None = end-of-text
     chunks: asyncio.Queue = asyncio.Queue()  # PCM out; None = synthesis done
+    failure: list = []  # provider exception text, if synthesis raised
 
     def _produce():
         from tools.tts_streaming import SentenceChunker
@@ -5392,6 +5398,7 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
                         loop.call_soon_threadsafe(chunks.put_nowait, chunk)
         except Exception as exc:
             _log.warning("speak-stream synthesis failed: %s", exc)
+            failure.append(str(exc) or exc.__class__.__name__)
         finally:
             loop.call_soon_threadsafe(chunks.put_nowait, None)
 
@@ -5422,7 +5429,12 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
                 break
             await ws.send_bytes(chunk)
         if not stop.is_set():
-            await ws.send_json({"type": "end"})
+            if failure:
+                # Tell the client, don't end quietly: an `end` after a
+                # provider error reads as a successful (silent) reply.
+                await ws.send_json({"type": "error", "message": failure[0][:200]})
+            else:
+                await ws.send_json({"type": "end"})
     except (WebSocketDisconnect, RuntimeError):
         pass
     finally:

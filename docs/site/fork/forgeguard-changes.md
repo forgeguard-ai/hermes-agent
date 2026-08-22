@@ -142,7 +142,14 @@ panel writes agent defaults from a fresh config read; the ComfyUI skill
 honours `COMFYUI_HOST`. `v0.20.6`: the ComfyUI skill's WebSocket monitor sends
 `X-API-Key` on the upgrade for a local host too (a fronted ComfyUI's key guard
 checks the upgrade like every other request; before, `/prompt` and `/history`
-passed and the monitor 401'd).
+passed and the monitor 401'd). `v0.20.7`: streaming TTS through the built-in
+`openai` provider is hardened for local OpenAI-compatible servers (Kokoro): the
+streamer's endpoint is `tts.openai.base_url` only (it no longer falls back to
+`OPENAI_BASE_URL`, the LLM custom-endpoint override), `speed` and `language`
+(`lang_code`) are honoured on the streaming path as on the whole-file path, a
+provider failure mid-session sends an `error` frame so the desktop falls back
+to the POST path (or finishes what played) instead of going silent, and
+`hermes doctor --live` probes `tts.openai.base_url` with `tts.openai.api_key`.
 
 ## Supported platforms and signing state
 

@@ -116,8 +116,10 @@ def test_openai_available_reflects_audio_key_resolution(monkeypatch):
     assert ts.OpenAIStreamer.available() is True
 
 
-def test_openai_streamer_prefers_configured_api_key(monkeypatch):
-    captured = {}
+def _fake_openai_sdk(monkeypatch, captured):
+    """Patch ``openai.OpenAI`` with a fake that records the client kwargs as
+    ``captured["client"]`` and the ``with_streaming_response.create(**kw)``
+    kwargs as ``captured["create"]``, yielding one PCM chunk."""
 
     class _Response:
         def __enter__(self):
@@ -132,6 +134,7 @@ def test_openai_streamer_prefers_configured_api_key(monkeypatch):
     class _StreamingCreate:
         @staticmethod
         def create(**kwargs):
+            captured["create"] = kwargs
             return _Response()
 
     class _OpenAI:
@@ -140,19 +143,97 @@ def test_openai_streamer_prefers_configured_api_key(monkeypatch):
             self.audio = MagicMock()
             self.audio.speech.with_streaming_response = _StreamingCreate()
 
+    monkeypatch.setattr("openai.OpenAI", _OpenAI)
+    return _OpenAI
+
+
+def _stream_openai(monkeypatch, config, text="Streaming test."):
+    """Resolve the openai streamer for ``config`` against the fake SDK and
+    drain one sentence; returns the captured client/create kwargs."""
+    captured = {}
+    _fake_openai_sdk(monkeypatch, captured)
+    streamer = ts.resolve_streaming_provider(config)
+    assert streamer is not None
+    assert list(streamer.stream(text)) == [b"\x01\x00"]
+    return captured
+
+
+def test_openai_streamer_prefers_configured_api_key(monkeypatch):
     monkeypatch.setattr(ts, "resolve_openai_audio_api_key", lambda: "env-key")
     monkeypatch.setattr(ts, "get_env_value", lambda key, *args: None)
-    monkeypatch.setattr("openai.OpenAI", _OpenAI)
 
     config = {
         "provider": "openai",
         "openai": {"api_key": "cfg-key", "base_url": "http://local-tts.example/v1"},
     }
-    streamer = ts.resolve_streaming_provider(config)
+    captured = _stream_openai(monkeypatch, config)
 
-    assert streamer is not None
-    assert list(streamer.stream("Streaming test.")) == [b"\x01\x00"]
     assert captured["client"]["api_key"] == "cfg-key"
+    assert captured["client"]["base_url"] == "http://local-tts.example/v1"
+
+
+def test_openai_streamer_honours_config_base_url_with_dummy_key(monkeypatch):
+    # A local OpenAI-compatible server (Kokoro-FastAPI) needs no real key, but
+    # the streamer gate needs a non-empty one: tts.openai.api_key "no-key" +
+    # tts.openai.base_url must be enough — no env key, no env base URL.
+    monkeypatch.setattr(ts, "resolve_openai_audio_api_key", lambda: "")
+    monkeypatch.setattr(ts, "_openai_config_api_key", lambda: "no-key")
+    assert ts.OpenAIStreamer.available() is True
+
+    config = {
+        "provider": "openai",
+        "openai": {"api_key": "no-key", "base_url": "http://127.0.0.1:8880/v1"},
+    }
+    captured = _stream_openai(monkeypatch, config)
+
+    assert captured["client"]["api_key"] == "no-key"
+    assert captured["client"]["base_url"] == "http://127.0.0.1:8880/v1"
+
+
+def test_openai_streamer_ignores_openai_base_url_env(monkeypatch):
+    # OPENAI_BASE_URL is the LLM custom-endpoint override; the sync TTS path
+    # never reads it and neither may the streamer — otherwise a voice request
+    # lands on the chat server when tts.openai.base_url is unset.
+    from tools.tts_tool import DEFAULT_OPENAI_BASE_URL
+
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://llm.example/v1")
+    monkeypatch.setattr(
+        ts, "get_env_value",
+        lambda key, *args: "http://llm.example/v1" if key == "OPENAI_BASE_URL" else None,
+    )
+    monkeypatch.setattr(ts, "resolve_openai_audio_api_key", lambda: "env-key")
+
+    captured = _stream_openai(monkeypatch, {"provider": "openai", "openai": {}})
+
+    assert captured["client"]["base_url"] == DEFAULT_OPENAI_BASE_URL
+    assert captured["client"]["api_key"] == "env-key"
+
+
+def test_openai_streamer_speed_and_lang_code_parity(monkeypatch):
+    # Mirrors tests/tools/test_tts_speed.py::TestOpenaiTtsSpeed / LangCode for
+    # the whole-file path: the streamer must send the same request knobs.
+    monkeypatch.setattr(ts, "resolve_openai_audio_api_key", lambda: "env-key")
+
+    # Defaults: no speed, no extra_body, pcm requested.
+    create = _stream_openai(monkeypatch, {"provider": "openai", "openai": {}})["create"]
+    assert create["response_format"] == "pcm"
+    assert "speed" not in create
+    assert "extra_body" not in create
+
+    # Global tts.speed applies to the streamer.
+    create = _stream_openai(monkeypatch, {"provider": "openai", "speed": 2.0, "openai": {}})["create"]
+    assert create["speed"] == 2.0
+
+    # Provider speed wins over global and is clamped to the API's [0.25, 4.0].
+    create = _stream_openai(
+        monkeypatch, {"provider": "openai", "speed": 2.0, "openai": {"speed": 10}}
+    )["create"]
+    assert create["speed"] == 4.0
+
+    # tts.openai.language rides as lang_code (OpenAI-compatible servers).
+    create = _stream_openai(monkeypatch, {"provider": "openai", "openai": {"language": "es"}})["create"]
+    assert create["extra_body"] == {"lang_code": "es"}
+    assert "speed" not in create
 
 
 # ── Dispatch: chunked streamer path ──────────────────────────────────────

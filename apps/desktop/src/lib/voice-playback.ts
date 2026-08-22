@@ -136,8 +136,10 @@ export interface SpeechStreamSession {
   finish: () => void
   /**
    * 'done'    — audio fully played (or barged via stopVoicePlayback)
-   * 'fallback'— no audio ever produced; caller should speak the accumulated
-   *             text through `playSpeechText` instead.
+   * 'fallback'— no audio ever produced (no chunked provider, endpoint
+   *             unavailable, or the provider failed before the first chunk);
+   *             caller should speak the accumulated text through
+   *             `playSpeechText` instead.
    */
   done: Promise<'done' | 'fallback'>
 }
@@ -262,7 +264,7 @@ function openSpeechStream(wsUrl: string, options: VoicePlaybackOptions): SpeechS
       return
     }
 
-    let frame: { channels?: number; sample_rate?: number; type?: string }
+    let frame: { channels?: number; message?: string; sample_rate?: number; type?: string }
 
     try {
       frame = JSON.parse(event.data) as typeof frame
@@ -288,6 +290,19 @@ function openSpeechStream(wsUrl: string, options: VoicePlaybackOptions): SpeechS
       finishWhenDrained()
     } else if (frame.type === 'fallback') {
       settle(started ? 'done' : 'fallback')
+    } else if (frame.type === 'error') {
+      // The provider raised mid-session (bad voice/model, server down). Same
+      // rule as the gateway's streaming consumer: nothing audible yet → let the
+      // caller fall back to the whole-text POST path (which surfaces its own
+      // error); audio already playing → replaying the reply would stutter, so
+      // finish what was scheduled and treat that as the playback.
+      console.warn('speak-stream failed:', frame.message)
+
+      if (started) {
+        finishWhenDrained()
+      } else {
+        settle('fallback')
+      }
     }
   }
 
