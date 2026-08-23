@@ -278,6 +278,7 @@
     },
     "linux": {
       "category": "Development",
+      "icon": "assets/icons",
       "maintainer": "Nous Research <support@nousresearch.com>",
       "synopsis": "Native desktop shell for Hermes Agent.",
       "target": [

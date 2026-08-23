@@ -228,6 +228,14 @@ IS the verification hook — run it on the merged branch instead of eyeballing:
       (`test_tts_openai_probe_*`),
       `tests/hermes_cli/test_web_server_speak_stream.py`
       (`test_provider_failure_*`), `apps/desktop/src/lib/voice-playback.test.ts`.
+- [ ] **Linux app icon set** (fork v0.20.7) — `build.linux.icon` in
+      `apps/desktop/package.json` points at `assets/icons/` (new, fork-only:
+      16→512 PNGs) instead of inheriting the top-level single-PNG
+      `assets/icon`. electron-builder returns a one-entry icon set for a single
+      PNG, so the 1024x1024 master installed to
+      `hicolor/1024x1024/apps/Hermes.png`, which no icon theme indexes. Keep
+      this key if upstream rewrites the `linux` block. Tests:
+      `apps/desktop/scripts/linux-icons.test.mjs`.
 - [ ] ~~**Desktop voice mic re-arm** (`use-voice-conversation.ts`)~~ —
       **retired-superseded at the v2026.8.16 sync.** Upstream's live-speech
       rewrite (`settleAfterSpeech` → `pendingStartRef` → loop-effect
