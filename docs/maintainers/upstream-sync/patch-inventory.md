@@ -212,6 +212,30 @@ IS the verification hook — run it on the merged branch instead of eyeballing:
       (fork cases), `apps/desktop/electron/first-run-choice.test.ts`,
       `apps/desktop/electron/connection-config.test.ts`,
       `tests/tui_gateway/test_gateway_ping.py`.
+- [ ] **OpenAI streaming-TTS hardening** (fork v0.20.7) — four sites in
+      upstream-owned files: `tools/tts_streaming.py::OpenAIStreamer.stream`
+      (endpoint is `tts.openai.base_url` or `DEFAULT_OPENAI_BASE_URL`, never
+      `OPENAI_BASE_URL`; `speed`/`lang_code` parity with
+      `_generate_openai_tts`), `hermes_cli/doctor_live.py::_audio_provider_probe`
+      (`openai_cfg=` — probes `<tts.openai.base_url>/models` with
+      `tts.openai.api_key` or the `_openai_audio_key()` seam),
+      `hermes_cli/web_server.py::speak_stream_ws` (`{"type":"error"}` instead of
+      `end` when the producer raised), and
+      `apps/desktop/src/lib/voice-playback.ts::openSpeechStream` (`error` frame
+      → `'fallback'` before audio / drain-then-`'done'` after). Verified NOT
+      upstream as of v2026.8.16.2. Tests: `tests/tools/test_tts_streaming.py`
+      (`test_openai_streamer_*`), `tests/hermes_cli/test_doctor_live.py`
+      (`test_tts_openai_probe_*`),
+      `tests/hermes_cli/test_web_server_speak_stream.py`
+      (`test_provider_failure_*`), `apps/desktop/src/lib/voice-playback.test.ts`.
+- [ ] **Linux app icon set** (fork v0.20.7) — `build.linux.icon` in
+      `apps/desktop/package.json` points at `assets/icons/` (new, fork-only:
+      16→512 PNGs) instead of inheriting the top-level single-PNG
+      `assets/icon`. electron-builder returns a one-entry icon set for a single
+      PNG, so the 1024x1024 master installed to
+      `hicolor/1024x1024/apps/Hermes.png`, which no icon theme indexes. Keep
+      this key if upstream rewrites the `linux` block. Tests:
+      `apps/desktop/scripts/linux-icons.test.mjs`.
 - [ ] ~~**Desktop voice mic re-arm** (`use-voice-conversation.ts`)~~ —
       **retired-superseded at the v2026.8.16 sync.** Upstream's live-speech
       rewrite (`settleAfterSpeech` → `pendingStartRef` → loop-effect
