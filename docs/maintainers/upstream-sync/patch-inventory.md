@@ -142,15 +142,25 @@ evolves.
 ## Docker / build structure
 
 - [ ] **Dockerfile multi-target structure intact** — the fork's `Dockerfile`
-      declares `base` / `toolchain` / `venv-runtime` / `venv-cli` / `cli` /
-      `runtime` stages, with **`runtime` as the LAST stage** (a target-less
-      `docker build .` — compose, tests/docker fixture — must keep producing the
-      full supervised image), compilers confined to `toolchain`, the
-      `com.forgeguard.hermes.prebaked=1` label on both published targets, and the
-      `HEALTHCHECK` + `docker/healthcheck.sh`, `docker/cli/hermes-shim.sh` and
-      `docker/cli/profile.sh` still present. If upstream restructures its
-      single-stage Dockerfile, re-apply their substantive change inside the
-      matching stage rather than reverting the split.
+      declares `base` / `toolchain` / `venv-runtime` / `runtime` stages, with
+      **`runtime` as the LAST stage** (a target-less `docker build .` — compose,
+      tests/docker fixture — must keep producing the full supervised image),
+      compilers confined to `toolchain`, the
+      `com.forgeguard.hermes.prebaked=1` label on the published target, and the
+      `HEALTHCHECK` + `docker/healthcheck.sh` still present. If upstream
+      restructures its single-stage Dockerfile, re-apply their substantive
+      change inside the matching stage rather than reverting the split.
+      **The `venv-cli` / `cli` stages and `docker/cli/` were removed in
+      v0.20.7** (see the cli-image retirement below); do not resurrect them from
+      an upstream diff.
+- [ ] **`cli-*` image retirement** (fork v0.20.7) — the `cli` Dockerfile stage,
+      its `venv-cli` venv, `docker/cli/{hermes-shim,profile}.sh`, and the `cli`
+      leg of `build-runtime-images.yml`'s `target:` matrix are all GONE. Agent
+      Command deploys `runtime-*` only, and a broken cli build blocked the whole
+      release (v0.20.7's first attempt). Verify the matrix is still
+      `target: [runtime]` after a sync, and that no workflow references
+      `cli-latest`. Docs: `docs/site/deployment/distrobox-cli.md` carries the
+      retirement banner.
 
 ## Desktop app
 

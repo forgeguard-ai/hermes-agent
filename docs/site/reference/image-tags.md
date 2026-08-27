@@ -15,19 +15,20 @@ from one multi-target `Dockerfile`. Each variant carries three tag families.
 | Variant | What it is |
 |---|---|
 | `runtime-*` | Full supervised server image (s6-overlay, dashboard, per-profile gateways, browser + messaging/Matrix adapters). See [Runtime images](../deployment/runtime-images.md). |
-| `cli-*` | Lean interactive image for distrobox / one-off CLI use (no dashboard/gateway, no supervisor). See [Distrobox / CLI image](../deployment/distrobox-cli.md). |
+| `cli-*` | **Retired in v0.20.7 — no longer built.** Was a lean interactive image for distrobox / one-off CLI use. Tags published earlier still pull but are frozen at v0.20.6. See [Distrobox / CLI image](../deployment/distrobox-cli.md). |
 
-Both published targets carry the OCI labels
+The published target carries the OCI labels
 `com.forgeguard.hermes.prebaked=1` and
-`com.forgeguard.hermes.variant=<runtime|cli>`.
+`com.forgeguard.hermes.variant=runtime` (retired `cli-*` images carry
+`variant=cli`).
 
 ## Tag families
 
 | Tag pattern | Mutability | Meaning |
 |---|---|---|
-| `runtime-<version>` / `cli-<version>` | immutable | A specific fork release, e.g. `runtime-v0.20.4`. Pin durable deployments here. |
-| `runtime-<git-sha>` / `cli-<git-sha>` | immutable | The exact commit an image was built from; use to trace provenance. |
-| `runtime-latest` / `cli-latest` | rolling | The newest published build. Convenient for testing; **moves on every fork release** and is not immutable. |
+| `runtime-<version>` | immutable | A specific fork release, e.g. `runtime-v0.20.4`. Pin durable deployments here. |
+| `runtime-<git-sha>` | immutable | The exact commit an image was built from; use to trace provenance. |
+| `runtime-latest` | rolling | The newest published build. Convenient for testing; **moves on every fork release** and is not immutable. |
 
 The `-<version>` tags exist only for releases where the release automation
 supplies a version; the `-<git-sha>` and `-latest` tags are always published.
