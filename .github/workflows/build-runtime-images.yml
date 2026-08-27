@@ -44,6 +44,16 @@ on:
         description: "Push the built images to GHCR (otherwise build + test only)"
         type: boolean
         default: true
+      # Declared for BOTH triggers on purpose. The tag step below reads
+      # inputs.version unconditionally, so leaving it off workflow_dispatch
+      # made the manual escape hatch unable to stamp a version tag at all —
+      # it read as empty and silently produced only the -<sha>/-latest pair.
+      # That matters for the case this hatch exists for: rebuilding a release's
+      # images by hand after a failed publish.
+      version:
+        description: "Optional release version stamped as an extra tag (e.g. v0.20.7 → runtime-v0.20.7)"
+        type: string
+        default: ""
 
 permissions:
   contents: read
