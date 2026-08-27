@@ -2,7 +2,7 @@
   "name": "hermes",
   "productName": "Hermes",
   "private": true,
-  "version": "0.20.6",
+  "version": "0.20.7",
   "description": "Native desktop shell for Hermes Agent.",
   "author": "Nous Research",
   "homepage": "https://github.com/forgeguard-ai/hermes-agent#readme",
@@ -278,6 +278,7 @@
     },
     "linux": {
       "category": "Development",
+      "icon": "assets/icons",
       "maintainer": "Nous Research <support@nousresearch.com>",
       "synopsis": "Native desktop shell for Hermes Agent.",
       "target": [

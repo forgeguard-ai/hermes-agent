@@ -82,6 +82,67 @@ def test_streams_pcm_frames_then_end(stream_client, monkeypatch):
 
 
 
+class _FailingStreamer(_FakeStreamer):
+    """Yields ``chunks`` then raises ``error`` — a provider that 400s on an
+    unknown voice (no audio) or dies mid-sentence (some audio)."""
+
+    def __init__(self, chunks, error):
+        super().__init__(chunks)
+        self.error = error
+
+    def stream(self, text):
+        self.requests.append(text)
+        yield from self.chunks
+        raise self.error
+
+
+def _frames_until_close(conn):
+    frames = []
+    while True:
+        try:
+            message = conn.receive()
+        except WebSocketDisconnect:
+            return frames
+        if message.get("type") == "websocket.close":
+            return frames
+        if message.get("bytes") is not None:
+            frames.append(("bytes", message["bytes"]))
+        else:
+            frames.append(("json", json.loads(message["text"])))
+
+
+def test_provider_failure_sends_error_frame_not_end(stream_client, monkeypatch):
+    # The provider raised before any audio (e.g. HTTP 400 for a voice the
+    # server does not know): the client must hear about it — an `end` here
+    # would read as a successful, silent reply.
+    streamer = _FailingStreamer([], RuntimeError("HTTP 400 bad voice"))
+    _patch_provider(monkeypatch, streamer)
+
+    with stream_client.websocket_connect(_url()) as conn:
+        assert conn.receive_json()["type"] == "start"
+        conn.send_text(json.dumps({"text": "Hello there.", "done": True}))
+        frames = _frames_until_close(conn)
+
+    assert frames == [("json", {"type": "error", "message": "HTTP 400 bad voice"})]
+    assert streamer.requests == ["Hello there."]
+
+
+def test_provider_failure_after_audio_sends_bytes_then_error(stream_client, monkeypatch):
+    streamer = _FailingStreamer([b"\x01\x02"], RuntimeError("connection reset"))
+    _patch_provider(monkeypatch, streamer)
+
+    with stream_client.websocket_connect(_url()) as conn:
+        assert conn.receive_json()["type"] == "start"
+        conn.send_text(json.dumps({"text": "Hello there.", "done": True}))
+        frames = _frames_until_close(conn)
+
+    assert frames == [
+        ("bytes", b"\x01\x02"),
+        ("json", {"type": "error", "message": "connection reset"}),
+    ]
+    assert all(frame != ("json", {"type": "end"}) for frame in frames)
+
+
 def test_long_text_is_split_across_provider_requests(stream_client, monkeypatch):
     streamer = _FakeStreamer([b"\x00\x00"])
     _patch_provider(monkeypatch, streamer, cap=24)
