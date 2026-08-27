@@ -3,17 +3,21 @@ name: Build Runtime Images (GHCR)
 # Fork-owned image publisher. Upstream (NousResearch/hermes-agent) publishes
 # its multi-arch image to Docker Hub through docker.yml with an upstream-only
 # repo guard; that workflow never runs on a fork. This workflow builds the
-# SAME Dockerfile's two published targets and pushes them to this fork's
+# SAME Dockerfile's published target and pushes it to this fork's
 # GitHub Container Registry (ghcr.io/<owner>/hermes-agent) for self-hosted /
 # remote deployments:
 #
 #   runtime  → runtime-<sha> / runtime-latest / runtime-<version>
 #              s6-supervised server image (dashboard + gateways + web UI),
 #              validated by the full tests/docker/ integration suite.
-#   cli      → cli-<sha> / cli-latest / cli-<version>
-#              lean interactive image for distrobox / CLI use, validated by
-#              a smoke test (launcher shim, profile.d env, distrobox deps,
-#              no supervisor).
+#
+# The lean `cli` target (cli-* tags, distrobox / one-off CLI use) was RETIRED
+# in v0.20.7 along with its Dockerfile stage. Agent Command's distrobox
+# deployment kind is gone — remote-docker is the only kind and it deploys
+# runtime-* — so the second matrix leg only cost a build slot per release,
+# and because publish-release needs this whole job, a broken cli build took
+# the entire release down with it (v0.20.7's first attempt). Previously
+# published cli-* tags are unaffected; nothing rebuilds them.
 #
 # Triggers: release-on-merge.yml (workflow_call) is the ONE merge-time
 # builder — this file deliberately has NO push trigger so a merge can't build
@@ -31,7 +35,7 @@ on:
         type: boolean
         default: true
       version:
-        description: "Optional release version stamped as an extra per-variant tag (e.g. v2026.7.1-forgeguard.4 → runtime-v2026.7.1-forgeguard.4 / cli-v2026.7.1-forgeguard.4)"
+        description: "Optional release version stamped as an extra tag (e.g. v0.20.7 → runtime-v0.20.7)"
         type: string
         default: ""
   workflow_dispatch:
@@ -40,6 +44,16 @@ on:
         description: "Push the built images to GHCR (otherwise build + test only)"
         type: boolean
         default: true
+      # Declared for BOTH triggers on purpose. The tag step below reads
+      # inputs.version unconditionally, so leaving it off workflow_dispatch
+      # made the manual escape hatch unable to stamp a version tag at all —
+      # it read as empty and silently produced only the -<sha>/-latest pair.
+      # That matters for the case this hatch exists for: rebuilding a release's
+      # images by hand after a failed publish.
+      version:
+        description: "Optional release version stamped as an extra tag (e.g. v0.20.7 → runtime-v0.20.7)"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -57,7 +71,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [runtime, cli]
+        target: [runtime]
     name: Build ${{ matrix.target }} image (amd64)
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -89,8 +103,8 @@ jobs:
 
       # Build once, load into the local daemon so the validation below runs
       # against the exact bytes we publish. Same build-args + cache discipline
-      # as docker.yml, with a per-target cache ref (the two targets share the
-      # base/toolchain layers through the registry cache anyway).
+      # as docker.yml, with a per-target cache ref (kept keyed on the target so
+      # re-adding a second published target needs no cache surgery).
       - name: Build image (${{ matrix.target }}, amd64)
         uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
         with:
@@ -133,31 +147,6 @@ jobs:
           NOUS_API_KEY: ""
         run: |
           scripts/run_tests.sh tests/docker/ --file-timeout 600
-
-      # The cli image has no supervisor/dashboard to integration-test; assert
-      # its published contract instead: the launcher shim resolves for any
-      # uid, login shells get the profile.d environment, the distrobox
-      # host-integration packages are pre-baked, and no s6/dashboard stack
-      # leaked in.
-      - name: Smoke-test cli image
-        if: matrix.target == 'cli'
-        env:
-          IMG: ${{ steps.image.outputs.name }}:test-cli
-        run: |
-          set -euo pipefail
-          docker run --rm "$IMG" hermes --version
-          docker run --rm --user 12345:12345 -e HOME=/tmp "$IMG" hermes --version
-          docker run --rm "$IMG" sh -lc '
-            set -eu
-            command -v hermes >/dev/null
-            [ -f /etc/profile.d/hermes.sh ]
-            [ -n "${PLAYWRIGHT_BROWSERS_PATH:-}" ]
-            dpkg -s sudo bc pinentry-curses libnss-myhostname locales >/dev/null
-            [ ! -e /init ]
-            [ ! -d /etc/s6-overlay ]
-            [ ! -e /opt/hermes/hermes_cli/web_dist ] || { echo "web_dist leaked into cli image" >&2; exit 1; }
-            echo "cli-smoke-ok"
-          '
 
       # Publish on an explicit workflow_dispatch with push=true, or a
       # workflow_call (release-on-merge.yml) with push=true.

@@ -58,16 +58,20 @@ FROM node:26-bookworm-slim@sha256:9e6f9357d371591e32ab6f2d8a26d63bdd0d17c29eee3f
 #   toolchain     base + build toolchain (gcc/g++/cmake/python3-dev/libolm-dev)
 #                 — exists only to build virtualenvs; never published.
 #   venv-runtime  toolchain + full production venv (messaging + matrix).
-#   venv-cli      toolchain + lean venv (no messaging/matrix → no libolm chain).
 #   runtime       PUBLISHED (runtime-* tags): s6-supervised server image —
 #                 dashboard, per-profile gateways, web UI. Same behavior as
 #                 the pre-split single image, minus in-image compilers.
-#   cli           PUBLISHED (cli-* tags): lean interactive image for distrobox
-#                 / CLI use — no s6, no dashboard/gateway server stack, no web
-#                 frontend; distrobox host-integration packages pre-baked.
 #
-# The compilers live only in `toolchain`; both published images receive their
-# venv via COPY --from, so neither ships gcc/g++/make/cmake.
+# The fork also published a lean `cli` target (cli-* tags) for distrobox /
+# one-off CLI use. It was RETIRED in v0.20.7: Agent Command's distrobox
+# deployment kind is gone (remote-docker is the only kind, and it deploys
+# runtime-*), so the target only cost a build slot per release — and a broken
+# cli build blocks the whole release pipeline, which is how it went out.
+# Re-add the stage and its build-matrix entry if the interactive image is
+# wanted back.
+#
+# The compilers live only in `toolchain`; the published image receives its
+# venv via COPY --from, so it never ships gcc/g++/make/cmake.
 # ============================================================================
 
 # ---------- base: shared runtime foundation ----------
@@ -95,8 +99,8 @@ RUN apt-get -o Acquire::Retries=3 update && \
 # Prefer the fixed SQLite over Debian's vulnerable libsqlite3.so.0. Keep the
 # public library name stable so both the system interpreter and the uv-created
 # venv resolve the replacement without changing Python import paths. Living in
-# `base` (upstream keeps it in its single image), BOTH published images —
-# runtime and cli — inherit the fix.
+# `base` (upstream keeps it in its single image), the published runtime
+# image inherits the fix.
 COPY --from=sqlite_build /opt/sqlite-fixed/lib/libsqlite3.so.3.53.4 /usr/local/lib/
 RUN ln -sf libsqlite3.so.3.53.4 /usr/local/lib/libsqlite3.so.0 && \
     ln -sf libsqlite3.so.3.53.4 /usr/local/lib/libsqlite3.so && \
@@ -225,99 +229,6 @@ FROM toolchain AS venv-runtime
 COPY pyproject.toml uv.lock ./
 RUN touch ./README.md
 RUN uv sync --frozen --no-install-project --extra all --extra messaging --extra otlp --extra anthropic --extra bedrock --extra azure-identity --extra hindsight --extra matrix
-
-# Lean CLI venv: drops the gateway messaging adapters and the Matrix/libolm
-# chain. The CLI image keeps lazy installs ENABLED (targeting the user's
-# $HOME/.hermes/lazy-packages — see the cli stage), so an interactive user
-# who genuinely wants a messaging platform gets it on demand instead of
-# every distrobox install carrying the full adapter set.
-FROM toolchain AS venv-cli
-COPY pyproject.toml uv.lock ./
-RUN touch ./README.md
-RUN uv sync --frozen --no-install-project --extra all --extra anthropic --extra bedrock --extra azure-identity --extra hindsight
-
-# ============================================================================
-# cli: the published lean interactive image (cli-* tags)
-# ============================================================================
-FROM base AS cli
-
-# Distrobox host-integration packages, pre-baked so the first
-# `distrobox enter` doesn't spend minutes running distrobox-init's dependency
-# install. The list mirrors distrobox-init's Debian/apt `deps` (minus
-# Ubuntu-only names like language-pack-en); like distrobox-init itself, it is
-# filtered through apt-cache so package-name drift across Debian releases
-# skips gracefully — anything missed here is self-healed by distrobox-init at
-# first enter anyway. The unquoted expansion (SC2086) and non-pipefail pipe
-# (DL4006) are both deliberate parts of that tolerance and copied verbatim
-# from distrobox-init's own install line.
-# hadolint ignore=DL4006,SC2086
-RUN apt-get -o Acquire::Retries=3 update && \
-    deps="bash apt-utils bash-completion bc bzip2 dialog diffutils findutils \
-        gnupg gnupg2 gpgsm hostname iproute2 keyutils less libcap2-bin \
-        libkrb5-3 libnss-mdns libnss-myhostname libvte-2.91-common \
-        libvte-common locales lsof man-db manpages mtr ncurses-base passwd \
-        pigz pinentry-curses rsync sudo tcpdump time traceroute tree tzdata \
-        unzip util-linux wget xauth zip libgl1 libegl1 libglx-mesa0 \
-        libvulkan1 mesa-vulkan-drivers" && \
-    # shellcheck disable=SC2046,SC2086
-    apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
-        $(apt-cache show ${deps} 2> /dev/null | grep "Package:" | sort -u | cut -d' ' -f2-) && \
-    rm -rf /var/lib/apt/lists/* && \
-    # Pre-generate the default locale so distrobox-init's locale pass is a
-    # no-op on first enter.
-    sed -i 's|^# *en_US.UTF-8 UTF-8|en_US.UTF-8 UTF-8|' /etc/locale.gen && \
-    locale-gen
-
-# The lean virtualenv (no messaging/matrix), built in venv-cli and copied to
-# the identical path so shebangs/symlinks resolve unchanged.
-COPY --from=venv-cli /opt/hermes/.venv /opt/hermes/.venv
-
-# TUI bundle only — the CLI image ships no dashboard web frontend.
-COPY ui-tui/ ui-tui/
-COPY apps/shared/ apps/shared/
-RUN cd ui-tui && npm run build
-
-# Same source-copy + editable-link pattern as the runtime stage.
-COPY --link --chmod=a+rX,go-w . .
-RUN uv pip install --no-cache-dir --no-deps -e "."
-
-USER root
-# Plain launcher (no s6-setuidgid in this image): usable by ANY uid, which is
-# what distrobox needs — it runs as the host user it creates, not the baked
-# hermes user. The install-method stamp matches the runtime image so `hermes
-# update` correctly refuses to self-update the sealed install tree.
-RUN cp /opt/hermes/docker/cli/hermes-shim.sh /usr/local/bin/hermes && \
-    chmod 0755 /usr/local/bin/hermes && \
-    printf 'docker\n' > /opt/hermes/.install_method && \
-    # Login-shell environment: distrobox enter runs a login shell that does
-    # NOT inherit image ENV, so PATH/Playwright/lazy-install settings are
-    # exported via profile.d for interactive users.
-    cp /opt/hermes/docker/cli/profile.sh /etc/profile.d/hermes.sh && \
-    chmod 0644 /etc/profile.d/hermes.sh
-
-ARG HERMES_GIT_SHA=
-RUN if [ -n "${HERMES_GIT_SHA}" ]; then \
-        printf '%s\n' "${HERMES_GIT_SHA}" > /opt/hermes/.hermes_build_sha; \
-    fi
-
-# NOTE: no HERMES_HOME / HERMES_DISABLE_LAZY_INSTALLS here. State lands in the
-# invoking user's ~/.hermes (distrobox bind-mounts the home), and lazy installs
-# stay enabled targeting $HOME/.hermes/lazy-packages (profile.d) — the lean
-# venv relies on them for opt-in backends.
-ENV HERMES_TUI_DIR=/opt/hermes/ui-tui
-ENV PATH="/opt/hermes/.venv/bin:${PATH}"
-# This image is pinned from the fork's own releases; "is upstream ahead of me?"
-# is not a question it should put to the network on every boot. Standalone
-# switch — offline mode proper stays the profile's decision (hermes_cli/offline.py).
-ENV HERMES_DISABLE_UPDATE_CHECKS=1
-
-LABEL com.forgeguard.hermes.prebaked="1"
-LABEL com.forgeguard.hermes.variant="cli"
-
-# No VOLUME, no s6 /init: distrobox ignores ENTRYPOINT/CMD entirely, and a
-# plain `docker run -it` lands in the CLI.
-ENTRYPOINT []
-CMD ["hermes"]
 
 # ============================================================================
 # runtime: the published supervised server image (runtime-* tags)

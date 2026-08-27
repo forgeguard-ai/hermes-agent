@@ -1,6 +1,6 @@
 ---
 title: Choose a ForgeGuard artifact
-description: Decide between the ForgeGuard runtime image, the CLI/distrobox image, and the desktop installers based on how you want to run Hermes.
+description: Decide between the ForgeGuard runtime image and the desktop installers based on how you want to run Hermes.
 order: 10
 status: stable
 ---
@@ -16,7 +16,7 @@ Pick the one that matches how you want to run the agent.
 | You want to… | Use | Why |
 |---|---|---|
 | Run a persistent agent that a client connects to (web dashboard, Desktop Client Mode, messaging platforms, scheduled jobs) | **Runtime image** (`runtime-*`) | Full supervised server: s6 keeps the dashboard and per-profile gateways running; state persists on a volume. |
-| Work interactively in a terminal on a Linux workstation with host integration, without installing the full dependency stack on the host | **CLI image** (`cli-*`) via distrobox | Lean interactive image; your `~/.hermes` is shared with the host and survives upgrades. |
+| Work interactively in a terminal on a Linux workstation | **Runtime image**, then `docker exec -it <container> hermes` | The `cli-*` distrobox image was [retired in v0.20.7](../deployment/distrobox-cli.md); tags published before it still pull but are frozen at v0.20.6. |
 | Run the graphical Hermes Desktop app on your own machine | **Desktop installers** | Native Linux (`.AppImage`/`.deb`/`.rpm`), macOS (`.dmg`/`.zip`) and Windows (`-setup.exe`/`-portable.exe`) builds attached to each fork release. |
 
 ## Prerequisites
@@ -24,8 +24,8 @@ Pick the one that matches how you want to run the agent.
 - **Runtime image:** a container engine (Docker or Podman) and a host to run it
   on — a small VPS is enough. If you expose the dashboard beyond loopback you
   must configure [dashboard authentication](../operations/dashboard-authentication.md).
-- **CLI image:** a Linux host with [distrobox](https://distrobox.it/) and a
-  container engine. Plain `docker run -it` also works for one-off use.
+- **CLI image:** retired — see [Distrobox / CLI image](../deployment/distrobox-cli.md)
+  if you are still running a tag published before v0.20.7.
 - **Desktop installers:** a supported Linux distribution, macOS, or 64-bit
   Windows 10/11. See
   [Desktop artifacts](../deployment/desktop-artifacts.md) for formats and the
@@ -39,7 +39,9 @@ Pick the one that matches how you want to run the agent.
 
 2. **Do you mainly want a terminal, on your own Linux box, that behaves like a
    local install but is containerised?**
-   Use the [CLI image via distrobox](../deployment/distrobox-cli.md).
+   The [CLI image via distrobox](../deployment/distrobox-cli.md) filled this
+   role until it was retired in v0.20.7. Run the runtime image and exec into it
+   (`docker exec -it <container> hermes`), or install Hermes on the host.
 
 3. **Do you want the desktop application?**
    Install a [desktop artifact](../deployment/desktop-artifacts.md). The desktop
