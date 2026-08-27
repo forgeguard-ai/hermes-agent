@@ -1,11 +1,30 @@
 ---
 title: Distrobox / CLI image
-description: Run the lean ForgeGuard Hermes CLI image interactively via distrobox, with host integration and durable state in your home directory.
+description: The lean ForgeGuard Hermes CLI image for distrobox — retired in v0.20.7 and no longer built; reference for anyone still running a previously published cli-* tag.
 order: 21
-status: stable
+status: deprecated
 ---
 
 # Distrobox / CLI image
+
+:::warning Retired in v0.20.7
+
+**`cli-*` images are no longer built or published.** Agent Command's distrobox
+deployment kind is gone — `remote-docker` is the only deployment kind and it
+runs `runtime-*` — so the target only cost a build slot on every release, and a
+failing cli build blocked the entire release pipeline (that is exactly how
+v0.20.7's first attempt died). The Dockerfile stage and the build-matrix entry
+were removed with it.
+
+Tags published before v0.20.7 (`cli-latest`, `cli-<version>`, `cli-<sha>`) are
+untouched and still pull, but they are frozen at v0.20.6 and will not receive
+fixes. For an interactive terminal, run the CLI inside the
+[runtime image](./runtime-images.md) (`docker exec -it <container> hermes`), or
+install Hermes on the host directly.
+
+The rest of this page documents the retired image for anyone still running one.
+
+:::
 
 The `cli-*` image is a lean interactive build for **distrobox** (or plain
 `docker run -it`): CLI, TUI, and browser tools, with no dashboard/gateway server

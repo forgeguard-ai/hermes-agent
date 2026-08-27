@@ -13,9 +13,9 @@ tracks upstream **tagged releases** and adds a packaging and release overlay. It
 does not change how the Hermes agent behaves. This page summarises what the fork
 adds.
 
-## Runtime and CLI images
+## Runtime images
 
-Two image variants are published to `ghcr.io/forgeguard-ai/hermes-agent` from one
+One image variant is published to `ghcr.io/forgeguard-ai/hermes-agent` from the
 multi-target `Dockerfile`:
 
 - **`runtime-*`** — a full supervised server image. s6-overlay supervises the web
@@ -23,12 +23,16 @@ multi-target `Dockerfile`:
   restart. Browser tools and messaging + Matrix adapters are baked in. Layout
   matches upstream's Docker image (`/opt/hermes` install, `/opt/data` state
   volume).
-- **`cli-*`** — a lean interactive image for distrobox / one-off CLI use, with no
-  dashboard/gateway stack and no supervisor. Distrobox host-integration packages
-  and a locale are pre-baked; messaging adapters lazy-install on first use.
+A second **`cli-*`** variant — a lean interactive image for distrobox / one-off
+CLI use — was published until **v0.20.7 retired it** along with its Dockerfile
+stage. Agent Command's distrobox deployment kind is gone (`remote-docker` is the
+only kind and it deploys `runtime-*`), so it cost a build slot on every release
+for no consumer, and because the release job needs the image build, a failing
+cli build blocked the whole release. Tags published before v0.20.7 still pull
+and are frozen at v0.20.6.
 
-Both carry the OCI labels `com.forgeguard.hermes.prebaked=1` and
-`com.forgeguard.hermes.variant=<runtime|cli>`. See
+The published image carries the OCI labels `com.forgeguard.hermes.prebaked=1`
+and `com.forgeguard.hermes.variant=runtime`. See
 [Runtime images](../deployment/runtime-images.md) and
 [Distrobox / CLI image](../deployment/distrobox-cli.md).
 
@@ -150,7 +154,8 @@ streamer's endpoint is `tts.openai.base_url` only (it no longer falls back to
 provider failure mid-session sends an `error` frame so the desktop falls back
 to the POST path (or finishes what played) instead of going silent, and
 `hermes doctor --live` probes `tts.openai.base_url` with `tts.openai.api_key`.
-The same release gives the Linux packages an app icon: `build.linux.icon` now
+It also retires the `cli-*` image (see [Runtime images](#runtime-images) above).
+And it gives the Linux packages an app icon: `build.linux.icon` now
 points at an icon *set* (`apps/desktop/assets/icons/`), because a single-PNG
 icon made electron-builder install one `hicolor/1024x1024` entry — a directory
 the freedesktop icon theme does not index, so the installed deb and rpm showed
