@@ -49,6 +49,37 @@ tts:
     voice: Kore
 ```
 
+## Chunking granularity
+
+`tts.streaming.chunking` controls how reply text is cut into utterances.
+It is Open WebUI parity — the same setting as OWUI's `audio.tts.split_on`,
+with the same canonical values:
+
+- `punctuation` (default) — cut per sentence; each sentence is synthesized
+  and streamed the moment it completes. The pre-existing behavior.
+- `paragraphs` — cut on every line-break run (`\n+`, OWUI-exact), so each
+  markdown bullet/line is its own utterance.
+- `none` — buffer the whole reply and synthesize it as ONE utterance once
+  the reply completes. The audio still streams as PCM over the same
+  WebSocket after the reply is done, so barge-in keeps working — synthesis
+  is late, not disabled.
+
+```yaml
+tts:
+  streaming:
+    chunking: punctuation   # punctuation | paragraphs | none
+```
+
+Every surface that speaks honors it, because the cut happens server-side in
+`SentenceChunker`: the desktop speak-stream WebSocket (voice mode and
+read-aloud), the CLI/TUI speaker pipeline (`stream_tts_to_speaker`), and the
+gateway `StreamingTTSConsumer`.
+
+Do not confuse it with `tts.streaming.provider`: that key pins WHICH
+streamer is used, and `none` **there** disables streaming entirely (dropping
+to the whole-file POST path). `chunking` chooses how the text is cut when
+streaming is on.
+
 ## Capability matrix
 
 | Provider    | Transport                             | Chunked PCM | Credentials |

@@ -146,6 +146,8 @@ The rewrite uses `auxiliary.tts_audio_tags` and defaults to your main chat model
 
 **Language (OpenAI-compatible endpoints)**: `tts.openai.language` is forwarded to the endpoint as a `lang_code` request parameter. It is intended for OpenAI-compatible TTS servers that support `lang_code` — for example [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI), where `language: "es"` selects the Spanish phonemizer instead of the English default. Leave it unset when using the official OpenAI API, which does not accept this parameter. When unset, nothing extra is sent. It applies to both the whole-file path and the streaming (voice mode / speak-stream) path.
 
+**Chunking granularity**: `tts.streaming.chunking` chooses how replies are split for speech synthesis, mirroring Open WebUI's `audio.tts.split_on`: `punctuation` (per sentence, the default), `paragraphs` (per line), or `none` (the whole reply as one utterance once it completes). It applies to voice mode, read-aloud, and gateway streaming; the desktop app exposes it as Settings → Voice → "Speech Chunking".
+
 
 ### Input length limits
 

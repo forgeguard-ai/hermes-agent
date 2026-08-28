@@ -159,7 +159,14 @@ And it gives the Linux packages an app icon: `build.linux.icon` now
 points at an icon *set* (`apps/desktop/assets/icons/`), because a single-PNG
 icon made electron-builder install one `hicolor/1024x1024` entry — a directory
 the freedesktop icon theme does not index, so the installed deb and rpm showed
-no icon at all (Ubuntu 26.04, Fedora 44).
+no icon at all (Ubuntu 26.04, Fedora 44). `v0.20.8`: replies can be split for
+speech at three Open WebUI-style granularities via `tts.streaming.chunking` —
+`punctuation` (per sentence, the default), `paragraphs` (per line), or `none`
+(the whole reply as one utterance, synthesized when the reply completes —
+still streamed as PCM, so barge-in keeps working). The cut happens server-side
+in `SentenceChunker`, so voice mode, read-aloud, CLI/TUI voice, and gateway
+streaming all honour it, and the desktop Settings → Voice page gets a "Speech
+Chunking" dropdown.
 
 ## Supported platforms and signing state
 
