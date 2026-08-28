@@ -1572,6 +1572,12 @@ DEFAULT_CONFIG = {
         # Set explicitly to pin a backend:
         # "edge" (free) | "elevenlabs" (premium) | "openai" | "xai" | "minimax" | "mistral" | "gemini" | "deepinfra" | "neutts" (local) | "kittentts" (local) | "piper" (local)
         "provider": "edge",
+        # How replies are split for speech synthesis:
+        #   "punctuation" — per sentence (default) | "paragraphs" — per line
+        #   | "none" — the whole reply as one utterance.
+        # tts.streaming.provider (optional, unset here) pins WHICH streamer is
+        # used; "none" there disables streaming entirely.
+        "streaming": {"chunking": "punctuation"},
         "edge": {
             "voice": "en-US-AriaNeural",
             # Popular: AriaNeural, JennyNeural, AndrewNeural, BrianNeural, SoniaNeural

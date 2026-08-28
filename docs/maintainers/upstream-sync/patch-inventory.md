@@ -238,6 +238,24 @@ IS the verification hook — run it on the merged branch instead of eyeballing:
       (`test_tts_openai_probe_*`),
       `tests/hermes_cli/test_web_server_speak_stream.py`
       (`test_provider_failure_*`), `apps/desktop/src/lib/voice-playback.test.ts`.
+- [ ] **TTS chunking modes** (fork v0.20.8) —
+      `tts.streaming.chunking` (`punctuation` | `paragraphs` | `none`)
+      across upstream-owned files:
+      `tools/tts_streaming.py` (`SentenceChunker` `mode=` +
+      `PARAGRAPH_BOUNDARY_RE` + `resolve_chunking_mode`),
+      `hermes_cli/web_server.py::speak_stream_ws` (`_resolve` returns the
+      profile-scoped mode, `_produce` builds the chunker with it, `none`
+      skips the idle flush), `hermes_cli/config_defaults.py` (default
+      `tts.streaming.chunking: punctuation` block), `tools/tts_tool.py` +
+      `gateway/streaming_tts_consumer.py` (mode threading), and the desktop
+      settings surface (`apps/desktop/src/app/settings/constants.ts` — voice
+      key, enum, `TTS_CHUNKING_LABELS`, field copy; `config-settings.tsx` —
+      `voiceFieldVisible` early return + option labels). Tests:
+      `tests/tools/test_tts_streaming.py` (`TestSentenceChunkerModes`,
+      `TestResolveChunkingMode`),
+      `tests/hermes_cli/test_web_server_speak_stream.py`
+      (`test_paragraphs_chunking_*`, `test_none_chunking_*`),
+      `apps/desktop/src/app/settings/voice-field-visible.test.ts`.
 - [ ] **Linux app icon set** (fork v0.20.7) — `build.linux.icon` in
       `apps/desktop/package.json` points at `assets/icons/` (new, fork-only:
       16→512 PNGs) instead of inheriting the top-level single-PNG

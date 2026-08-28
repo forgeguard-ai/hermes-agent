@@ -250,6 +250,9 @@ export const ENUM_OPTIONS: Record<string, string[]> = {
   // Speech-to-text backends — kept in sync with the stt block in
   // hermes_cli/config.py (local/groq/openai/mistral/elevenlabs).
   'stt.provider': ['local', 'groq', 'openai', 'mistral', 'xai', 'elevenlabs'],
+  // Speech-chunking granularity — a closed select; display labels live
+  // in TTS_CHUNKING_LABELS.
+  'tts.streaming.chunking': ['punctuation', 'paragraphs', 'none'],
   // OpenAI TTS voices — the union across models (per the OpenAI TTS API
   // docs). Model-specific narrowing happens in enumOptionsFor():
   // tts-1 / tts-1-hd support 9 voices; gpt-4o-mini-tts supports all 13.
@@ -345,6 +348,13 @@ export const ENUM_OPTIONS: Record<string, string[]> = {
   // NeuTTS local inference device.
   'tts.neutts.device': ['cpu', 'cuda', 'mps'],
   'updates.non_interactive_local_changes': ['stash', 'discard']
+}
+
+// Display labels for the speech-chunking select ('tts.streaming.chunking').
+export const TTS_CHUNKING_LABELS: Record<string, string> = {
+  punctuation: 'On punctuation',
+  paragraphs: 'By paragraph',
+  none: 'Whole reply'
 }
 
 // Voice/model name fields render as a free-input combobox (Input + datalist)
@@ -463,6 +473,9 @@ export const FIELD_LABELS: Record<string, string> = defineFieldCopy({
   },
   tts: {
     provider: 'Text-To-Speech Provider',
+    streaming: {
+      chunking: 'Speech Chunking'
+    },
     edge: {
       voice: 'Edge Voice'
     },
@@ -595,6 +608,10 @@ export const FIELD_DESCRIPTIONS: Record<string, string> = defineFieldCopy({
     autoTts: 'Automatically speak assistant responses.'
   },
   tts: {
+    streaming: {
+      chunking:
+        'How replies are split for speech: per sentence, per line, or one utterance per whole reply. Applies to voice mode and read-aloud.'
+    },
     xai: {
       voiceId: 'xAI voice ID (e.g. eve) or a custom voice ID.',
       language: 'Spoken language code (e.g. en, pt-BR) or "auto" for auto-detection.',
@@ -699,6 +716,7 @@ export const SECTIONS: DesktopConfigSection[] = [
       'stt.echo_transcripts',
       'stt.provider',
       'voice.auto_tts',
+      'tts.streaming.chunking',
       'tts.edge.voice',
       'tts.openai.model',
       'tts.openai.voice',

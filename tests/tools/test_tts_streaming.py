@@ -48,6 +48,74 @@ class TestSentenceChunker:
 # ── Interruption latch ───────────────────────────────────────────────────
 
 
+class TestSentenceChunkerModes:
+    """Open WebUI ``audio.tts.split_on`` parity: punctuation / paragraphs / none."""
+
+    def test_paragraphs_mode_cuts_on_every_line_break_run(self):
+        c = ts.SentenceChunker(mode="paragraphs")
+        got = c.feed(
+            "line one is long enough\nline two is long enough\n\nline three is long enough\n"
+        )
+        assert got == [
+            "line one is long enough\n",
+            "line two is long enough\n\n",
+            "line three is long enough\n",
+        ]
+        assert c.flush() == []
+
+    def test_paragraphs_mode_merges_short_lines_forward(self):
+        c = ts.SentenceChunker(min_len=20, mode="paragraphs")
+        got = c.feed("Ha!\nokay the second line is long enough\n")
+        assert got == ["Ha!\nokay the second line is long enough\n"]
+
+    def test_none_mode_buffers_everything_until_flush(self):
+        c = ts.SentenceChunker(mode="none")
+        assert c.feed("First sentence here. ") == []
+        assert c.feed("Second one!\nAnd a third?") == []
+        assert c.flush() == ["First sentence here. Second one!\nAnd a third?"]
+        assert c.flush() == []
+
+    def test_think_blocks_stripped_in_paragraphs_and_none_modes(self):
+        for mode in ("paragraphs", "none"):
+            c = ts.SentenceChunker(mode=mode)
+            assert c.feed("<think>secret plan") == []
+            got = c.feed(" more secret</think>spoken text that is long enough\n")
+            if mode == "paragraphs":
+                assert got == ["spoken text that is long enough\n"]
+            else:
+                assert got == []
+                assert c.flush() == ["spoken text that is long enough"]
+
+
+class TestResolveChunkingMode:
+    def test_absent_config_defaults_to_punctuation(self):
+        assert ts.resolve_chunking_mode({}) == "punctuation"
+        assert ts.resolve_chunking_mode({"streaming": {}}) == "punctuation"
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("punctuation", "punctuation"),
+            ("sentence", "punctuation"),
+            ("paragraphs", "paragraphs"),
+            ("paragraph", "paragraphs"),
+            ("none", "none"),
+            ("whole", "none"),
+            ("off", "none"),
+            ("  Paragraphs  ", "paragraphs"),
+        ],
+    )
+    def test_aliases_normalize(self, raw, expected):
+        assert ts.resolve_chunking_mode({"streaming": {"chunking": raw}}) == expected
+
+    def test_garbage_falls_back_to_punctuation(self):
+        assert ts.resolve_chunking_mode({"streaming": {"chunking": "sometimes"}}) == "punctuation"
+
+    def test_non_dict_streaming_section_is_tolerated(self):
+        assert ts.resolve_chunking_mode({"streaming": "paragraphs"}) == "punctuation"
+        assert ts.resolve_chunking_mode({"streaming": None}) == "punctuation"
+
+
 class TestSpeechInterruptedLatch:
     def test_take_pops_and_reports_recent_barge(self):
         ts.mark_speech_interrupted()

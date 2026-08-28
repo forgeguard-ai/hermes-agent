@@ -29,6 +29,7 @@ import { useOnProfileSwitch } from '../hooks/use-on-profile-switch'
 import { PanelEmpty } from '../overlays/panel'
 
 import { ConfigField } from './config-field'
+import { TTS_CHUNKING_LABELS } from './constants'
 import {
   clearsEnabledToolsets,
   enumOptionsFor,
@@ -48,6 +49,12 @@ import { QuickEntrySettings } from './quick-entry-settings'
 // crazy" wall of ~30 fields). Top-level keys (tts.provider, stt.enabled,
 // voice.*) always show; STT provider fields hide entirely when STT is off.
 export function voiceFieldVisible(key: string, config: HermesConfigRecord): boolean {
+  // tts.streaming.* is cross-provider config, not a provider section — the
+  // regex below would read 'streaming' as a provider name and hide it.
+  if (key.startsWith('tts.streaming.')) {
+    return true
+  }
+
   const match = /^(tts|stt)\.([^.]+)\./.exec(key)
 
   if (!match) {
@@ -362,7 +369,13 @@ export function ConfigSettings({
                     : enumOptionsFor(key, getNested(config, key), config)
                 }
                 onChange={value => updateConfig(setNested(config, key, value))}
-                optionLabels={key === 'tts.elevenlabs.voice_id' ? elevenLabsVoiceLabels : undefined}
+                optionLabels={
+                  key === 'tts.elevenlabs.voice_id'
+                    ? elevenLabsVoiceLabels
+                    : key === 'tts.streaming.chunking'
+                      ? TTS_CHUNKING_LABELS
+                      : undefined
+                }
                 schema={field}
                 schemaKey={key}
                 value={getNested(config, key)}
