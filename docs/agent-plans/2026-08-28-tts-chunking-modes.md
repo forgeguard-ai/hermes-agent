@@ -1,4 +1,4 @@
-# 2026-08-28 — Open WebUI-style TTS chunking modes (fork v0.20.8)
+# 2026-08-28 — TTS chunking modes (fork v0.20.8)
 
 Status: implemented on `feat/tts-chunking-modes` (branched from `dev` @ `fa62ddd29`, v0.20.7).
 
@@ -6,12 +6,12 @@ Status: implemented on `feat/tts-chunking-modes` (branched from `dev` @ `fa62ddd
 
 The v0.20.7 streaming TTS work functions, but sentence-by-sentence delivery reads badly (choppy
 prosody, especially on short replies) — streaming is currently pinned off deployment-side via
-`tts.streaming.provider: none` (agent-command PR #48). Open WebUI solves the same complaint with a
-dropdown of preset split granularities (`audio.tts.split_on`, verified from OWUI source:
-`punctuation` default — split `(?<=[.!?])\s+|\n+` with short-chunk merge; `paragraphs` — split
-`/\n+/`; `none` — whole text). User chose full OWUI parity (2026-08-28): canonical config values
-`punctuation` | `paragraphs` | `none`, default `punctuation`, paragraphs split on EVERY line break
-(`\n+`). Hermes implements all three **server-side in `SentenceChunker`**, so every voice surface
+`tts.streaming.provider: none` (agent-command PR #48). The fix is a dropdown of preset split
+granularities — the same three a chat UI conventionally offers, which the operator surveyed before
+choosing (2026-08-28): canonical config values `punctuation` | `paragraphs` | `none`, default
+`punctuation`, paragraphs split on EVERY line break (`\n+`). The modes are implemented from
+scratch against Hermes' own incremental chunker (its pre-existing `SENTENCE_BOUNDARY_RE` and
+`min_len` merge), not ported from any other project. Hermes implements all three **server-side in `SentenceChunker`**, so every voice surface
 (desktop voice mode + read-aloud, CLI/TUI voice, gateway streaming) inherits them. `none` still
 streams PCM over the WS after the reply completes, so barge-in keeps working — strictly better
 than the current provider pin, which drops to the POST path.

@@ -160,7 +160,7 @@ points at an icon *set* (`apps/desktop/assets/icons/`), because a single-PNG
 icon made electron-builder install one `hicolor/1024x1024` entry — a directory
 the freedesktop icon theme does not index, so the installed deb and rpm showed
 no icon at all (Ubuntu 26.04, Fedora 44). `v0.20.8`: replies can be split for
-speech at three Open WebUI-style granularities via `tts.streaming.chunking` —
+speech at three granularities via `tts.streaming.chunking` —
 `punctuation` (per sentence, the default), `paragraphs` (per line), or `none`
 (the whole reply as one utterance, synthesized when the reply completes —
 still streamed as PCM, so barge-in keeps working). The cut happens server-side

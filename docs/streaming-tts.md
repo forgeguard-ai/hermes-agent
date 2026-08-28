@@ -52,12 +52,11 @@ tts:
 ## Chunking granularity
 
 `tts.streaming.chunking` controls how reply text is cut into utterances.
-It is Open WebUI parity — the same setting as OWUI's `audio.tts.split_on`,
-with the same canonical values:
+The canonical values are:
 
 - `punctuation` (default) — cut per sentence; each sentence is synthesized
   and streamed the moment it completes. The pre-existing behavior.
-- `paragraphs` — cut on every line-break run (`\n+`, OWUI-exact), so each
+- `paragraphs` — cut on every line-break run (`\n+`), so each
   markdown bullet/line is its own utterance.
 - `none` — buffer the whole reply and synthesize it as ONE utterance once
   the reply completes. The audio still streams as PCM over the same

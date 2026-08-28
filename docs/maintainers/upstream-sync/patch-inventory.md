@@ -238,9 +238,9 @@ IS the verification hook — run it on the merged branch instead of eyeballing:
       (`test_tts_openai_probe_*`),
       `tests/hermes_cli/test_web_server_speak_stream.py`
       (`test_provider_failure_*`), `apps/desktop/src/lib/voice-playback.test.ts`.
-- [ ] **TTS chunking modes** (fork v0.20.8) — Open WebUI-style
-      `tts.streaming.chunking` (`punctuation` | `paragraphs` | `none`,
-      OWUI `audio.tts.split_on` parity) across upstream-owned files:
+- [ ] **TTS chunking modes** (fork v0.20.8) —
+      `tts.streaming.chunking` (`punctuation` | `paragraphs` | `none`)
+      across upstream-owned files:
       `tools/tts_streaming.py` (`SentenceChunker` `mode=` +
       `PARAGRAPH_BOUNDARY_RE` + `resolve_chunking_mode`),
       `hermes_cli/web_server.py::speak_stream_ws` (`_resolve` returns the

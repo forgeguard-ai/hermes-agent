@@ -250,8 +250,8 @@ export const ENUM_OPTIONS: Record<string, string[]> = {
   // Speech-to-text backends — kept in sync with the stt block in
   // hermes_cli/config.py (local/groq/openai/mistral/elevenlabs).
   'stt.provider': ['local', 'groq', 'openai', 'mistral', 'xai', 'elevenlabs'],
-  // Speech-chunking granularity (Open WebUI audio.tts.split_on parity) —
-  // a closed select; display labels live in TTS_CHUNKING_LABELS.
+  // Speech-chunking granularity — a closed select; display labels live
+  // in TTS_CHUNKING_LABELS.
   'tts.streaming.chunking': ['punctuation', 'paragraphs', 'none'],
   // OpenAI TTS voices — the union across models (per the OpenAI TTS API
   // docs). Model-specific narrowing happens in enumOptionsFor():

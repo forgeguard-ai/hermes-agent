@@ -83,7 +83,7 @@ def take_speech_interrupted() -> bool:
 
 # Sentence boundary: after .!? followed by whitespace, or a blank line.
 SENTENCE_BOUNDARY_RE = re.compile(r"(?<=[.!?])(?:\s|\n)|(?:\n\n)")
-# Paragraph boundary (Open WebUI parity): every line-break run is a cut.
+# Paragraph boundary: every line-break run is a cut.
 PARAGRAPH_BOUNDARY_RE = re.compile(r"\n+")
 _THINK_BLOCK_RE = re.compile(r"<think[\s>].*?</think>", flags=re.DOTALL)
 
@@ -96,12 +96,12 @@ class SentenceChunker:
     identically. Strips ``<think>`` blocks (even split across deltas) in every
     mode.
 
-    Three cutting *modes*, mirroring Open WebUI's ``audio.tts.split_on``
-    (config ``tts.streaming.chunking``, see `resolve_chunking_mode`):
+    Three cutting *modes* (config ``tts.streaming.chunking``, see
+    `resolve_chunking_mode`):
 
     * ``"punctuation"`` (default) — cut per sentence (`SENTENCE_BOUNDARY_RE`).
     * ``"paragraphs"`` — cut on every line-break run (`PARAGRAPH_BOUNDARY_RE`,
-      OWUI-exact ``\\n+`` — each markdown bullet/line is its own chunk).
+      ``\\n+`` — each markdown bullet/line is its own chunk).
     * ``"none"`` — `feed()` only buffers; the whole reply is one utterance,
       drained by `flush()`.
 
@@ -231,9 +231,8 @@ def resolve_streaming_provider(
     return _try_instantiate(name, tts_config)
 
 
-# Open WebUI ``audio.tts.split_on`` parity — canonical values are
-# ``punctuation`` | ``paragraphs`` | ``none``; a few obvious synonyms
-# normalize instead of silently falling back to the default.
+# Canonical values are ``punctuation`` | ``paragraphs`` | ``none``; a few
+# obvious synonyms normalize instead of silently falling back to the default.
 _CHUNKING_ALIASES = {
     "sentence": "punctuation", "punctuation": "punctuation",
     "paragraph": "paragraphs", "paragraphs": "paragraphs",
