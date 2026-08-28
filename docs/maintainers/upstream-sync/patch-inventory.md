@@ -238,6 +238,24 @@ IS the verification hook — run it on the merged branch instead of eyeballing:
       (`test_tts_openai_probe_*`),
       `tests/hermes_cli/test_web_server_speak_stream.py`
       (`test_provider_failure_*`), `apps/desktop/src/lib/voice-playback.test.ts`.
+- [ ] **TTS chunking modes** (fork v0.20.8) —
+      `tts.streaming.chunking` (`punctuation` | `paragraphs` | `none`)
+      across upstream-owned files:
+      `tools/tts_streaming.py` (`SentenceChunker` `mode=` +
+      `PARAGRAPH_BOUNDARY_RE` + `resolve_chunking_mode`),
+      `hermes_cli/web_server.py::speak_stream_ws` (`_resolve` returns the
+      profile-scoped mode, `_produce` builds the chunker with it, `none`
+      skips the idle flush), `hermes_cli/config_defaults.py` (default
+      `tts.streaming.chunking: punctuation` block), `tools/tts_tool.py` +
+      `gateway/streaming_tts_consumer.py` (mode threading), and the desktop
+      settings surface (`apps/desktop/src/app/settings/constants.ts` — voice
+      key, enum, `TTS_CHUNKING_LABELS`, field copy; `config-settings.tsx` —
+      `voiceFieldVisible` early return + option labels). Tests:
+      `tests/tools/test_tts_streaming.py` (`TestSentenceChunkerModes`,
+      `TestResolveChunkingMode`),
+      `tests/hermes_cli/test_web_server_speak_stream.py`
+      (`test_paragraphs_chunking_*`, `test_none_chunking_*`),
+      `apps/desktop/src/app/settings/voice-field-visible.test.ts`.
 - [ ] **Linux app icon set** (fork v0.20.7) — `build.linux.icon` in
       `apps/desktop/package.json` points at `assets/icons/` (new, fork-only:
       16→512 PNGs) instead of inheriting the top-level single-PNG
@@ -246,6 +264,24 @@ IS the verification hook — run it on the merged branch instead of eyeballing:
       `hicolor/1024x1024/apps/Hermes.png`, which no icon theme indexes. Keep
       this key if upstream rewrites the `linux` block. Tests:
       `apps/desktop/scripts/linux-icons.test.mjs`.
+- [ ] **Security dependency pins ahead of upstream** (fork v0.20.8) — the fork
+      pins `electron` **40.10.6** (`apps/desktop/package.json` devDependency
+      *and* `build.electronVersion`, which two guards require to match:
+      `apps/desktop/electron/desktop-electron-pin.test.ts` and the exact-version
+      `allowScripts` key in the root `package.json`, guarded by
+      `tests-js/allow-scripts-sync.test.ts`). Upstream pins 40.10.2, which carries
+      CVE-2026-70606. 40.10.6 also drops `extract-zip` for
+      `@electron-internal/extract-zip`, removing unpatched CVE-2026-56876 from the
+      tree — so regenerate the lock with a real resolve
+      (`npm install electron@<v> --package-lock-only -w apps/desktop`), never by
+      editing lock entries by hand: a hand-edited entry keeps the OLD dependency
+      list and `npm ci` then builds a tree missing `@electron-internal/extract-zip`,
+      which only fails on a cold cache. Also ahead of upstream: `nanoid` 3.3.18
+      (CVE-2026-67213, both npm lockfiles) and `h2` 4.4.1 in `uv.lock`
+      (CVE-2026-71554) — the latter's `exclude-newer-package` exception in
+      `pyproject.toml` was removed once the fix aged past the 14-day window; relock
+      with the CI-pinned uv (0.9.28), since a newer uv rewrites the lock's
+      options format. Take upstream's versions when they pass these CVEs.
 - [ ] ~~**Desktop voice mic re-arm** (`use-voice-conversation.ts`)~~ —
       **retired-superseded at the v2026.8.16 sync.** Upstream's live-speech
       rewrite (`settleAfterSpeech` → `pendingStartRef` → loop-effect

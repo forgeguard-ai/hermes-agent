@@ -49,9 +49,9 @@ class _FakeStreamer:
         yield from self.chunks
 
 
-def _patch_provider(monkeypatch, streamer, cap=4000):
+def _patch_provider(monkeypatch, streamer, cap=4000, tts_config=None):
     monkeypatch.setattr("tools.tts_streaming.resolve_streaming_provider", lambda cfg: streamer)
-    monkeypatch.setattr("tools.tts_tool._load_tts_config", lambda: {})
+    monkeypatch.setattr("tools.tts_tool._load_tts_config", lambda: tts_config or {})
     monkeypatch.setattr("tools.tts_tool._get_provider", lambda cfg: "fake")
     monkeypatch.setattr("tools.tts_tool._resolve_max_text_length", lambda provider, cfg: cap)
 
@@ -170,6 +170,66 @@ def test_long_text_is_split_across_provider_requests(stream_client, monkeypatch)
     joined = " ".join(streamer.requests)
     for fragment in ("First sentence here.", "Second sentence here.", "Third one."):
         assert fragment in joined
+
+
+def test_paragraphs_chunking_streams_once_per_line(stream_client, monkeypatch):
+    # tts.streaming.chunking: paragraphs — OWUI-exact \n+ split, one
+    # synthesis request per line (the real resolve_chunking_mode runs
+    # against the injected config).
+    streamer = _FakeStreamer([b"\x00\x00"])
+    _patch_provider(monkeypatch, streamer, tts_config={"streaming": {"chunking": "paragraphs"}})
+
+    with stream_client.websocket_connect(_url()) as conn:
+        assert conn.receive_json()["type"] == "start"
+        conn.send_text(
+            json.dumps(
+                {"text": "alpha alpha alpha alpha\nbeta beta beta beta beta", "done": True}
+            )
+        )
+        frames = 0
+        while True:
+            message = conn.receive()
+            if message.get("bytes") is not None:
+                frames += 1
+            else:
+                assert json.loads(message["text"]) == {"type": "end"}
+                break
+
+    assert len(streamer.requests) == 2
+    assert frames == 2
+    assert "alpha" in streamer.requests[0] and "beta" not in streamer.requests[0]
+    assert "beta" in streamer.requests[1] and "alpha" not in streamer.requests[1]
+
+
+def test_none_chunking_buffers_whole_reply_until_done(stream_client, monkeypatch):
+    streamer = _FakeStreamer([b"\x00\x00"])
+    _patch_provider(monkeypatch, streamer, tts_config={"streaming": {"chunking": "none"}})
+
+    with stream_client.websocket_connect(_url()) as conn:
+        assert conn.receive_json()["type"] == "start"
+        conn.send_text(json.dumps({"text": "First sentence complete. "}))
+        conn.send_text(json.dumps({"text": "Second sentence complete."}))
+        # In punctuation mode the first frame would synthesize immediately
+        # (boundary cut) and the buffered tail would idle-flush after ~0.5 s
+        # (buffer ends on punctuation). In `none` mode nothing may be
+        # synthesized before `done`.
+        time.sleep(1.2)
+        assert streamer.requests == []
+        conn.send_text(json.dumps({"done": True}))
+        frames = 0
+        while True:
+            message = conn.receive()
+            if message.get("bytes") is not None:
+                frames += 1
+            else:
+                assert json.loads(message["text"]) == {"type": "end"}
+                break
+
+    # The whole reply went to the provider as ONE utterance, after done.
+    assert len(streamer.requests) == 1
+    assert frames == 1
+    assert "First sentence complete." in streamer.requests[0]
+    assert "Second sentence complete." in streamer.requests[0]
 
 
 def test_split_text_respects_cap_and_preserves_content():

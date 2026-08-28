@@ -5321,20 +5321,21 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
     loop = asyncio.get_running_loop()
 
     def _resolve():
-        from tools.tts_streaming import resolve_streaming_provider
+        from tools.tts_streaming import resolve_chunking_mode, resolve_streaming_provider
         from tools.tts_tool import _get_provider, _load_tts_config, _resolve_max_text_length
 
         with _config_profile_scope(profile):
             cfg = _load_tts_config()
             streamer = resolve_streaming_provider(cfg)
             cap = _resolve_max_text_length(_get_provider(cfg), cfg) if streamer else 0
-        return streamer, cap
+            mode = resolve_chunking_mode(cfg)
+        return streamer, cap, mode
 
     try:
-        streamer, cap = await loop.run_in_executor(None, _resolve)
+        streamer, cap, mode = await loop.run_in_executor(None, _resolve)
     except Exception:
         _log.exception("speak-stream provider resolution failed")
-        streamer, cap = None, 0
+        streamer, cap, mode = None, 0, "punctuation"
     if streamer is None:
         with contextlib.suppress(Exception):
             await ws.send_json({"type": "fallback"})
@@ -5354,7 +5355,7 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
         from tools.tts_streaming import SentenceChunker
         from tools.tts_tool import _strip_markdown_for_tts
 
-        chunker = SentenceChunker()
+        chunker = SentenceChunker(mode=mode)
 
         # The session stays open for a whole agent turn, and the client only
         # sends `done` when the turn ends. During tool execution no text
@@ -5373,6 +5374,8 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
                 try:
                     delta = text_q.get(timeout=idle_poll_seconds)
                 except queue.Empty:
+                    if mode == "none":
+                        continue  # whole-reply mode: only `done` flushes — never idle
                     idle_polls += 1
                     buffered = chunker.buf.strip()
                     if not buffered or ("<think" in chunker.buf and "</think>" not in chunker.buf):
