@@ -166,7 +166,9 @@ speech at three Open WebUI-style granularities via `tts.streaming.chunking` —
 still streamed as PCM, so barge-in keeps working). The cut happens server-side
 in `SentenceChunker`, so voice mode, read-aloud, CLI/TUI voice, and gateway
 streaming all honour it, and the desktop Settings → Voice page gets a "Speech
-Chunking" dropdown.
+Chunking" dropdown. It also moves past three dependency advisories: h2 4.4.1
+(CVE-2026-71554, request smuggling), nanoid 3.3.18 (CVE-2026-67213), and
+Electron 40.10.6 (CVE-2026-70606).
 
 ## Supported platforms and signing state
 
