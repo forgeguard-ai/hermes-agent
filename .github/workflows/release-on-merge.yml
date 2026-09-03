@@ -210,7 +210,7 @@ jobs:
           docker pull ghcr.io/forgeguard-ai/hermes-agent:runtime-__VERSION__
           # Lean CLI / distrobox image:
           docker pull ghcr.io/forgeguard-ai/hermes-agent:cli-__VERSION__
-          # Rolling tags: runtime-latest / cli-latest
+          # Rolling tag: runtime-latest
           ```
 
           > [!IMPORTANT]
