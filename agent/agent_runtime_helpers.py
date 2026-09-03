@@ -3300,7 +3300,7 @@ def switch_model(
         # length normally resolves via config or static catalogs and
         # never hits a probe, but coerce to empty string defensively.
         _ctx_api_key = agent.api_key if isinstance(agent.api_key, str) else ""
-try:
+        try:
             new_context_length = get_model_context_length(
                 agent.model,
                 base_url=agent.base_url,
