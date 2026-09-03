@@ -9,11 +9,14 @@ on:
   #
   # Trusted main pushes resolve the environment-scoped Docker Hub secrets in
   # this same workflow, never across a workflow boundary.
-  pull_request:
-  push:
-    branches: [main]
-  release:
-    types: [published]
+  # ForgeGuard fork: pull_request / push / release triggers removed — the
+  # build/publish/merge jobs are all guarded to NousResearch/hermes-agent
+  # (Docker Hub pipeline), so on the fork every event only produced a
+  # skipped-jobs run. The fork's images ship from build-runtime-images.yml via
+  # release-on-merge.yml instead. workflow_dispatch added so the file keeps a
+  # valid trigger. See patch-inventory.md ("Trigger-stripped upstream-infra
+  # workflows").
+  workflow_dispatch:
 
 permissions:
   contents: read

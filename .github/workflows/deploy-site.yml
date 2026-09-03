@@ -1,15 +1,10 @@
 name: Deploy Site
 
+# ForgeGuard fork: release + push triggers removed — the deploy jobs are
+# guarded (Vercel deploy upstream-fork-guarded, docs deploy upstream-side), so
+# every fork release and site-path push only produced a skipped run. See
+# patch-inventory.md ("Trigger-stripped upstream-infra workflows").
 on:
-  release:
-    types: [published]
-  push:
-    branches: [main]
-    paths:
-      - 'website/**'
-      - 'skills/**'
-      - 'optional-skills/**'
-      - '.github/workflows/deploy-site.yml'
   workflow_dispatch:
     inputs:
       skills_index_run_id:

@@ -1,15 +1,12 @@
 name: Build Skills Index
 
+# ForgeGuard fork: schedule + push trigger(s) removed — the jobs are upstream-
+# infrastructure and only produced skipped runs here. workflow_dispatch
+# stays so nothing reusable or manual breaks. See
+# docs/maintainers/upstream-sync/patch-inventory.md ("Trigger-stripped
+# upstream-infra workflows").
 on:
-  schedule:
-    # Run twice daily: 6 AM and 6 PM UTC
-    - cron: "0 6,18 * * *"
   workflow_dispatch: # Manual trigger
-  push:
-    branches: [main]
-    paths:
-      - "scripts/build_skills_index.py"
-      - ".github/workflows/skills-index.yml"
 
 permissions:
   contents: read

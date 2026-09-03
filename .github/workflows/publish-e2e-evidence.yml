@@ -3,10 +3,13 @@ name: Publish E2E evidence
 # This runs only from the default branch after CI completes. It intentionally
 # checks out main, never the PR ref, and treats the downloaded artifact as
 # untrusted input before uploading validated GitHub attachments.
+# ForgeGuard fork: workflow_run trigger removed — the publish job needs
+# upstream's GH_IMAGE_SESSION_TOKEN PAT and is guarded to
+# NousResearch/hermes-agent, so it fired (and skipped) after every CI run.
+# workflow_dispatch added so the file keeps a valid trigger. See
+# patch-inventory.md ("Trigger-stripped upstream-infra workflows").
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
+  workflow_dispatch:
 
 permissions:
   actions: read
