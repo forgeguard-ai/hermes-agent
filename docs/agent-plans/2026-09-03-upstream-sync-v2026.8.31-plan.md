@@ -82,20 +82,20 @@ update checkboxes in place as work completes.
 
 ## Phase A — Prep (runbook steps 1–2)
 
-- [ ] Save the plan copy (Step 0 above).
-- [ ] Un-shallow enough history if needed (clone is shallow; the trial merge already
+- [x] Save the plan copy (Step 0 above).
+- [x] Un-shallow enough history if needed (clone is shallow; the trial merge already
       worked, so this is only a fallback: `git fetch origin main --deepen=200`).
-- [ ] Fetch upstream tag properly: add `upstream` remote per the runbook
+- [x] Fetch upstream tag properly: add `upstream` remote per the runbook
       (`git remote add upstream https://github.com/NousResearch/hermes-agent.git`),
       `git fetch upstream --tags` (tags v2026.8.16.2–v2026.8.31 already fetched locally).
-- [ ] `git checkout main && git pull origin main`, then `git checkout -B dev main`,
+- [x] `git checkout main && git pull origin main`, then `git checkout -B dev main`,
       `git push -u origin dev`.
 
 ## Phase B — Merge + conflict resolution (runbook steps 3–4)
 
-- [ ] `git merge v2026.8.31 --no-edit -m "Merge upstream v2026.8.31 into fork dev"`
+- [x] `git merge v2026.8.31 --no-edit -m "Merge upstream v2026.8.31 into fork dev"`
       (real merge; never squash/rebase).
-- [ ] Resolve the 28 known conflicts. Per-file guidance (rule of thumb from
+- [x] Resolve the 28 known conflicts. Per-file guidance (rule of thumb from
       `conflict-resolution.md`: keep upstream's substantive change, re-apply the
       fork-only delta on top):
   - **`apps/desktop/src/app/gateway/hooks/use-gateway-boot.ts` (15 hunks) and
@@ -132,7 +132,7 @@ update checkboxes in place as work completes.
     `gateway-menu-panel.tsx`, `model-settings.tsx`, `gateway-settings.tsx`,
     `config-settings.tsx`, `wiring.tsx`, `use-desktop-integrations.ts`,
     `website/docs/user-guide/desktop.md`** — single-hunk, additive; standard resolution.
-- [ ] Grep the merged tree for regressions the auto-merge may have silently caused:
+- [x] Grep the merged tree for regressions the auto-merge may have silently caused:
       no `cli-latest`/`venv-cli` references, no second `test:` block in
       `apps/desktop/vite.config.ts`, only `ci.yaml` (no stray `ci.yml`).
 
@@ -141,21 +141,21 @@ update checkboxes in place as work completes.
 Walk `docs/maintainers/upstream-sync/patch-inventory.md` top to bottom on the merged
 branch. Highlights this sync:
 
-- [ ] `ci.yaml`: fork `contributor-check` guard present (trial merge carried it — verify);
+- [x] `ci.yaml`: fork `contributor-check` guard present (trial merge carried it — verify);
       upstream's own concurrency block retained; `docker-lint`/`osv-scanner` still called
       as fork-owned files (their direct-invocation contents were untouched upstream).
-- [ ] Audit **every job** of the 3 new workflows (`nix.yml`, `rust-tests.yml`,
+- [x] Audit **every job** of the 3 new workflows (`nix.yml`, `rust-tests.yml`,
       `windows-venv-e2e.yml`) for anything that fires or costs money on the fork, and for
       `uses: <external>/.github/workflows/...` calls (org policy). Finding: none needed
       guards as of the trial merge — nix is path-gated, rust-tests is call-only,
       windows-venv-e2e triggers only on `wine2e/**`. Re-verify on the real merge.
-- [ ] Confirm the guarded set survived untouched (upstream didn't modify them):
+- [x] Confirm the guarded set survived untouched (upstream didn't modify them):
       `deploy-site.yml`, `skills-index*.yml`, `install-e2e.yml`, `js-autofix.yml`,
       `publish-e2e-evidence.yml`, `osv-scanner.yml` fork guards.
 - [ ] Run every "Carried runtime patches" test file listed in the inventory
       (auth no-key, custom-slug, mem0, TTS hardening + chunking, connection cluster,
       Linux icons, electron-pin + allowScripts guards, voice re-arm coverage).
-- [ ] Update `patch-inventory.md` itself: mark concurrency **retired-superseded**;
+- [x] Update `patch-inventory.md` itself: mark concurrency **retired-superseded**;
       add the gateway.ping "partially superseded, both kept" note; update nanoid
       entry (upstream 6.0.0 adopted); record the new Phase D trigger-stripping
       entries; note the ci.yml→ci.yaml rename.
@@ -165,32 +165,32 @@ branch. Highlights this sync:
 Strip the fork-useless triggers, keeping `workflow_dispatch` and `workflow_call`
 so reusable/manual paths stay valid (a workflow needs at least one trigger):
 
-- [ ] `skills-index-freshness.yml`: drop `schedule`.
-- [ ] `skills-index.yml`: drop `schedule` + `push`.
-- [ ] `install-e2e.yml`: drop `schedule` + `push` (v* tag trigger matches fork release tags).
-- [ ] `osv-scanner.yml`: drop `schedule` only (keep `workflow_call` from ci.yaml + dispatch).
-- [ ] `docker.yml`: drop `pull_request`/`push`/`release`; add `workflow_dispatch` so the
+- [x] `skills-index-freshness.yml`: drop `schedule`.
+- [x] `skills-index.yml`: drop `schedule` + `push`.
+- [x] `install-e2e.yml`: drop `schedule` + `push` (v* tag trigger matches fork release tags).
+- [x] `osv-scanner.yml`: drop `schedule` only (keep `workflow_call` from ci.yaml + dispatch).
+- [x] `docker.yml`: drop `pull_request`/`push`/`release`; add `workflow_dispatch` so the
       file keeps a valid trigger.
-- [ ] `js-autofix.yml`: drop `push` (keep dispatch).
-- [ ] `publish-e2e-evidence.yml`: drop `workflow_run`; add `workflow_dispatch`.
-- [ ] `deploy-site.yml`: drop `release` + `push` (keep dispatch).
-- [ ] Each edit: one comment line above `on:` referencing the fork policy, e.g.
+- [x] `js-autofix.yml`: drop `push` (keep dispatch).
+- [x] `publish-e2e-evidence.yml`: drop `workflow_run`; add `workflow_dispatch`.
+- [x] `deploy-site.yml`: drop `release` + `push` (keep dispatch).
+- [x] Each edit: one comment line above `on:` referencing the fork policy, e.g.
       `# ForgeGuard fork: <original triggers> removed — upstream-infra only; see docs/maintainers/upstream-sync/patch-inventory.md`.
-- [ ] Add a new patch-inventory checklist entry: "**Trigger-stripped upstream-infra
+- [x] Add a new patch-inventory checklist entry: "**Trigger-stripped upstream-infra
       workflows**" listing all 8 files and the rule (fork removes event triggers whose
       jobs are entirely upstream-guarded; on every sync, re-strip if upstream's trigger
       blocks merge back in, and triage any NEW upstream workflow for the same treatment).
-- [ ] Note for the PR body: existing job-level `if:` guards stay (defense in depth if a
+- [x] Note for the PR body: existing job-level `if:` guards stay (defense in depth if a
       trigger block ever slips back in during a future sync).
 
 ## Phase E — Version + marker (runbook step 6)
 
-- [ ] Hand-set fork version **0.21.0**: `pyproject.toml`, `hermes_cli/__init__.py`,
+- [x] Hand-set fork version **0.21.0**: `pyproject.toml`, `hermes_cli/__init__.py`,
       `apps/desktop/package.json` `"version"`, root `package-lock.json`'s
       `apps/desktop` entry, and `uv.lock` (via the relock).
-- [ ] `echo "v2026.8.31" > FORK_UPSTREAM_BASE`; commit
+- [x] `echo "v2026.8.31" > FORK_UPSTREAM_BASE`; commit
       `chore: bump FORK_UPSTREAM_BASE to v2026.8.31`.
-- [ ] Add the 0.21.0 ↔ v2026.8.31 row to `docs/site/fork/compatibility.md`.
+- [x] Add the 0.21.0 ↔ v2026.8.31 row to `docs/site/fork/compatibility.md`.
 
 ## Phase F — Test the merged branch (runbook step 5)
 
