@@ -15,10 +15,10 @@ engine, and architecture support, see
 
 | Field | Value | Source |
 |---|---|---|
-| Upstream base (`FORK_UPSTREAM_BASE`) | `v2026.8.16.2` | `FORK_UPSTREAM_BASE` marker at the repository root (surfaced as the "Upstream release" line in each release's notes). |
-| Fork release line | `v0.20.8` | Latest [fork release](https://github.com/forgeguard-ai/hermes-agent/releases). |
-| Hermes product version | `0.20.8` (fork line; upstream `v2026.8.16.2` is product `0.20.3`) | `pyproject.toml` (names the release tag and title). |
-| Runtime/CLI images | `runtime-<version>`, `cli-<version>` (+ `-<sha>`, `-latest`) | `ghcr.io/forgeguard-ai/hermes-agent`. |
+| Upstream base (`FORK_UPSTREAM_BASE`) | `v2026.8.31` | `FORK_UPSTREAM_BASE` marker at the repository root (surfaced as the "Upstream release" line in each release's notes). |
+| Fork release line | `v0.21.0` | Latest [fork release](https://github.com/forgeguard-ai/hermes-agent/releases). |
+| Hermes product version | `0.21.0` (fork line; upstream `v2026.8.31` is also product `0.21.0`) | `pyproject.toml` (names the release tag and title). |
+| Runtime image | `runtime-<version>` (+ `-<sha>`, `-latest`; `cli-*` retired in fork v0.20.7) | `ghcr.io/forgeguard-ai/hermes-agent`. |
 | Desktop artifacts | `.AppImage`/`.deb`/`.rpm`, `.dmg`/`.zip`, `-setup.exe`/`-portable.exe` | Attached to the fork release (versioned by the Release tag). |
 
 > **Version-sensitive.** These values describe the current fork state. Always
