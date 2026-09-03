@@ -131,6 +131,26 @@ evolves.
       sync.** Upstream's `ci.yaml` ships its own `concurrency:` group with
       `cancel-in-progress: ${{ github.event_name == 'pull_request' }}` —
       the same semantics the fork carried. Verify `ci.yaml` still has it.
+- [ ] **Larger-runner labels mapped to standard runners** (fork v0.21.0) — upstream
+      0.21.0 moved its heavy CI jobs onto PAID larger runners provisioned in
+      NousResearch's org: `ubuntu-latest-96-core` (`tests.yml`),
+      `ubuntu-latest-32-core` (`js-tests.yml`, `rust-tests.yml`,
+      `e2e-desktop.yml`, `nix.yml`, `docker.yml`),
+      `ubuntu-latest-32-arm-core` (`docker.yml`) and `windows-latest-32-core`
+      (`tests-os.yml` matrix). Those labels do not resolve on the fork, so the
+      jobs sit **queued forever** — no error, no failure, just a PR that never
+      goes green (caught live on the v2026.8.31 sync PR: four jobs queued 50+
+      minutes while every standard-runner job passed). The fork maps each one
+      to the standard GitHub-hosted runner, and adapts the settings upstream
+      tuned for that hardware:
+      `tests.yml` `HERMES_TEST_WORKERS` tracks the runner's core count (4, per
+      upstream's own "one worker per core wins" measurement) instead of 96, and
+      `js-tests.yml` runs `run-workspace-checks.mjs --concurrency 1` because the
+      script's default (one check per core) starves the checks on a 4-core box.
+      Timeouts raised to match the slower hardware (tests/js 60, rust 45).
+      **On every sync: re-check every `runs-on:` and matrix `runner:` for a
+      `*-<n>-core` label an upstream merge re-introduced** — this failure mode is
+      silent, so a queued job is the only symptom.
 - [ ] **Trigger-stripped upstream-infra workflows** (fork v0.21.0) — the fork
       removes the event triggers whose jobs are entirely upstream-guarded, so
       the Actions tab stops accumulating skipped runs (523 skipped scheduled

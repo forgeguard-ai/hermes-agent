@@ -14,8 +14,13 @@ jobs:
     #
     # One larger runner installs one time. vitest, tsc and eslint each size
     # their own worker pool from the core count.
-    runs-on: ubuntu-latest-32-core
-    timeout-minutes: 30
+    # ForgeGuard fork: upstream runs this on a paid larger runner
+    # (ubuntu-latest-32-core), which exists in NousResearch's org but not
+    # here — the job queues forever on the fork. Mapped to the standard
+    # GitHub-hosted runner. See patch-inventory.md ("Larger-runner labels").
+    runs-on: ubuntu-latest
+    # ForgeGuard fork: serial checks on 4 cores need more than upstream's 30.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -80,4 +85,10 @@ jobs:
       # not an empty run, because an empty run reports green after it checks
       # nothing.
       - name: Run all workspace checks
-        run: node .github/scripts/run-workspace-checks.mjs
+        # ForgeGuard fork: the script defaults to availableParallelism checks at
+        # once, which suits upstream's 32-core runner. On the standard 4-core
+        # runner the checks starve each other (each one already parallelises
+        # across cores internally), so run them one at a time: measured locally
+        # as ~20 minutes serial versus ~34 minutes for the desktop UI check
+        # alone under contention.
+        run: node .github/scripts/run-workspace-checks.mjs --concurrency 1
