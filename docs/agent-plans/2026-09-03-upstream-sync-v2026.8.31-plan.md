@@ -152,7 +152,7 @@ branch. Highlights this sync:
 - [x] Confirm the guarded set survived untouched (upstream didn't modify them):
       `deploy-site.yml`, `skills-index*.yml`, `install-e2e.yml`, `js-autofix.yml`,
       `publish-e2e-evidence.yml`, `osv-scanner.yml` fork guards.
-- [ ] Run every "Carried runtime patches" test file listed in the inventory
+- [x] Run every "Carried runtime patches" test file listed in the inventory
       (auth no-key, custom-slug, mem0, TTS hardening + chunking, connection cluster,
       Linux icons, electron-pin + allowScripts guards, voice re-arm coverage).
 - [x] Update `patch-inventory.md` itself: mark concurrency **retired-superseded**;
@@ -194,21 +194,21 @@ so reusable/manual paths stay valid (a workflow needs at least one trigger):
 
 ## Phase F — Test the merged branch (runbook step 5)
 
-- [ ] Python: create the venv (`uv sync` with the CI-pinned uv; container has Python 3.11 —
+- [x] Python: create the venv (`uv sync` with the CI-pinned uv; container has Python 3.11 —
       match the project's `requires-python` and CI setup), then `scripts/run_tests.sh`
       (never bare pytest).
-- [ ] JS: `npm ci` then the repo's JS test entry points (root workspaces + `apps/desktop`
+- [x] JS: `npm ci` then the repo's JS test entry points (root workspaces + `apps/desktop`
       unit tests; upstream's new `run-workspace-checks.mjs` path in `js-tests.yml` shows
       the canonical commands).
-- [ ] Lint/format/typecheck fast checks that CI runs.
-- [ ] Triage every failure per `conflict-resolution.md`: reproduce suspicious ones on a
+- [x] Lint/format/typecheck fast checks that CI runs.
+- [x] Triage every failure per `conflict-resolution.md`: reproduce suspicious ones on a
       clean upstream-v2026.8.31 checkout (`/home/user/nousresearch/hermes-agent` read
       clone is available) — pre-existing upstream debt gets noted in the PR, merge-only
       regressions get fixed before the PR opens.
 
 ## Phase G — PR, merge, release verification (runbook steps 7–8)
 
-- [ ] Push `dev`; open PR `sync: merge upstream v2026.8.31 into fork main`
+- [x] Push `dev`; open PR `sync: merge upstream v2026.8.31 into fork main`
       (base `main`, head `dev` — never an upstream branch as head). Body: upstream
       release summary, conflict/resolution notes, patch-inventory outcome table,
       workflow-silencing changes, test triage. End with the required attribution footer.
@@ -244,3 +244,17 @@ so reusable/manual paths stay valid (a workflow needs at least one trigger):
 - Silencing edits mean `workflow_dispatch` on those 8 workflows still shows them in the
   Actions sidebar (harmless); repo-level disabling remains available later as an extra
   step if desired.
+
+
+## Execution log (2026-09-03)
+
+- Merge commit `6998ca32a7` (parents: fork main `b091ab88ed` + upstream tag `29112bef09`).
+- Merge-only test regressions found and fixed: session-model-source provider healing
+  (named custom slugs kept), agent_runtime_helpers indentation, desktop 0.21-seam
+  re-threading (initial-connect retries, post-boot ticket gate carve-out, heartbeat
+  test adaptation, voice-playback mocks, voiceFieldVisible move, runQuitAsyncTeardown
+  reconstruction, oauthLogoutConnectionConfig URL arg, import order).
+- Pre-existing upstream debt (reproduced on clean v2026.8.31): 28 failures / 17 files.
+- Local full-check caveat: run-workspace-checks runs all checks concurrently; on a
+  4-core box use `--concurrency 1` or the ui suite alone reports 30+ minutes of
+  CPU-starvation overhead.
