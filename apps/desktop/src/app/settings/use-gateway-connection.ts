@@ -428,7 +428,10 @@ export function useGatewayConnection(scope: null | string) {
     setSigningIn(true)
 
     try {
-      await window.hermesDesktop.oauthLogoutConnectionConfig(trimmedUrl || undefined)
+      // Upstream 0.21 made logout per-gateway (the handler clears the OAuth
+      // session AND native tokens for this URL). A blank field simply has no
+      // session to clear; the refresh below keeps the UI consistent.
+      await window.hermesDesktop.oauthLogoutConnectionConfig(trimmedUrl)
       const refreshed = await window.hermesDesktop.getConnectionConfig(scope)
       setState(refreshed)
       notify({ kind: 'success', title: g.signedOutTitle, message: g.signedOutMessage })
