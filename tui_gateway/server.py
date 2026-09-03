@@ -5537,6 +5537,14 @@ def _stored_session_runtime_overrides(row: dict | None) -> dict:
                 # snapshot's base_url so it can't override the registry URL
                 # (e.g. a stale direct endpoint behind a renamed proxy).
                 base_url = ""
+            elif provider.strip().lower().startswith("custom:"):
+                # ForgeGuard fork: a NAMED custom slug that healing could not
+                # map to a registered entry stays verbatim — the fork's agent
+                # init resolves ``custom:<name>`` (with the stored base_url
+                # when present) through canonicalize_provider_slug /
+                # resolve_provider, so dropping it here would lose the user's
+                # pinned endpoint identity on resume.
+                pass
             else:
                 provider = ""
 
