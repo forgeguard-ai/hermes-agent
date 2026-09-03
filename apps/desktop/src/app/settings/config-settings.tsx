@@ -50,31 +50,6 @@ import { EmptyState, ListRow, SettingsContent, SettingsSkeleton, ToggleRow } fro
 import { SettingsProfileScope } from './profile-scope'
 import { QuickEntrySettings } from './quick-entry-settings'
 
-// On the Voice page, only surface the sub-fields of the *selected* TTS/STT
-// provider — otherwise every provider's options render at once (the "totally
-// crazy" wall of ~30 fields). Top-level keys (tts.provider, stt.enabled,
-// voice.*) always show; STT provider fields hide entirely when STT is off.
-export function voiceFieldVisible(key: string, config: HermesConfigRecord): boolean {
-  // tts.streaming.* is cross-provider config, not a provider section — the
-  // regex below would read 'streaming' as a provider name and hide it.
-  if (key.startsWith('tts.streaming.')) {
-    return true
-  }
-
-  const match = /^(tts|stt)\.([^.]+)\./.exec(key)
-
-  if (!match) {
-    return true
-  }
-
-  const [, domain, provider] = match
-
-  if (domain === 'stt' && !getNested(config, 'stt.enabled')) {
-    return false
-  }
-
-  return provider === String(getNested(config, `${domain}.provider`) ?? '')
-}
 
 export function ConfigSettings({
   activeSectionId,

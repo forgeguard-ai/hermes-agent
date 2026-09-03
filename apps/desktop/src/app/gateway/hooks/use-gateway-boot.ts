@@ -119,6 +119,16 @@ const BOOT_RETRY_MAX_ATTEMPTS = 5
 // loop's 300ms: each attempt may rebuild an SSH master + remote dashboard.
 const BOOT_RETRY_BASE_DELAY_MS = 2_000
 
+// Initial-boot WS attempts (ticket mint + socket dial). getConnection() carries
+// its own resilience — the main process probes /api/status for 45s and
+// deliberately latches hard backend-start failures — but the WS stage used to
+// be single-shot: a gateway restarting between the HTTP readiness probe and
+// the WS dial, or a transient ticket/handshake failure, dropped straight to
+// the failure overlay with no retry. Distinct from BOOT_RETRY_*: that loop
+// re-runs whole boots for failures main flagged retryable; this one covers
+// the renderer-side WS dial, which main cannot flag. (ForgeGuard fork)
+const INITIAL_CONNECT_ATTEMPTS = 4
+
 // While any of the RECONNECT_ATTEMPT_TIMEOUT_MS-bounded awaits below is
 // pending, `reconnecting` never clears, so scheduleReconnect()/
 // attemptReconnect() early-return permanently and the backoff loop is
@@ -995,7 +1005,7 @@ export function useGatewayBoot({
           // round-trip must not hang "Starting Hermes…" forever. Initial boot
           // rides out a full backend cold spawn, so it gets the shared 45s
           // backend-boot budget, not the 20s reconnect budget.
-          const conn = await withTimeout(
+          let conn = await withTimeout(
             desktop.getConnection(windowProfileOverride() ?? undefined),
             BACKEND_BOOT_WAIT_TIMEOUT_MS,
             'Timed out connecting to Hermes backend'
@@ -1033,13 +1043,49 @@ export function useGatewayBoot({
           // connectivity failures remain retryable. Bounded like the reconnect
           // path (#93454) so a wedged mint fails into boot retry instead of
           // hanging "Starting Hermes…" forever.
-          const wsUrl = await withTimeout(
-            resolveGatewayWsUrl(desktop, conn),
-            RECONNECT_ATTEMPT_TIMEOUT_MS,
-            'Timed out minting the gateway WebSocket URL'
-          )
+          //
+          // ForgeGuard fork: bounded backoff over the WS stage (see
+          // INITIAL_CONNECT_ATTEMPTS). Each attempt re-mints the WS URL and,
+          // halfway through, drops + re-resolves a remote descriptor that died
+          // between the HTTP readiness probe and the WS dial (mirrors
+          // attemptReconnect()). Reauth errors are not retryable — a stale
+          // session can never connect — and rethrow immediately so the failure
+          // overlay shows Sign in.
+          for (let attempt = 1; ; attempt++) {
+            try {
+              const wsUrl = await withTimeout(
+                resolveGatewayWsUrl(desktop, conn),
+                RECONNECT_ATTEMPT_TIMEOUT_MS,
+                'Timed out minting the gateway WebSocket URL'
+              )
 
-          await gateway.connect(wsUrl)
+              await gateway.connect(wsUrl)
+
+              break
+            } catch (err) {
+              if (cancelled || attempt >= INITIAL_CONNECT_ATTEMPTS || isGatewayReauthRequired(err)) {
+                throw err
+              }
+
+              // 1s, 2s, 4s between the four attempts.
+              await new Promise(resolve => setTimeout(resolve, 1_000 * 2 ** (attempt - 1)))
+
+              if (cancelled) {
+                return
+              }
+
+              if (attempt === 2) {
+                await desktop.revalidateConnection?.().catch(() => undefined)
+                conn = await desktop.getConnection(windowProfileOverride() ?? undefined)
+
+                if (cancelled) {
+                  return
+                }
+
+                publish(conn)
+              }
+            }
+          }
 
           if (cancelled) {
             return

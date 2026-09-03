@@ -127,10 +127,6 @@ class FakeWebSocket {
     this.listeners[type]?.delete(fn)
   }
 
-  send(data: string) {
-    this.sent.push(data)
-  }
-
   close() {
     this.readyState = FakeWebSocket.CLOSED
     this.emit('close', {})
@@ -143,6 +139,10 @@ class FakeWebSocket {
   }
 
   send(data: string) {
+    // ForgeGuard fork: record every frame (fork tests assert on socket.sent)
+    // before running upstream's ping-answering machine below.
+    this.sent.push(data)
+
     let frame: { id?: unknown; method?: string }
 
     try {
@@ -171,7 +171,7 @@ class FakeWebSocket {
     // 'silent': swallow — a healthy socket answers, a half-open one never does.
   }
 
-  private emit(type: string, ev: unknown) {
+  emit(type: string, ev: unknown) {
     for (const fn of this.listeners[type] ?? []) {
       fn(ev)
     }
@@ -455,17 +455,31 @@ describe('useGatewayBoot remote reconnect loop (real hook, fake socket)', () => 
     expect($gatewayState.get()).toBe('open')
     const socket = FakeWebSocket.instances[0]
 
-    // First heartbeat tick: the ping goes out on the wire.
+    // The heartbeat arms only when the server advertises it in gateway.ready
+    // (upstream's shared JsonRpcGateway contract; the fork's tui_gateway ws
+    // transport advertises heartbeat: true).
+    act(() => {
+      socket.emit('message', {
+        data: JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'event',
+          params: { type: 'gateway.ready', payload: { heartbeat: true } }
+        })
+      })
+    })
+
+    // First heartbeat ticks: the ping goes out on the wire (15s interval).
     await act(async () => {
       await vi.advanceTimersByTimeAsync(30_000)
     })
     expect(socket.sent.some(frame => frame.includes('gateway.ping'))).toBe(true)
 
     // No reply ever arrives (the socket is half-dead — open at the TCP layer,
-    // delivering nothing). After the reply timeout the hook force-closes it,
-    // handing off to the reconnect loop, which mints a fresh socket.
+    // delivering nothing). Once the 45s inbound deadline lapses the shared
+    // gateway force-closes it, handing off to the reconnect loop, which mints
+    // a fresh socket.
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(10_000)
+      await vi.advanceTimersByTimeAsync(20_000)
     })
     expect(socket.readyState).toBe(FakeWebSocket.CLOSED)
 

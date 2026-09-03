@@ -17995,54 +17995,40 @@ function heldQuitForActiveWork(event: Electron.Event): boolean {
 // tunnels and any in-flight bootstrap, bounded so a wedged host cannot pin the
 // quit. Runs ONCE per quit; the caller re-issues app.quit() afterwards.
 async function runQuitAsyncTeardown(): Promise<void> {
-  try {
-    await backendShutdown.run()
-  } finally {
-    backendQuitTeardownDone = true
-  }
-
   // A detached remote updater can outlive this Electron process. Do not tear
   // down its SSH observer/restore transaction at the generic SSH shutdown
-  // deadline: join it first (BEFORE sealing the bootstrap coordinator, whose
-  // shutdown would refuse the restore dials), then re-enter before-quit for
-  // normal teardown. A crash still fails closed on next launch via the remote
-  // install-marker preflight in both POSIX and Windows lifecycle
-  // implementations.
+  // deadline: join it first, BEFORE sealing the bootstrap coordinator (whose
+  // shutdown would refuse the restore dials) or shutting the backends down.
+  // A crash still fails closed on next launch via the remote install-marker
+  // preflight in both POSIX and Windows lifecycle implementations.
   if (
     !managedUpdateQuitWaitDone &&
     (managedUpdateQuitWait || managedConnectionUpdates.size > 0 || managedConnectionRecoveries.size > 0)
   ) {
-    event.preventDefault()
-
     if (!managedUpdateQuitWait) {
       managedUpdateQuitWait = waitForManagedUpdateOperations(() => [
         ...managedConnectionUpdates.values(),
         ...managedConnectionRecoveries.values()
       ]).finally(() => {
         managedUpdateQuitWaitDone = true
-        app.quit()
       })
     }
 
-    return
+    await managedUpdateQuitWait
   }
 
-  // A prevented first quit leaves the renderer alive while teardown runs.
   // Seal the SSH coordinator before touching connections so reconnect
   // callbacks cannot recreate a backend for a registration whose app is
   // already quitting (#91668).
   sshBootstrapCoordinator.shutdown()
 
-  if (!backendQuitTeardownDone) {
-    event.preventDefault()
-    void backendShutdown.run().finally(() => {
-      backendQuitTeardownDone = true
-      app.quit()
-    })
+  try {
+    await backendShutdown.run()
+  } finally {
+    backendQuitTeardownDone = true
   }
 
-  if ((sshConnections.size > 0 || sshBootstrapCoordinator.promises().length > 0) && !sshQuitTeardownDone) {
-    event.preventDefault()
+  if (sshConnections.size > 0 || sshBootstrapCoordinator.promises().length > 0) {
     const scopes = [...sshConnections.keys()]
 
     const pending = Promise.allSettled([
@@ -18053,7 +18039,9 @@ async function runQuitAsyncTeardown(): Promise<void> {
     // cleanupStale waits up to 5s for the owned pid to exit (50 * 100ms).
     // The previous 4s race could close SSH first and leave serve --isolated
     // reparented to pid 1.
-    void Promise.race([pending, new Promise(resolve => setTimeout(resolve, 6_000))]).then(async () => {
+    await Promise.race([pending, new Promise(resolve => setTimeout(resolve, 6_000))])
+
+    try {
       await sshBootstrapCoordinator.forceCleanupAll()
     } catch {
       void 0
