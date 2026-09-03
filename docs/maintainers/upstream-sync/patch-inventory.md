@@ -145,7 +145,10 @@ evolves.
       publishes GHCR images via `build-runtime-images.yml`, not Docker Hub),
       `js-autofix.yml` (dropped `push`), `publish-e2e-evidence.yml` (dropped
       `workflow_run`; added `workflow_dispatch`), `deploy-site.yml` (dropped
-      `release` + `push`). On every sync: re-strip any of these that an
+      `release` + `push`), `nix.yml` (dropped `pull_request` + `push` — its
+      cachix/nix-community actions are org-policy-blocked and startup-fail
+      every run; the fork does not distribute via nix). On every sync:
+      re-strip any of these that an
       upstream merge re-grows, and triage NEW upstream workflows for the same
       treatment (a new unguarded workflow with `schedule`/`push`/`release`
       triggers runs or skips on the fork forever). The job-level

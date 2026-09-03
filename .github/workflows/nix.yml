@@ -10,10 +10,17 @@ name: Nix flake check
 # in progress. One slow advisory job in the CI lane blocks every rerun of the
 # fast required jobs beside it. A separate run reruns and cancels on its own.
 
+# ForgeGuard fork: pull_request + push triggers removed. The forgeguard-ai
+# org actions policy only allows GitHub-authored / org-owned / verified
+# actions, and this workflow's cachix/install-nix-action +
+# nix-community/cache-nix-action are rejected AT STARTUP — the run fails
+# before any job (startup_failure), red-flagging every PR (caught live on
+# the v2026.8.31 sync PR, first CI run). The fork also does not distribute
+# via nix. Dispatching it requires an org policy exception or porting the
+# steps to direct commands (docker-lint.yml precedent). See
+# patch-inventory.md ("Trigger-stripped upstream-infra workflows").
 on:
-  pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
