@@ -15,8 +15,11 @@ evolves.
 - [ ] **`contributor-check` upstream-only guard** — since the v2026.8.16 sync
       upstream ships the check as an *unguarded* reusable workflow
       (`.github/workflows/contributor-check.yml`, `workflow_call`-only); the
-      fork guard lives at the **`ci.yml` call site**: the `contributor-check`
-      job's `if:` includes `github.repository == 'NousResearch/hermes-agent'`.
+      fork guard lives at the **`ci.yaml` call site** (upstream renamed
+      `ci.yml` → `ci.yaml` in 0.21.0; git rename detection carried the fork
+      guard across at the v2026.8.31 sync — verify only `ci.yaml` exists): the
+      `contributor-check` job's `if:` includes
+      `github.repository == 'NousResearch/hermes-agent'`.
       Verify no other workflow calls `contributor-check.yml` without a guard.
 - [ ] **`docker-lint.yml` direct linter invocation** — the forgeguard-ai org's
       actions policy only allows GitHub-authored / org-owned /
@@ -124,9 +127,52 @@ evolves.
       `deploy-site.yml`'s `deploy-docs` job carry upstream-side repository
       guards of their own; verify they remain guarded but do not re-add fork
       copies.
-- [ ] **`ci.yml` PR concurrency** — the fork adds a `concurrency:` group with
-      `cancel-in-progress` for pull-request refs (never cancelling `main` runs);
-      keep it through the merge.
+- [ ] ~~**`ci.yml` PR concurrency**~~ — **retired-superseded at the v2026.8.31
+      sync.** Upstream's `ci.yaml` ships its own `concurrency:` group with
+      `cancel-in-progress: ${{ github.event_name == 'pull_request' }}` —
+      the same semantics the fork carried. Verify `ci.yaml` still has it.
+- [ ] **Larger-runner labels mapped to standard runners** (fork v0.21.0) — upstream
+      0.21.0 moved its heavy CI jobs onto PAID larger runners provisioned in
+      NousResearch's org: `ubuntu-latest-96-core` (`tests.yml`),
+      `ubuntu-latest-32-core` (`js-tests.yml`, `rust-tests.yml`,
+      `e2e-desktop.yml`, `nix.yml`, `docker.yml`),
+      `ubuntu-latest-32-arm-core` (`docker.yml`) and `windows-latest-32-core`
+      (`tests-os.yml` matrix). Those labels do not resolve on the fork, so the
+      jobs sit **queued forever** — no error, no failure, just a PR that never
+      goes green (caught live on the v2026.8.31 sync PR: four jobs queued 50+
+      minutes while every standard-runner job passed). The fork maps each one
+      to the standard GitHub-hosted runner, and adapts the settings upstream
+      tuned for that hardware:
+      `tests.yml` `HERMES_TEST_WORKERS` tracks the runner's core count (4, per
+      upstream's own "one worker per core wins" measurement) instead of 96, and
+      `js-tests.yml` runs `run-workspace-checks.mjs --concurrency 1` because the
+      script's default (one check per core) starves the checks on a 4-core box.
+      Timeouts raised to match the slower hardware (tests/js 60, rust 45).
+      **On every sync: re-check every `runs-on:` and matrix `runner:` for a
+      `*-<n>-core` label an upstream merge re-introduced** — this failure mode is
+      silent, so a queued job is the only symptom.
+- [ ] **Trigger-stripped upstream-infra workflows** (fork v0.21.0) — the fork
+      removes the event triggers whose jobs are entirely upstream-guarded, so
+      the Actions tab stops accumulating skipped runs (523 skipped scheduled
+      runs by 2026-09-03). Each file keeps `workflow_dispatch` (and
+      `workflow_call` where callers exist) so nothing reusable breaks:
+      `skills-index-freshness.yml` (dropped `schedule`), `skills-index.yml`
+      (dropped `schedule` + `push`), `install-e2e.yml` (dropped `schedule` +
+      `push` — its `v*` tag patterns match fork release tags),
+      `osv-scanner.yml` (dropped `schedule` only; the `workflow_call` from
+      `ci.yaml` is the fork's real scan), `docker.yml` (dropped
+      `pull_request`/`push`/`release`; added `workflow_dispatch` — the fork
+      publishes GHCR images via `build-runtime-images.yml`, not Docker Hub),
+      `js-autofix.yml` (dropped `push`), `publish-e2e-evidence.yml` (dropped
+      `workflow_run`; added `workflow_dispatch`), `deploy-site.yml` (dropped
+      `release` + `push`), `nix.yml` (dropped `pull_request` + `push` — its
+      cachix/nix-community actions are org-policy-blocked and startup-fail
+      every run; the fork does not distribute via nix). On every sync:
+      re-strip any of these that an
+      upstream merge re-grows, and triage NEW upstream workflows for the same
+      treatment (a new unguarded workflow with `schedule`/`push`/`release`
+      triggers runs or skips on the fork forever). The job-level
+      `NousResearch/hermes-agent` guards stay as defense in depth.
 - [ ] **`workflow_call` upload/push gating** — in both
       `build-desktop-client.yml`'s "Upload Linux/macOS/Windows installers" steps and
       `build-runtime-images.yml`'s "Push image to GHCR" step, the `if:` must gate
@@ -209,19 +255,45 @@ IS the verification hook — run it on the merged branch instead of eyeballing:
       patch), `_oss_providers.py`, `_setup.py`. Verified NOT upstream as of
       v2026.8.16. Tests: `tests/plugins/memory/test_mem0_backend.py` +
       `test_mem0_setup.py`.
-- [ ] **Desktop connection cluster runtime patches** — TLS bypass threading
-      (`probeConnectionConfig(url, allowInvalidCertificate)`, the
-      `hostAllowsInvalidCertificate` fallback inside `fetchJson`/
-      `fetchPublicJson`, `installCertificateBypass()`), saved-endpoint history
-      (`savedRemotes`), first-run choice IPC + gates in
-      `apps/desktop/electron/main.ts`, and the first-run gate + heartbeat
-      liveness (`gateway.ping`, fork-added method in `tui_gateway/server.py`)
-      + bounded initial-connect retries in
+- [ ] **Desktop connection cluster runtime patches** — reshaped by upstream
+      0.21.0's connections-registry rework (v2026.8.31 sync). Still fork-owned:
+      TLS bypass threading (the `hostAllowsInvalidCertificate` per-host
+      fallback + statusCode-carrying errors inside `fetchJson`/
+      `fetchPublicJson`, `installCertificateBypass()`, the
+      `allowInvalidCertificate` field on `DesktopRemoteRoute` in
+      `apps/desktop/electron/desktop-remote-route.ts`, the 8th
+      `allowInvalidCertificate` arg of `buildRemoteConnection` — headers is
+      9th; upstream calls pass 8 args, so every new upstream call site must be
+      re-threaded on sync — plus `fetchConnectionStatus`'s 5th arg and the
+      flag in `createPrimaryRemoteConnection`), the 401/403 native-token drop
+      in `mintGatewayWsTicket`, and the first-run choice IPC + gates in
+      `apps/desktop/electron/main.ts` + the first-run gate wrapper
+      (`initGatewayBoot` + `enterFirstRunChoice` + the
+      `FIRST_RUN_CHOICE_REQUIRED` safety net) in
       `apps/desktop/src/app/gateway/hooks/use-gateway-boot.ts`.
+      **Retired-superseded at v2026.8.31**: the fork's hook-level
+      `gateway.ping` heartbeat and bounded initial-connect retries — upstream's
+      shared `JsonRpcGateway` now owns the heartbeat (interval + inbound
+      deadline, sends `gateway.ping`) and the hook re-attempts whole boots
+      with jittered backoff. The fork's server-side
+      `@method("gateway.ping")` in `tui_gateway/server.py` stays: upstream's
+      ws fast-path (`tui_gateway/ws.py`) answers before dispatch, and the
+      dispatch method keeps non-ws transports answerable.
       Tests: `apps/desktop/src/app/gateway/hooks/use-gateway-boot.test.tsx`
       (fork cases), `apps/desktop/electron/first-run-choice.test.ts`,
       `apps/desktop/electron/connection-config.test.ts`,
       `tests/tui_gateway/test_gateway_ping.py`.
+- [ ] **Compressor output reservation** (fork v0.20.3) —
+      `agent/output_reservation.py` (fork-only module: the reservation the
+      transport will actually send — user tier or provider-profile default),
+      seeded into `agent/agent_init.py` (`_compressor_max_tokens =
+      _resolve_agent_output_reservation(agent)`, composed with upstream's
+      native-Gemini fallback since v2026.8.31) and threaded through
+      `agent/agent_runtime_helpers.py`'s `update_model` call via
+      `reservation_kwargs` (inside upstream's try/`_restore_snapshot` wrapper).
+      Upstream fixed only the native-Gemini slice (#57275) and calls the
+      generic gap #63839 open — take upstream's version if #63839 ever lands.
+      Tests: `tests/agent/test_output_reservation.py`.
 - [ ] **OpenAI streaming-TTS hardening** (fork v0.20.7) — four sites in
       upstream-owned files: `tools/tts_streaming.py::OpenAIStreamer.stream`
       (endpoint is `tts.openai.base_url` or `DEFAULT_OPENAI_BASE_URL`, never
@@ -264,24 +336,32 @@ IS the verification hook — run it on the merged branch instead of eyeballing:
       `hicolor/1024x1024/apps/Hermes.png`, which no icon theme indexes. Keep
       this key if upstream rewrites the `linux` block. Tests:
       `apps/desktop/scripts/linux-icons.test.mjs`.
-- [ ] **Security dependency pins ahead of upstream** (fork v0.20.8) — the fork
-      pins `electron` **40.10.6** (`apps/desktop/package.json` devDependency
-      *and* `build.electronVersion`, which two guards require to match:
+- [ ] **Security dependency pins ahead of upstream** (fork v0.20.8; re-verified
+      v2026.8.31) — the fork pins `electron` **40.10.6**
+      (`apps/desktop/package.json` devDependency *and* `build.electronVersion`,
+      which two guards require to match:
       `apps/desktop/electron/desktop-electron-pin.test.ts` and the exact-version
       `allowScripts` key in the root `package.json`, guarded by
-      `tests-js/allow-scripts-sync.test.ts`). Upstream pins 40.10.2, which carries
-      CVE-2026-70606. 40.10.6 also drops `extract-zip` for
+      `tests-js/allow-scripts-sync.test.ts`). Upstream still pins ^40.10.2, which
+      carries CVE-2026-70606. 40.10.6 also drops `extract-zip` for
       `@electron-internal/extract-zip`, removing unpatched CVE-2026-56876 from the
       tree — so regenerate the lock with a real resolve
       (`npm install electron@<v> --package-lock-only -w apps/desktop`), never by
       editing lock entries by hand: a hand-edited entry keeps the OLD dependency
       list and `npm ci` then builds a tree missing `@electron-internal/extract-zip`,
-      which only fails on a cold cache. Also ahead of upstream: `nanoid` 3.3.18
-      (CVE-2026-67213, both npm lockfiles) and `h2` 4.4.1 in `uv.lock`
-      (CVE-2026-71554) — the latter's `exclude-newer-package` exception in
-      `pyproject.toml` was removed once the fix aged past the 14-day window; relock
-      with the CI-pinned uv (0.9.28), since a newer uv rewrites the lock's
-      options format. Take upstream's versions when they pass these CVEs.
+      which only fails on a cold cache. **Workspace staleness trap (hit
+      2026-09-03):** `npm install --package-lock-only` can silently keep the
+      lock's stale embedded `apps/desktop` manifest (and even revert the disk
+      manifest to upstream's `^40.10.2`) — after any lock regen, verify BOTH the
+      disk manifest and the lock's `packages["apps/desktop"].devDependencies`
+      say the exact fork pin and `node_modules/electron` resolved to it.
+      Also ahead of upstream: `h2` **4.4.1** in `uv.lock` (CVE-2026-71554;
+      upstream ships 4.3.0 — re-apply with `uv lock --upgrade-package h2`);
+      relock with the CI-pinned uv (0.9.28), since a newer uv rewrites the
+      lock's options format. **`nanoid` retired-superseded at v2026.8.31**:
+      upstream moved the hoisted copy to 6.0.0 and the remaining nested 3.x
+      copies resolve to the patched 3.3.18. Take upstream's versions when they
+      pass these CVEs.
 - [ ] ~~**Desktop voice mic re-arm** (`use-voice-conversation.ts`)~~ —
       **retired-superseded at the v2026.8.16 sync.** Upstream's live-speech
       rewrite (`settleAfterSpeech` → `pendingStartRef` → loop-effect

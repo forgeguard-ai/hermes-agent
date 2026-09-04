@@ -25,12 +25,12 @@ name: OSV-Scanner
 # A wrapper job downloads the SARIF result and summarizes the vulnerability
 # count into a review_status for the unified PR comment.
 
+# ForgeGuard fork: schedule trigger removed — the weekly cron is guarded
+# upstream-only and produced a skipped run every Monday. The workflow_call from
+# ci.yaml is the fork's real scan. See patch-inventory.md ("Trigger-stripped
+# upstream-infra workflows").
 on:
   workflow_call:
-  schedule:
-    # Weekly scan against main — catches CVEs published after merge for
-    # deps that haven't changed since.
-    - cron: '0 9 * * 1'
   workflow_dispatch:
 
 permissions:

@@ -34,17 +34,11 @@ name: auto-fix lint issues & formatting
 #      the PR is auto-closed and the branch deleted — the next run re-applies
 #      on the current state.
 
+# ForgeGuard fork: push trigger removed — both jobs are guarded to
+# NousResearch/hermes-agent (the autofix bot needs upstream's AUTOFIX_BOT_PAT),
+# so every JS-touching main push only produced a skipped run. See
+# patch-inventory.md ("Trigger-stripped upstream-infra workflows").
 on:
-  push:
-    branches: [main]
-    paths:
-      - '**/*.js'
-      - '**/*.cjs'
-      - '**/*.mjs'
-      - '**/*.ts'
-      - '**/*.tsx'
-      - 'package.json'
-      - 'package-lock.json'
   workflow_dispatch:
 
 permissions:

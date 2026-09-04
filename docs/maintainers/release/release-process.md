@@ -59,10 +59,10 @@ CI-only merges don't produce releases. For qualifying merges it:
    `-portable.exe`). It does **not** pass a `version:` input; desktop artifacts
    are versioned only by the Release tag.
 3. Calls `build-runtime-images.yml` with `push: true` and
-   `version: <computed version>` → builds, tests, and pushes both image variants
+   `version: <computed version>` → builds, tests, and pushes the runtime image
    to `ghcr.io/forgeguard-ai/hermes-agent` with tags `runtime-<sha>` /
-   `runtime-latest` / `runtime-<version>` and `cli-<sha>` / `cli-latest` /
-   `cli-<version>`.
+   `runtime-latest` / `runtime-<version>` (the `cli-*` image family was
+   retired in fork v0.20.7).
 4. Publishes a GitHub Release with the installers attached and the image pull
    commands in the notes.
 
@@ -90,12 +90,12 @@ the job conclusion. Re-verify this after every upstream sync (see the
 
 | Tag | Mutability | Use |
 | --- | --- | --- |
-| `runtime-<version>` / `cli-<version>` | immutable | pin deployments to a specific fork release |
-| `runtime-<git-sha>` / `cli-<git-sha>` | immutable | trace any image back to its exact commit |
-| `runtime-latest` / `cli-latest` | rolling | testing / always-newest |
+| `runtime-<version>` | immutable | pin deployments to a specific fork release |
+| `runtime-<git-sha>` | immutable | trace any image back to its exact commit |
+| `runtime-latest` | rolling | testing / always-newest |
 
 See [Image tags](../../site/reference/image-tags.md) for the consumer-facing
-description of the two variants and how to run them.
+description of the image and how to run it.
 
 ## macOS installer signing
 
@@ -138,8 +138,8 @@ Published artifacts are pruned by
 | Artifact | Retained |
 |---|---|
 | GitHub Releases + installers | newest 2 (`keep_releases`) |
-| `runtime-<version>` / `cli-<version>` images | newest 2 releases' pairs (`keep_builds`) |
-| `runtime-<git-sha>` / `cli-<git-sha>` images | the same 2 builds' pairs |
+| `runtime-<version>` images | newest 2 releases (`keep_builds`) |
+| `runtime-<git-sha>` images | the same 2 builds |
 | `runtime-latest` / `cli-latest` | always |
 | `buildcache-runtime-amd64` / `buildcache-cli-amd64` | always |
 | Untagged GHCR versions | always (they back the buildcache index) |

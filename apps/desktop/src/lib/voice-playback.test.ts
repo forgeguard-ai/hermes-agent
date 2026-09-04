@@ -5,10 +5,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/hermes', () => ({
+  getApiRequestConnection: vi.fn(() => null),
   getApiRequestProfile: vi.fn(() => null),
   speakText: vi.fn()
 }))
-vi.mock('@hermes/shared', () => ({
+vi.mock(import('@hermes/shared'), async importOriginal => ({
+  ...(await importOriginal()),
   resolveGatewayWsUrl: vi.fn(async () => 'ws://127.0.0.1:1/api/ws')
 }))
 
