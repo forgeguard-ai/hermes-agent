@@ -2189,6 +2189,23 @@ def _truncate_content(
     return head + marker + tail
 
 
+def resolve_soul_path(home: "Path") -> "Path":
+    """The SOUL.md that is in effect for the Hermes home *home*.
+
+    ``home / "SOUL.md"`` normally. Under exclusive managed scope the
+    administrator's ``<managed>/SOUL.md`` instead — and when the managed
+    directory has none, that (missing) path is still returned, so the agent
+    falls back to the built-in identity exactly as a home without SOUL.md
+    would, never to a copy it wrote into its own home.
+    """
+    try:
+        from hermes_cli.managed_scope import resolve_home_path
+
+        return resolve_home_path(home, "SOUL.md")
+    except Exception:  # noqa: BLE001 — identity loading must never break
+        return Path(home) / "SOUL.md"
+
+
 def load_soul_md(
     context_length: Optional[int] = None,
     home_override: "Path | None" = None,
@@ -2212,7 +2229,7 @@ def load_soul_md(
         logger.debug("Could not ensure HERMES_HOME before loading SOUL.md: %s", e)
 
     _home = Path(home_override) if home_override is not None else get_hermes_home()
-    soul_path = _home / "SOUL.md"
+    soul_path = resolve_soul_path(_home)
     if not soul_path.exists():
         return None
     try:

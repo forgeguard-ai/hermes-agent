@@ -33,7 +33,9 @@ def _provider_pip_dependencies(provider_name: str, declared: list) -> list:
     if provider_name == "hindsight":
         try:
             import json
-            cfg_path = get_hermes_home() / "hindsight" / "config.json"
+            from hermes_cli.managed_scope import resolve_home_path
+
+            cfg_path = resolve_home_path(get_hermes_home(), "hindsight/config.json")
             cfg = json.loads(cfg_path.read_text(encoding="utf-8")) if cfg_path.exists() else {}
             mode = cfg.get("mode", "")
             # "local" is a legacy alias for "local_embedded"

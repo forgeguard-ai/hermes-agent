@@ -98,7 +98,10 @@ def _load_config() -> dict:
     if env_user_id:
         config["user_id"] = env_user_id
 
-    config_path = get_hermes_home() / "mem0.json"
+    from hermes_cli.managed_scope import resolve_home_path
+
+    # Exclusive managed scope: <managed>/mem0.json replaces the home copy.
+    config_path = resolve_home_path(get_hermes_home(), "mem0.json")
     if config_path.exists():
         try:
             file_cfg = json.loads(config_path.read_text(encoding="utf-8"))

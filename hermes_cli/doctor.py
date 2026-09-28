@@ -1994,8 +1994,21 @@ def run_doctor(args):
             check_warn(f"{_DHH}/{subdir_name}/ not found", "(will be created on first use)")
     
     # Check for SOUL.md persona file
-    soul_path = hermes_home / "SOUL.md"
-    if soul_path.exists():
+    from agent.prompt_builder import resolve_soul_path
+    from hermes_cli import managed_scope as _ms_soul
+
+    soul_path = resolve_soul_path(hermes_home)
+    if _ms_soul.is_exclusive():
+        # Exclusive managed scope: the administrator's copy is the only one
+        # read, and doctor must not seed one into the (ignored) home.
+        if soul_path.exists():
+            check_ok(f"SOUL.md supplied by the managed scope ({soul_path})")
+        else:
+            check_info(
+                f"No SOUL.md in the managed scope ({soul_path}) — "
+                "the built-in identity is used"
+            )
+    elif soul_path.exists():
         content = soul_path.read_text(encoding="utf-8").strip()
         # Check if it's just the template comments (no real content)
         lines = [l for l in content.splitlines() if l.strip() and not l.strip().startswith(("<!--", "-->", "#"))]

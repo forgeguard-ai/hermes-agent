@@ -941,6 +941,12 @@ def _ensure_default_soul_md(home: Path) -> None:
     docker images, which shadowed the runtime default) get upgraded in place to
     DEFAULT_SOUL_MD. A SOUL.md the user actually customized is never touched.
     """
+    # Exclusive managed scope: SOUL.md comes from the managed directory only;
+    # seeding a home copy that is never read would only mislead.
+    from hermes_cli import managed_scope
+
+    if managed_scope.is_exclusive():
+        return
     soul_path = home / "SOUL.md"
     if soul_path.exists():
         try:

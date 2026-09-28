@@ -1051,7 +1051,11 @@ async def delete_profile_endpoint(name: str):
 
 @router.get("/api/profiles/{name}/soul")
 async def get_profile_soul(name: str):
-    soul_path = _resolve_profile_dir(name) / "SOUL.md"
+    from agent.prompt_builder import resolve_soul_path
+
+    # Exclusive managed scope shows the administrator's SOUL.md (the one in
+    # effect); identity otherwise.
+    soul_path = resolve_soul_path(_resolve_profile_dir(name))
     if soul_path.exists():
         try:
             return {"content": soul_path.read_text(encoding="utf-8"), "exists": True}
@@ -1063,6 +1067,13 @@ async def get_profile_soul(name: str):
 @router.put("/api/profiles/{name}/soul")
 async def update_profile_soul(name: str, body: ProfileSoulUpdate):
     soul_path = _resolve_profile_dir(name) / "SOUL.md"
+    from hermes_cli import managed_scope
+
+    if managed_scope.protected_entry(soul_path) is not None:
+        raise HTTPException(
+            status_code=403,
+            detail=managed_scope.exclusive_refusal("change SOUL.md"),
+        )
     try:
         from utils import atomic_write_text
 

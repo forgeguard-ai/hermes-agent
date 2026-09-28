@@ -594,7 +594,9 @@ class RetainDBMemoryProvider(MemoryProvider):
         self._queue = _WriteQueue(self._client, db_path)
 
         # Seed agent identity from SOUL.md in background
-        soul_path = hermes_home_path / "SOUL.md"
+        from agent.prompt_builder import resolve_soul_path
+
+        soul_path = resolve_soul_path(hermes_home_path)
         if soul_path.exists():
             soul_content = soul_path.read_text(encoding="utf-8", errors="replace").strip()
             if soul_content:

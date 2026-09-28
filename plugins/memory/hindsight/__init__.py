@@ -427,17 +427,21 @@ def _load_config() -> dict:
     """
     from pathlib import Path
 
-    # Profile-scoped path (preferred)
-    profile_path = get_hermes_home() / "hindsight" / "config.json"
+    from hermes_cli import managed_scope
+
+    # Profile-scoped path (preferred). Exclusive managed scope reads
+    # <managed>/hindsight/config.json instead of the home copy.
+    profile_path = managed_scope.resolve_home_path(get_hermes_home(), "hindsight/config.json")
     if profile_path.exists():
         try:
             return json.loads(profile_path.read_text(encoding="utf-8"))
         except Exception:
             pass
 
-    # Legacy shared path (backward compat)
+    # Legacy shared path (backward compat). Not consulted in exclusive mode:
+    # it lives in the agent's own (writable) home directory.
     legacy_path = Path.home() / ".hindsight" / "config.json"
-    if legacy_path.exists():
+    if legacy_path.exists() and not managed_scope.is_exclusive():
         try:
             return json.loads(legacy_path.read_text(encoding="utf-8"))
         except Exception:
@@ -1140,7 +1144,9 @@ class HindsightMemoryProvider(MemoryProvider):
 
         if mode == "local_embedded":
             materialized_config = dict(provider_config)
-            config_path = Path(hermes_home) / "hindsight" / "config.json"
+            from hermes_cli.managed_scope import resolve_home_path
+
+            config_path = resolve_home_path(hermes_home, "hindsight/config.json")
             try:
                 materialized_config = json.loads(config_path.read_text(encoding="utf-8"))
             except Exception:

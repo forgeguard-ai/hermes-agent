@@ -112,7 +112,9 @@ def is_bot_mode_managed(home: str | os.PathLike | None = None) -> bool:
 
 def _soul_has_protocol(profile_dir: Path) -> bool:
     try:
-        soul = profile_dir / "SOUL.md"
+        from agent.prompt_builder import resolve_soul_path
+
+        soul = resolve_soul_path(profile_dir)
         return soul.is_file() and _PROTOCOL_HEADING in soul.read_text(encoding="utf-8", errors="replace")
     except Exception:
         return False
@@ -356,7 +358,9 @@ def capability_fingerprint(home: str | os.PathLike | None = None) -> str:
     except Exception:
         pass
     try:
-        soul = resolved / "SOUL.md"
+        from agent.prompt_builder import resolve_soul_path
+
+        soul = resolve_soul_path(resolved)
         surface["soul"] = hashlib.sha256(soul.read_bytes()).hexdigest() if soul.is_file() else ""
     except Exception:
         surface["soul"] = ""

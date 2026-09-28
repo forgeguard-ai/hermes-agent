@@ -6213,7 +6213,11 @@ def _serialize_field_value(field: ProviderField, value: Any) -> str:
 
 
 def _flat_json_path(provider: ProviderConfigSchema) -> Path:
-    return get_hermes_home() / provider.name / "config.json"
+    from hermes_cli.managed_scope import resolve_home_path
+
+    # Exclusive managed scope: administrator-owned provider configs
+    # (hindsight/config.json) resolve from the managed directory.
+    return resolve_home_path(get_hermes_home(), f"{provider.name}/config.json")
 
 
 def _read_flat_json(provider: ProviderConfigSchema) -> Dict[str, Any]:
@@ -6930,9 +6934,13 @@ def _read_memory_provider_existing_values(name: str) -> Dict[str, Any]:
     values: Dict[str, Any] = {}
 
     # Common native provider stores.
+    from hermes_cli.managed_scope import resolve_home_path
+
+    # Exclusive managed scope: administrator-owned stores (mem0.json,
+    # hindsight/config.json) resolve from the managed directory.
     for path in (
-        hermes_home / f"{name}.json",
-        hermes_home / name / "config.json",
+        resolve_home_path(hermes_home, f"{name}.json"),
+        resolve_home_path(hermes_home, f"{name}/config.json"),
     ):
         values.update(_read_json_file(path))
 
