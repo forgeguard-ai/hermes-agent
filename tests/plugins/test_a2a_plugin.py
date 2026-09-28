@@ -1332,7 +1332,9 @@ class TestMultiAgentRouting:
         assert card["name"] == "Research Agent"
         assert card["supportedInterfaces"][0]["url"] == "http://agents.example.com/research/"
         assert card["supportedInterfaces"][0]["tenant"] == "research"
-        assert {s["name"] for s in card["skills"]} == {"research", "web"}
+        # Only enabled toolsets are advertised: "research" names no toolset
+        # the forwarded profile has enabled, so it is dropped (with a warning).
+        assert {s["name"] for s in card["skills"]} == {"web"}
 
     def test_tenant_routing_selects_agent_without_path_prefix(self):
         from plugins.platforms.a2a.adapter import A2AAdapter

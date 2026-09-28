@@ -526,37 +526,166 @@ class TestTaskStore:
 # ═════════════════════════════════════════════════════════════════════════════
 
 
+def _patch_registry(monkeypatch, toolsets: dict) -> None:
+    """Make the tool registry report exactly ``toolsets`` (name -> tool names)."""
+    from tools.registry import registry
+
+    monkeypatch.setattr(registry, "get_registered_toolset_names", lambda: sorted(toolsets))
+    monkeypatch.setattr(registry, "get_tool_names_for_toolset", lambda ts: list(toolsets.get(ts, [])))
+
+
+def _write_config(cfg: dict, home=None) -> None:
+    import yaml
+    from pathlib import Path
+    from hermes_cli.config import get_config_path
+
+    path = Path(home) / "config.yaml" if home else get_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump(cfg), encoding="utf-8")
+
+
+def _skill_names(card: dict) -> set:
+    return {s["name"] for s in card["skills"]}
+
+
+_ADAPTER_LOGGER = "plugins.platforms.a2a.adapter"
+
+
 class TestDynamicAgentCards:
     def test_skills_reflect_live_tool_registry(self, monkeypatch):
         """The Agent Card is built from the real tool registry at serve time."""
-        from tools.registry import registry
         from gateway.config import PlatformConfig
         from plugins.platforms.a2a.adapter import A2AAdapter
 
-        monkeypatch.setattr(registry, "get_registered_toolset_names",
-                            lambda: ["webz", "termz"])
-        monkeypatch.setattr(registry, "get_tool_names_for_toolset",
-                            lambda ts: {"webz": ["web_search"], "termz": ["terminal"]}[ts])
+        _patch_registry(monkeypatch, {"web": ["web_search"], "terminal": ["terminal"]})
 
         adapter = A2AAdapter(PlatformConfig(enabled=True))
         card = adapter._build_card()
         by_name = {s["name"]: s for s in card["skills"]}
-        assert set(by_name) == {"webz", "termz"}
-        assert "web_search" in by_name["webz"]["tags"]
+        assert set(by_name) == {"web", "terminal"}
+        assert "web_search" in by_name["web"]["tags"]
 
     def test_advertised_toolsets_restrict_card(self, monkeypatch):
+        from gateway.config import PlatformConfig
+        from plugins.platforms.a2a.adapter import A2AAdapter
+
+        _patch_registry(monkeypatch, {"web": [], "terminal": [], "browser": []})
+        monkeypatch.setenv("A2A_ADVERTISED_TOOLSETS", "web")
+
+        adapter = A2AAdapter(PlatformConfig(enabled=True))
+        card = adapter._build_card()
+        assert [s["name"] for s in card["skills"]] == ["web"]
+
+    def test_disabled_toolset_not_advertised(self, monkeypatch):
+        """agent.disabled_toolsets keeps a registered toolset off the card."""
+        from gateway.config import PlatformConfig
+        from plugins.platforms.a2a.adapter import A2AAdapter
+
+        _patch_registry(monkeypatch, {"web": ["web_search"], "terminal": ["terminal"]})
+        _write_config({"agent": {"disabled_toolsets": ["web"]}})
+
+        card = A2AAdapter(PlatformConfig(enabled=True))._build_card()
+        assert _skill_names(card) == {"terminal"}
+
+    def test_nothing_configured_advertises_platform_enabled_set(self, monkeypatch):
+        """Without advertised_toolsets the card is the a2a platform's enabled set,
+        not every registered toolset."""
+        from gateway.config import PlatformConfig
+        from plugins.platforms.a2a.adapter import A2AAdapter
+
+        _patch_registry(monkeypatch, {"web": [], "terminal": [], "file": [], "browser": []})
+        _write_config({"platform_toolsets": {"a2a": ["terminal", "file"]}})
+
+        card = A2AAdapter(PlatformConfig(enabled=True))._build_card()
+        assert _skill_names(card) == {"terminal", "file"}
+
+    def test_advertised_toolsets_intersected_with_enabled_set(self, monkeypatch, caplog):
+        import logging
+        from gateway.config import PlatformConfig
+        from plugins.platforms.a2a.adapter import A2AAdapter
+
+        _patch_registry(monkeypatch, {"web": [], "terminal": [], "file": []})
+        _write_config({"agent": {"disabled_toolsets": ["web"]}})
+        monkeypatch.setenv("A2A_ADVERTISED_TOOLSETS", "web,terminal")
+
+        adapter = A2AAdapter(PlatformConfig(enabled=True))
+        with caplog.at_level(logging.WARNING, logger=_ADAPTER_LOGGER):
+            card = adapter._build_card()
+            adapter._build_card()  # a second card fetch must not re-warn
+
+        assert _skill_names(card) == {"terminal"}
+        warnings = [r.getMessage() for r in caplog.records if "not enabled" in r.getMessage()]
+        assert len(warnings) == 1
+        assert "web" in warnings[0]
+
+    def test_every_advertised_toolset_disabled_does_not_widen(self, monkeypatch):
+        """If the operator's list is entirely disabled, the card must not fall
+        back to advertising everything else that is enabled."""
+        from gateway.config import PlatformConfig
+        from plugins.platforms.a2a.adapter import A2AAdapter
+
+        _patch_registry(monkeypatch, {"web": [], "terminal": []})
+        _write_config({"agent": {"disabled_toolsets": ["web"]}})
+        monkeypatch.setenv("A2A_ADVERTISED_TOOLSETS", "web")
+
+        card = A2AAdapter(PlatformConfig(enabled=True))._build_card()
+        assert _skill_names(card) == {"general"}
+
+    def test_mcp_server_maps_to_its_registered_toolset(self, monkeypatch):
+        """Enabled MCP servers are named by server; the registry holds them
+        under ``mcp-<server>`` with an alias."""
+        import hermes_cli.tools_config as tools_config
         from tools.registry import registry
         from gateway.config import PlatformConfig
         from plugins.platforms.a2a.adapter import A2AAdapter
 
-        monkeypatch.setattr(registry, "get_registered_toolset_names",
-                            lambda: ["webz", "termz", "secretz"])
-        monkeypatch.setattr(registry, "get_tool_names_for_toolset", lambda ts: [])
-        monkeypatch.setenv("A2A_ADVERTISED_TOOLSETS", "webz")
+        _patch_registry(monkeypatch, {"terminal": [], "web": [], "mcp-github": ["create_issue"]})
+        monkeypatch.setattr(registry, "get_toolset_alias_target",
+                            lambda name: {"github": "mcp-github"}.get(name))
+        monkeypatch.setattr(tools_config, "_get_platform_tools",
+                            lambda cfg, platform, **kw: {"terminal", "github"})
 
-        adapter = A2AAdapter(PlatformConfig(enabled=True))
-        card = adapter._build_card()
-        assert [s["name"] for s in card["skills"]] == ["webz"]
+        card = A2AAdapter(PlatformConfig(enabled=True))._build_card()
+        assert _skill_names(card) == {"terminal", "mcp-github"}
+
+    def test_forwarded_profile_card_uses_that_profiles_config(self, monkeypatch, tmp_path):
+        """A served agent forwarded to another profile advertises what that
+        profile has enabled, not what the gateway's own profile has."""
+        import plugins.platforms.a2a.adapter as adapter_mod
+        from gateway.config import PlatformConfig
+
+        _patch_registry(monkeypatch, {"web": [], "terminal": []})
+        research_home = tmp_path / "research-home"
+        _write_config({"agent": {"disabled_toolsets": ["terminal"]}}, home=research_home)
+        monkeypatch.setattr(adapter_mod, "_profile_home",
+                            lambda profile: str(research_home) if profile == "research" else None)
+
+        adapter = adapter_mod.A2AAdapter(PlatformConfig(enabled=True, extra={
+            "agents": {"research": {"profile": "research"}},
+        }))
+        assert adapter._agents["research"]["local"] is False
+        assert _skill_names(adapter._build_card()) == {"web", "terminal"}
+        assert _skill_names(adapter._build_card(agent=adapter._agents["research"])) == {"web"}
+
+    def test_unresolvable_enabled_set_falls_back_with_warning(self, monkeypatch, caplog):
+        """A config failure degrades to the registry-wide card (and says so)
+        rather than publishing an empty card."""
+        import logging
+        import hermes_cli.tools_config as tools_config
+        from gateway.config import PlatformConfig
+        from plugins.platforms.a2a.adapter import A2AAdapter
+
+        def boom(cfg, platform, **kw):
+            raise RuntimeError("config unreadable")
+
+        _patch_registry(monkeypatch, {"web": [], "terminal": []})
+        monkeypatch.setattr(tools_config, "_get_platform_tools", boom)
+
+        with caplog.at_level(logging.WARNING, logger=_ADAPTER_LOGGER):
+            card = A2AAdapter(PlatformConfig(enabled=True))._build_card()
+
+        assert _skill_names(card) == {"web", "terminal"}
+        assert any("could not resolve enabled toolsets" in r.getMessage() for r in caplog.records)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
