@@ -426,6 +426,18 @@ IS the verification hook — run it on the merged branch instead of eyeballing:
       regression scenario as coverage upstream does not have:
       `apps/desktop/src/app/chat/composer/hooks/use-voice-conversation.rearm.test.tsx`
       (seams adapted to the new hook; verify it stays green).
+- [ ] **A2A Agent Card advertises only enabled toolsets** (fork,
+      2026-09-28). `plugins/platforms/a2a/adapter.py::_advertised_skills`
+      limits card skills to `_enabled_toolsets_for_agent` — the
+      `_get_platform_tools` result (so `agent.disabled_toolsets` applies) for
+      `a2a` on local agents, and for the target profile's `cli` config on
+      forwarded served agents. `advertised_toolsets` /
+      `A2A_ADVERTISED_TOOLSETS` is intersected with that set (dropped names
+      warned once); if resolution fails the card falls back to upstream's
+      registry-wide behaviour with a warning. Upstream builds the card from
+      every registered toolset. If upstream reworks card generation, keep the
+      "never advertise a disabled toolset" contract.
+      Test: `tests/plugins/test_a2a_phase23.py::TestDynamicAgentCards`.
 
 ## Docs / instructions
 
