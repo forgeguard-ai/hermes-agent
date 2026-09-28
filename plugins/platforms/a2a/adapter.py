@@ -352,6 +352,7 @@ class A2AAdapter(BasePlatformAdapter):
                 or os.getenv("A2A_ADVERTISED_TOOLSETS", "").split(",")
             ) if str(t).strip()
         ]
+        self._card_warnings: set[tuple] = set()
         self._active_profile = _active_profile_name()
         self._agents = self._load_served_agents(extra)
 
@@ -617,30 +618,116 @@ class A2AAdapter(BasePlatformAdapter):
             tenant=str(agent.get("tenant") or ""),
         )
 
+    def _warn_once(self, key: tuple, msg: str, *args) -> None:
+        # Agent Cards are rebuilt on every card fetch; log each distinct
+        # misconfiguration once per adapter instead of once per request.
+        if key in self._card_warnings:
+            return
+        self._card_warnings.add(key)
+        logger.warning(msg, *args)
+
+    def _enabled_toolsets_for_agent(self, agent: Optional[dict]) -> Optional[set[str]]:
+        """Toolsets the routed agent's sessions actually run with.
+
+        Local agents run as ``a2a`` platform sessions of this process, so they
+        get ``platform_toolsets.a2a`` of the live config. Non-local agents are
+        forwarded to another profile as CLI sessions (``hermes chat``), so they
+        get that profile's ``cli`` toolsets. Both go through
+        ``_get_platform_tools``, which applies ``agent.disabled_toolsets`` last.
+
+        Returns None when the set cannot be resolved (logged once per agent).
+        """
+        agent = agent or self._agents[""]
+        slug = agent.get("slug") or "default"
+        try:
+            from hermes_cli.tools_config import _get_platform_tools
+
+            if agent.get("local", True):
+                from hermes_cli.config import load_config
+                return set(_get_platform_tools(load_config() or {}, "a2a"))
+
+            profile = str(agent.get("profile") or agent.get("slug") or "").strip()
+            home = _profile_home(profile)
+            if not home:
+                raise RuntimeError(f"no home directory for profile {profile!r}")
+            from pathlib import Path
+            from hermes_cli.config import read_user_config_raw
+            from hermes_cli.managed_scope import apply_managed_overlay
+            cfg = apply_managed_overlay(read_user_config_raw(Path(home) / "config.yaml"))
+            return set(_get_platform_tools(cfg, "cli"))
+        except Exception as e:
+            self._warn_once(
+                ("resolve", slug),
+                "A2A: could not resolve enabled toolsets for agent %r (%s); its "
+                "Agent Card falls back to advertising every registered toolset, "
+                "which may include disabled ones",
+                slug, e,
+            )
+            return None
+
     def _advertised_skills(self, agent: Optional[dict] = None) -> list[dict]:
         """Dynamic Agent Card skills from the live tool registry.
 
-        The card reflects what the agent can actually do right now. An
-        explicit ``advertised_toolsets`` config (or A2A_ADVERTISED_TOOLSETS)
-        restricts what we advertise; without a registry we fall back to that
-        static list.
+        The card advertises only toolsets the agent actually has enabled, so
+        peers never delegate work the agent cannot do. An explicit
+        ``advertised_toolsets`` config (or A2A_ADVERTISED_TOOLSETS) narrows
+        that further; a configured toolset that is not enabled is dropped with
+        a warning. Without a registry we fall back to a static list of the
+        same names.
         """
+        configured = list(((agent or {}).get("advertised_toolsets") if agent else self._advertised_toolsets) or [])
+        enabled = self._enabled_toolsets_for_agent(agent)
+
         try:
             from tools.registry import registry as tool_registry
+        except Exception:
+            tool_registry = None
+
+        def canon(name: str) -> str:
+            # MCP servers are enabled by server name but registered under
+            # ``mcp-<server>``; the registry keeps that alias.
+            try:
+                return tool_registry.get_toolset_alias_target(name) or name
+            except Exception:
+                return name
+
+        enabled_names: Optional[set[str]] = None
+        if enabled is not None:
+            enabled_names = set(enabled) | {canon(n) for n in enabled}
+            dropped = sorted(
+                c for c in configured
+                if c not in enabled_names and canon(c) not in enabled_names
+            )
+            if dropped:
+                slug = (agent or {}).get("slug") or "default"
+                self._warn_once(
+                    ("disabled", slug, tuple(dropped)),
+                    "A2A: advertised_toolsets for agent %r names toolsets that are "
+                    "not enabled; they will not be advertised: %s",
+                    slug, ", ".join(dropped),
+                )
+                configured = [c for c in configured if c not in dropped]
+                if not configured:
+                    # Every configured toolset is disabled. Advertise nothing
+                    # specific rather than widening past the operator's list.
+                    return protocol.skills_from_toolsets([])
+
+        try:
+            if tool_registry is None:
+                raise RuntimeError("tool registry unavailable")
             names = tool_registry.get_registered_toolset_names()
-            configured = (agent or {}).get("advertised_toolsets") if agent else self._advertised_toolsets
-            allowed = set(configured or []) or None
+            allowed = (set(configured) | {canon(c) for c in configured}) if configured else None
             mapping = {
                 n: tool_registry.get_tool_names_for_toolset(n)
                 for n in names
-                if allowed is None or n in allowed
+                if (allowed is None or n in allowed)
+                and (enabled_names is None or n in enabled_names)
             }
             if mapping:
                 return protocol.skills_from_toolsets(mapping)
         except Exception:
             logger.debug("A2A: tool registry unavailable for Agent Card", exc_info=True)
-        configured = (agent or {}).get("advertised_toolsets") if agent else self._advertised_toolsets
-        return protocol.skills_from_toolsets(configured or [])
+        return protocol.skills_from_toolsets(configured or sorted(enabled or []))
 
     # ── Pending reply plumbing ────────────────────────────────────────────
 
