@@ -5945,7 +5945,10 @@ def run_job(
         _model_cfg = {}
         try:
             from hermes_cli.config import read_user_config_raw
-            _cfg_path = str(_get_hermes_home() / "config.yaml")
+            from hermes_cli.managed_scope import config_read_path as _cfg_read_path
+
+            # Exclusive managed scope reads the managed config.yaml instead.
+            _cfg_path = str(_cfg_read_path(_get_hermes_home() / "config.yaml"))
             if os.path.exists(_cfg_path):
                 _cfg = read_user_config_raw(Path(_cfg_path))
                 # Managed scope: a scheduled job must honor administrator-pinned

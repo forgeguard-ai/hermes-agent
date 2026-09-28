@@ -6212,7 +6212,10 @@ def named_profile_served_by_running_multiplexer() -> bool:
 
         from gateway.config import _env_multiplex_profiles_override
 
-        cfg_path = default_root / "config.yaml"
+        from hermes_cli.managed_scope import config_read_path
+
+        # Exclusive managed scope reads the managed config.yaml instead.
+        cfg_path = config_read_path(default_root / "config.yaml")
         cfg = {}
         if cfg_path.exists():
             from hermes_cli.config import read_user_config_raw

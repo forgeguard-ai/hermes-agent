@@ -428,8 +428,11 @@ def load_cli_config() -> Dict[str, Any]:
     Credentials in ``.env`` are still loaded — this flag only suppresses
     behavioral/config settings.
     """
-    # Check user config first ({HERMES_HOME}/config.yaml)
-    user_config_path = _hermes_home / 'config.yaml'
+    # Check user config first ({HERMES_HOME}/config.yaml). Exclusive managed
+    # scope reads the managed config.yaml in its place.
+    from hermes_cli.managed_scope import config_read_path
+
+    user_config_path = config_read_path(_hermes_home / 'config.yaml')
     project_config_path = Path(__file__).parent / 'cli-config.yaml'
 
     # --ignore-user-config: force-skip the user config.yaml (still honor project

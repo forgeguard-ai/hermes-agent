@@ -47,6 +47,13 @@ def _probe_state_db(home: Path) -> dict[str, Any]:
 
 def _probe_config(home: Path) -> dict[str, Any]:
     path = home / "config.yaml"
+    try:
+        # Exclusive managed scope: probe the file actually in effect.
+        from hermes_cli.managed_scope import config_read_path
+
+        path = config_read_path(path)
+    except Exception:
+        pass
     if not path.exists():
         return _check("ok", "using defaults")
     try:

@@ -2440,7 +2440,10 @@ def _profile_configured_cwd(profile_home: Path | None) -> str | None:
     try:
         from hermes_cli.config import _expand_env_vars, read_user_config_raw
 
-        p = Path(profile_home) / "config.yaml"
+        from hermes_cli.managed_scope import config_read_path
+
+        # Exclusive managed scope reads the managed config.yaml instead.
+        p = config_read_path(Path(profile_home) / "config.yaml")
         if not p.exists():
             return None
         # Behavioral read of a NON-launch profile's config: load_config()
@@ -4496,7 +4499,10 @@ def _load_cfg_raw() -> dict:
         # profiles don't clobber each other.
         override = get_hermes_home_override()
         home = override if isinstance(override, str) and override else _hermes_home
-        p = Path(home) / "config.yaml"
+        from hermes_cli.managed_scope import config_read_path
+
+        # Exclusive managed scope reads the managed config.yaml instead.
+        p = config_read_path(Path(home) / "config.yaml")
         mtime = p.stat().st_mtime if p.exists() else None
         with _cfg_lock:
             if _cfg_cache is not None and _cfg_mtime == mtime and _cfg_path == p:

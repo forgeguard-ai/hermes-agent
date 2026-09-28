@@ -783,7 +783,10 @@ try:
     # 3-4 config.yaml parses per invocation into one.
     from hermes_cli.config import read_raw_config as _read_raw_early
 
-    _cfg_path = get_hermes_home() / "config.yaml"
+    from hermes_cli.managed_scope import config_read_path as _early_cfg_read_path
+
+    # Exclusive managed scope reads the managed config.yaml instead.
+    _cfg_path = _early_cfg_read_path(get_hermes_home() / "config.yaml")
     if _cfg_path.exists():
         _early_cfg_raw = _read_raw_early() or {}
         # Managed scope: overlay administrator-pinned values so a managed

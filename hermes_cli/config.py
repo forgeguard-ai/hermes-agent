@@ -775,6 +775,26 @@ def get_env_path() -> Path:
     """Get the .env file path (for API keys)."""
     return get_hermes_home() / ".env"
 
+
+def _config_source_path(config_path: Path) -> Path:
+    """The file a user ``config.yaml`` read actually opens.
+
+    Identity outside exclusive managed scope. In exclusive mode every user
+    config.yaml read is redirected to the managed config.yaml (see
+    ``managed_scope.config_read_path``), so the agent's own copy is never
+    merged into the effective config.
+    """
+    from hermes_cli import managed_scope
+
+    return managed_scope.config_read_path(config_path)
+
+
+def _env_source_path(env_path: Path) -> Path:
+    """The file a user ``.env`` read actually opens (managed .env in exclusive mode)."""
+    from hermes_cli import managed_scope
+
+    return managed_scope.env_read_path(env_path)
+
 def get_project_root() -> Path:
     """Get the project installation directory."""
     return Path(__file__).parent.parent.resolve()
@@ -3491,7 +3511,7 @@ def read_raw_config() -> Dict[str, Any]:
     """
     with _CONFIG_LOCK:
         try:
-            config_path = get_config_path()
+            config_path = _config_source_path(get_config_path())
             st = config_path.stat()
             cache_key = (st.st_mtime_ns, st.st_size)
         except (FileNotFoundError, OSError):
@@ -3553,9 +3573,14 @@ def read_user_config_raw(config_path: Optional[Path] = None) -> Dict[str, Any]:
     ``config_path`` defaults to :func:`get_config_path` (profile-aware).
     Pass an explicit path when the caller resolves its own home (gateway
     ``_hermes_home``, tui profile override, multi-profile probes).
+
+    Exclusive managed scope: the managed config.yaml is read instead of the
+    user's (see ``managed_scope.config_read_path``); write-backs built on the
+    result are refused by the writers.
     """
     if config_path is None:
         config_path = get_config_path()
+    config_path = _config_source_path(Path(config_path))
     try:
         with open(config_path, encoding="utf-8") as f:
             data = fast_safe_load(f) or {}
@@ -3581,7 +3606,7 @@ def read_raw_config_readonly() -> Dict[str, Any]:
     """
     with _CONFIG_LOCK:
         try:
-            config_path = get_config_path()
+            config_path = _config_source_path(get_config_path())
             st = config_path.stat()
             cache_key = (st.st_mtime_ns, st.st_size)
         except (FileNotFoundError, OSError):
@@ -3938,9 +3963,13 @@ def _load_config_impl(*, want_deepcopy: bool) -> Dict[str, Any]:
         ensure_hermes_home()
         config_path = get_config_path()
         path_key = str(config_path)
+        # Exclusive managed scope reads the managed config.yaml as the whole
+        # file-level config (defaults still apply); the user's copy is never
+        # opened. Identity otherwise.
+        source_path = _config_source_path(config_path)
 
         try:
-            st = config_path.stat()
+            st = source_path.stat()
             user_sig: Optional[Tuple[int, int]] = (st.st_mtime_ns, st.st_size)
         except FileNotFoundError:
             user_sig = None
@@ -3987,7 +4016,7 @@ def _load_config_impl(*, want_deepcopy: bool) -> Dict[str, Any]:
 
         if user_sig is not None:
             try:
-                with open(config_path, encoding="utf-8") as f:
+                with open(source_path, encoding="utf-8") as f:
                     user_config = fast_safe_load(f) or {}
 
                 if "max_turns" in user_config:
@@ -4013,7 +4042,7 @@ def _load_config_impl(*, want_deepcopy: bool) -> Dict[str, Any]:
                 # DEFAULT_CONFIG fallback.
                 lkg = _LAST_EXPANDED_CONFIG_BY_PATH.get(path_key)
                 _warn_config_parse_failure(
-                    config_path,
+                    source_path,
                     e,
                     fallback="last-known-good" if lkg is not None else "defaults",
                 )
@@ -4320,7 +4349,8 @@ def load_env() -> Dict[str, str]:
     invalidates the cache when the user edits .env mid-process.
     """
     global _env_cache
-    env_path = get_env_path()
+    # Exclusive managed scope: the managed .env replaces the user's.
+    env_path = _env_source_path(get_env_path())
 
     try:
         mtime = env_path.stat().st_mtime
@@ -4775,6 +4805,14 @@ def reload_env() -> int:
         if os.environ.get(key) != value:
             os.environ[key] = value
             count += 1
+    # Exclusive managed scope: load_env() read the managed .env, and the
+    # process environment is the only other source — a key the deployment
+    # passed in the environment must not be deleted just because the managed
+    # .env does not repeat it.
+    from hermes_cli import managed_scope
+
+    if managed_scope.is_exclusive():
+        return count
     # Remove known Hermes vars that are no longer in .env
     for key in known_keys:
         if key not in env_vars and key in os.environ:

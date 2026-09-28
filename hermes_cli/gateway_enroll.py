@@ -325,7 +325,10 @@ def _warn_if_secondary_multiplex_profile() -> bool:
         if env_multiplex is False:
             return False
         if env_multiplex is not True:
-            cfg_path = default_root / "config.yaml"
+            from hermes_cli.managed_scope import config_read_path
+
+            # Exclusive managed scope reads the managed config.yaml instead.
+            cfg_path = config_read_path(default_root / "config.yaml")
             if not cfg_path.exists():
                 return False
             from hermes_cli.config import read_user_config_raw

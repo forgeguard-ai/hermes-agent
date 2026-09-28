@@ -3246,7 +3246,8 @@ def run_doctor(args):
     _active_memory_provider = ""
     try:
         from hermes_cli.config import read_user_config_raw as _read_raw_mem
-        _mem_cfg_path = HERMES_HOME / "config.yaml"
+        from hermes_cli.managed_scope import config_read_path as _mem_read_path
+        _mem_cfg_path = _mem_read_path(HERMES_HOME / "config.yaml")
         if _mem_cfg_path.exists():
             # Raw-file diagnostic (+ managed overlay below, unchanged).
             _raw_cfg = _read_raw_mem(_mem_cfg_path)

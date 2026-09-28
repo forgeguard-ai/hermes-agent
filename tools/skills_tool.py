@@ -221,6 +221,13 @@ def _skill_lookup_path_error(name: str) -> Optional[str]:
 def load_env() -> Dict[str, str]:
     """Load profile-scoped environment variables from HERMES_HOME/.env."""
     env_path = get_hermes_home() / ".env"
+    try:
+        # Exclusive managed scope: the managed .env replaces the profile's.
+        from hermes_cli import managed_scope
+
+        env_path = managed_scope.env_read_path(env_path)
+    except Exception:
+        pass
     env_vars: Dict[str, str] = {}
     if not env_path.exists():
         return env_vars

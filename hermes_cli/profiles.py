@@ -752,7 +752,10 @@ def _read_distribution_meta(profile_dir: Path) -> tuple:
 
 def _read_config_model(profile_dir: Path) -> tuple:
     """Read model/provider from a profile's config.yaml. Returns (model, provider)."""
-    config_path = profile_dir / "config.yaml"
+    from hermes_cli.managed_scope import config_read_path
+
+    # Exclusive managed scope reads the managed config.yaml instead.
+    config_path = config_read_path(profile_dir / "config.yaml")
     if not config_path.exists():
         return None, None
     try:

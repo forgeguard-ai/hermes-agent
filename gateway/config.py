@@ -1395,7 +1395,12 @@ def load_gateway_config() -> GatewayConfig:
 
     # Legacy fallback: gateway.json provides the base layer.
     # config.yaml keys always win when both specify the same setting.
-    gateway_json_path = _home / "gateway.json"
+    from hermes_cli import managed_scope
+
+    # Exclusive managed scope: the legacy gateway.json and config.yaml are
+    # read from the managed directory, never from the home (identity
+    # otherwise).
+    gateway_json_path = managed_scope.resolve_home_path(_home, "gateway.json")
     if gateway_json_path.exists():
         try:
             with open(gateway_json_path, "r", encoding="utf-8") as f:
@@ -1410,7 +1415,7 @@ def load_gateway_config() -> GatewayConfig:
     # Primary source: config.yaml
     try:
         import yaml
-        config_yaml_path = _home / "config.yaml"
+        config_yaml_path = managed_scope.config_read_path(_home / "config.yaml")
         if config_yaml_path.exists():
             with open(config_yaml_path, encoding="utf-8") as f:
                 yaml_cfg = yaml.safe_load(f) or {}

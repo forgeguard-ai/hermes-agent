@@ -294,7 +294,15 @@ def build_profile_secret_scope(hermes_home: Path) -> Dict[str, str]:
     from ``os.environ`` directly, so the scope holds only profile secrets.
     """
     home = Path(hermes_home)
-    secrets = load_env_file(home / ".env")
+    env_path = home / ".env"
+    try:
+        # Exclusive managed scope: the managed .env replaces the profile's.
+        from hermes_cli import managed_scope
+
+        env_path = managed_scope.env_read_path(env_path)
+    except Exception:
+        pass
+    secrets = load_env_file(env_path)
 
     try:
         from hermes_cli.env_loader import get_secret_source_values

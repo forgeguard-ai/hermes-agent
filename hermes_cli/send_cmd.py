@@ -260,7 +260,11 @@ def _load_hermes_env() -> None:
     except Exception:
         return
 
-    env_path = home / ".env"
+    from hermes_cli import managed_scope
+
+    # Exclusive managed scope: the managed .env / config.yaml replace the
+    # user's (identity otherwise).
+    env_path = managed_scope.env_read_path(home / ".env")
     if load_dotenv and env_path.exists():
         try:
             # utf-8-sig strips a leading UTF-8 BOM if present (PowerShell 5.1
@@ -288,7 +292,7 @@ def _load_hermes_env() -> None:
     # gateway.config.load_gateway_config() sees them. Scalars only; don't
     # override values already in the env.
     import os
-    config_path = home / "config.yaml"
+    config_path = managed_scope.config_read_path(home / "config.yaml")
     if not config_path.exists():
         return
 

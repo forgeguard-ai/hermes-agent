@@ -2359,7 +2359,10 @@ def _reload_runtime_env_preserving_config_authority() -> None:
 
 def _bridge_max_turns_from_config(home: "Path") -> None:
     """Bridge config.yaml agent.max_turns into HERMES_MAX_ITERATIONS (a global)."""
-    config_path = home / 'config.yaml'
+    from hermes_cli.managed_scope import config_read_path
+
+    # Exclusive managed scope reads the managed config.yaml instead.
+    config_path = config_read_path(home / 'config.yaml')
     if not config_path.exists():
         return
     try:
@@ -2648,7 +2651,9 @@ os.environ["HERMES_TURN_LEASE_TIMEOUT"] = str(
 
 # Bridge config.yaml values into the environment so os.getenv() picks them up.
 # config.yaml is authoritative for terminal settings — overrides .env.
-_config_path = _hermes_home / 'config.yaml'
+# Exclusive managed scope reads the managed config.yaml instead.
+from hermes_cli.managed_scope import config_read_path as _config_read_path
+_config_path = _config_read_path(_hermes_home / 'config.yaml')
 if _config_path.exists():
     try:
         # Presence-sensitive env bridge: raw read is deliberate — only keys the
@@ -4049,6 +4054,15 @@ def _load_gateway_config(config_path: "Path | None" = None) -> dict:
     """
     if config_path is None:
         config_path = _gateway_config_home() / 'config.yaml'
+    try:
+        # Exclusive managed scope reads the managed config.yaml instead
+        # (identity otherwise). The canonical fast path below compares
+        # against get_config_path(), so it only matches outside exclusive
+        # mode; the direct read handles the redirected path.
+        from hermes_cli.managed_scope import config_read_path
+        config_path = config_read_path(config_path)
+    except Exception:
+        pass
     raw: dict = {}
     used_canonical = False
     try:
@@ -10545,7 +10559,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         """
         try:
             from hermes_cli.config import read_user_config_raw
-            cfg_path = _hermes_home / "config.yaml"
+            from hermes_cli.managed_scope import config_read_path
+            # Exclusive managed scope reads the managed config.yaml instead.
+            cfg_path = config_read_path(_hermes_home / "config.yaml")
             if not cfg_path.exists():
                 self._fallback_model = None
                 return self._fallback_model

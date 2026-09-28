@@ -207,13 +207,13 @@ def _hydrate_profile_secret_sources(home: Path) -> dict[str, str]:
             for name, value in os.environ.items()
             if _is_global_env(name)
         }
-        local_env.update(load_env_file(home / ".env"))
+        local_env.update(load_env_file(_managed_read_path(home / ".env")))
         # Mirror load_hermes_dotenv()'s .op.env bootstrap: the 1Password
         # service-account token lives in <home>/.op.env (gitignored), not
         # .env. Without seeding it here a cold profile configured for the
         # supported .op.env flow fails 1Password hydration (sweeper review
         # on #74549). .env values win — never override an existing key.
-        op_env = home / ".op.env"
+        op_env = _managed_read_path(home / ".op.env")
         if op_env.exists():
             for _name, _value in load_env_file(op_env).items():
                 local_env.setdefault(_name, _value)
@@ -490,6 +490,17 @@ def load_hermes_dotenv(
     user_env = home_path / ".env"
     project_env_path = Path(project_env) if project_env else None
 
+    # Exclusive managed scope: the managed .env is the only env FILE (plus the
+    # process environment). The user .env, the project .env fallback and the
+    # home .op.env are not read — the agent can write all three. The managed
+    # .env takes the user .env's slot (override=True) and is applied again by
+    # _apply_managed_env() below; keys only the deployment's environment
+    # carries are never cleared.
+    exclusive = _managed_exclusive()
+    if exclusive:
+        user_env = _managed_read_path(user_env)
+        project_env_path = None
+
     # Normalize safe formatting and remove invalid NUL bytes before parsing.
     if user_env.exists():
         _sanitize_env_file_if_needed(user_env)
@@ -501,7 +512,8 @@ def load_hermes_dotenv(
         loaded.append(user_env)
         # Mirror reload_env() known-key cleanup so inherited Hermes keys
         # absent from this profile's .env do not leak into the runtime.
-        _clear_known_keys_missing_from_dotenv(user_env)
+        if not exclusive:
+            _clear_known_keys_missing_from_dotenv(user_env)
 
     # Load .op.env AFTER .env so that .env values win, but the bootstrap
     # token (OP_SERVICE_ACCOUNT_TOKEN) becomes available for
@@ -513,7 +525,7 @@ def load_hermes_dotenv(
     #   EnvironmentFile=-/path/to/.hermes/.op.env
     # in their gateway unit, which takes precedence (override=False below
     # ensures .op.env never clobbers a token already in the environment).
-    op_env = home_path / ".op.env"
+    op_env = _managed_read_path(home_path / ".op.env")
     if op_env.exists() and not os.environ.get("OP_SERVICE_ACCOUNT_TOKEN"):
         _load_dotenv_with_fallback(op_env, override=False)
 
@@ -580,6 +592,28 @@ def _reapply_terminal_config_bridge(home_path: Path) -> None:
         apply_terminal_config_to_env(env=None)
     except Exception:  # noqa: BLE001 — early bootstrap / malformed config
         pass
+
+
+def _managed_exclusive() -> bool:
+    """True when exclusive managed scope is on. Fail-open to False."""
+    try:
+        from hermes_cli import managed_scope
+
+        return managed_scope.is_exclusive()
+    except Exception:  # noqa: BLE001 — managed scope must never block startup
+        return False
+
+
+def _managed_read_path(path: Path) -> Path:
+    """Redirect a home config.yaml / .env / .op.env read in exclusive mode."""
+    try:
+        from hermes_cli import managed_scope
+
+        if path.name == "config.yaml":
+            return managed_scope.config_read_path(path)
+        return managed_scope.env_read_path(path)
+    except Exception:  # noqa: BLE001 — managed scope must never block startup
+        return path
 
 
 def _apply_managed_env() -> None:
@@ -763,7 +797,7 @@ def _load_secrets_config(home_path: Path) -> dict:
     Imported lazily and isolated from the main config loader so a
     malformed config can't take down dotenv loading entirely.
     """
-    config_path = home_path / "config.yaml"
+    config_path = _managed_read_path(home_path / "config.yaml")
     if not config_path.exists():
         return {}
     # Prefer the shared (mtime, size)-keyed raw-config cache — this is the
