@@ -9,6 +9,11 @@ which is a coarse package-manager write-lock (declarative-distro / formula
 installs). That lock blocks all mutation; this layer injects specific immutable
 values. The two are independent and may coexist.
 
+Exclusive mode (``managed: {exclusive: true}`` in the managed config.yaml) goes
+further: the managed directory becomes the ONLY source of config.yaml, .env,
+SOUL.md, memory-provider configs, hooks and plugins, and the home copies are
+neither read nor written — see the "Exclusive mode" section below.
+
 v1 enforcement is filesystem permissions only — see
 ``docs/design/managed-scope.md`` §7. v1 is Linux/POSIX-first; ``get_managed_dir()``
 is the single seam for adding macOS / Windows native locations later.
@@ -18,6 +23,7 @@ Attribution: do not reference any third-party product by name in this file.
 from __future__ import annotations
 
 import copy
+import errno
 import logging
 import os
 import threading
@@ -76,6 +82,7 @@ def invalidate_managed_cache() -> None:
     with _CACHE_LOCK:
         _CONFIG_CACHE.clear()
         _ENV_CACHE.clear()
+        _EXCLUSIVE_CACHE.clear()
 
 
 def _cached_read(path: Path, cache: Dict[str, tuple], parse):
@@ -212,3 +219,254 @@ def is_key_managed(dotted_key: str) -> bool:
 def is_env_managed(name: str) -> bool:
     """True if the env var name is pinned by the managed .env layer."""
     return name in load_managed_env()
+
+
+# ---------------------------------------------------------------------------
+# Exclusive mode
+# ---------------------------------------------------------------------------
+#
+# Opt-in via ``managed: {exclusive: true}`` in the managed config.yaml. The
+# per-leaf overlay above lets an administrator pin values, but the agent can
+# still rewrite everything else in its own HERMES_HOME (it runs as the uid that
+# owns that directory). Exclusive mode moves the agent's *floor* files out of
+# the home entirely: the managed directory (typically a read-only mount) is the
+# only source for them, and the home copies are neither read nor written.
+#
+# Everything else in HERMES_HOME — skills/, memories/, sessions, state.db,
+# auth.json, caches — is untouched and stays agent-writable, so
+# self-improvement (skills, MEMORY.md / USER.md) keeps working.
+
+# Files an administrator supplies from the managed directory in exclusive mode.
+# Paths are relative both to HERMES_HOME (the ignored user copy) and to the
+# managed directory (the copy that is read).
+EXCLUSIVE_FILES = (
+    "config.yaml",
+    ".env",
+    ".op.env",
+    "SOUL.md",
+    "gateway.json",
+    "mem0.json",
+    "hindsight/config.json",
+)
+
+# Directories of executable code that load ONLY from the managed directory in
+# exclusive mode. The home copies are ignored — they are code the agent could
+# plant for itself.
+EXCLUSIVE_DIRS = ("hooks", "plugins")
+
+# (config path, mtime_ns, size) -> bool. is_exclusive() sits on hot read paths
+# (read_raw_config_readonly runs several times per agent turn), so it avoids
+# the deepcopy load_managed_config() performs.
+_EXCLUSIVE_CACHE: Dict[str, tuple] = {}
+
+
+class ManagedScopeReadOnlyError(PermissionError):
+    """A write was refused because the target is owned by the managed scope.
+
+    A ``PermissionError`` (so an ``OSError``) on purpose: every caller that
+    already handles a read-only or permission-denied config file handles this
+    one too, and ``str(exc)`` is the user-facing message.
+    """
+
+
+def is_exclusive() -> bool:
+    """True when the managed config.yaml sets ``managed.exclusive: true``.
+
+    Only a real boolean ``true`` enables it (YAML ``true`` / ``yes`` / ``on``).
+    Fail-closed to False: no managed directory, no managed config.yaml, or an
+    unparseable one all mean "not exclusive", so a broken policy file degrades
+    to today's overlay behaviour rather than to an agent with no config.
+    """
+    managed_dir = get_managed_dir()
+    if managed_dir is None:
+        return False
+    cfg_path = managed_dir / "config.yaml"
+    try:
+        st = cfg_path.stat()
+    except OSError:
+        return False
+    key = (st.st_mtime_ns, st.st_size)
+    path_key = str(cfg_path)
+    with _CACHE_LOCK:
+        hit = _EXCLUSIVE_CACHE.get(path_key)
+        if hit is not None and hit[:2] == key:
+            return hit[2]
+    cfg = load_managed_config()
+    section = cfg.get("managed") if isinstance(cfg, dict) else None
+    flag = isinstance(section, dict) and section.get("exclusive") is True
+    with _CACHE_LOCK:
+        _EXCLUSIVE_CACHE[path_key] = (key[0], key[1], flag)
+    return flag
+
+
+def exclusive_dir() -> Optional[Path]:
+    """The managed directory when exclusive mode is on, else None."""
+    if not is_exclusive():
+        return None
+    return get_managed_dir()
+
+
+def _home_candidates() -> list:
+    """HERMES_HOME plus the default root (profiles live under the root)."""
+    homes = []
+    try:
+        from hermes_constants import get_default_hermes_root, get_hermes_home
+
+        for h in (get_hermes_home(), get_default_hermes_root()):
+            if h not in homes:
+                homes.append(h)
+    except Exception:  # noqa: BLE001 — early bootstrap
+        pass
+    return homes
+
+
+def _relative_to(path: Path, base: Path) -> Optional[Path]:
+    try:
+        return Path(os.path.realpath(path)).relative_to(os.path.realpath(base))
+    except (ValueError, OSError):
+        return None
+
+
+def _exclusive_entry(rel: Path) -> Optional[str]:
+    """The EXCLUSIVE_FILES / EXCLUSIVE_DIRS entry *rel* falls under, if any."""
+    rel_posix = rel.as_posix()
+    if rel_posix in EXCLUSIVE_FILES:
+        return rel_posix
+    if rel.parts and rel.parts[0] in EXCLUSIVE_DIRS:
+        return rel.parts[0]
+    return None
+
+
+def resolve_home_path(home, relpath: str) -> Path:
+    """Where to READ an administrator-owned entry of a Hermes home.
+
+    Exclusive mode and *relpath* in EXCLUSIVE_FILES / EXCLUSIVE_DIRS: the path
+    under the managed directory (whether or not it exists — a missing managed
+    SOUL.md means "no SOUL.md", never "fall back to the home copy"). Otherwise
+    ``home / relpath``, unchanged.
+    """
+    rel = Path(relpath)
+    managed = exclusive_dir()
+    if managed is not None and _exclusive_entry(rel) is not None:
+        return managed / rel
+    return Path(home) / rel
+
+
+def config_read_path(path) -> Path:
+    """Redirect a user ``config.yaml`` read to the managed one in exclusive mode.
+
+    The single seam every config.yaml reader goes through. Outside exclusive
+    mode (and for any path not named ``config.yaml``) the path is returned
+    unchanged. In exclusive mode every user config.yaml — the active home's,
+    another profile's, an explicit gateway path — reads the managed file, so no
+    loader can see a config the agent wrote for itself.
+    """
+    p = Path(path)
+    if p.name != "config.yaml":
+        return p
+    managed = exclusive_dir()
+    if managed is None:
+        return p
+    return managed / "config.yaml"
+
+
+def env_read_path(path) -> Path:
+    """Redirect a user ``.env`` / ``.op.env`` read to the managed one in exclusive mode."""
+    p = Path(path)
+    if p.name not in (".env", ".op.env"):
+        return p
+    managed = exclusive_dir()
+    if managed is None:
+        return p
+    return managed / p.name
+
+
+def is_under_managed_dir(path) -> bool:
+    """True when *path* is the managed directory or inside it."""
+    managed = get_managed_dir()
+    if managed is None:
+        return False
+    return _relative_to(Path(path), managed) is not None
+
+
+def protected_entry(path) -> Optional[str]:
+    """Why *path* must not be written in exclusive mode, or None.
+
+    Returns the administrator-owned entry name (``"config.yaml"``,
+    ``"SOUL.md"``, ``"hooks"``, ...) when *path* is one of the home copies
+    exclusive mode ignores, ``"managed"`` when it is inside the managed
+    directory itself, and None when exclusive mode is off or the path is
+    ordinary agent state (skills/, memories/, sessions, ...).
+    """
+    managed = exclusive_dir()
+    if managed is None:
+        return None
+    p = Path(os.path.expanduser(str(path)))
+    if _relative_to(p, managed) is not None:
+        return "managed"
+    for home in _home_candidates():
+        rel = _relative_to(p, home)
+        if rel is None:
+            continue
+        entry = _exclusive_entry(rel)
+        if entry is not None:
+            return entry
+        # A named profile's own copy (<root>/profiles/<name>/config.yaml).
+        if len(rel.parts) >= 3 and rel.parts[0] == "profiles":
+            entry = _exclusive_entry(Path(*rel.parts[2:]))
+            if entry is not None:
+                return entry
+    return None
+
+
+def exclusive_refusal(action: str) -> str:
+    """User-facing refusal for a write exclusive mode does not allow."""
+    managed = get_managed_dir()
+    where = str(managed) if managed is not None else "the managed scope"
+    return (
+        f"Cannot {action}: this agent's configuration is managed by your "
+        f"administrator ({where}, exclusive mode) and cannot be changed. "
+        f"Contact your administrator to modify it."
+    )
+
+
+def check_write_allowed(path, action: Optional[str] = None) -> None:
+    """Raise ManagedScopeReadOnlyError when exclusive mode forbids writing *path*.
+
+    No-op outside exclusive mode. Called by the shared atomic writers in
+    ``utils`` and by the config / env writers, so every path that could
+    rewrite a floor file refuses the same way.
+    """
+    entry = protected_entry(path)
+    if entry is None:
+        return
+    raise ManagedScopeReadOnlyError(exclusive_refusal(action or f"write {path}"))
+
+
+_READ_ONLY_ERRNOS = frozenset(
+    e for e in (
+        getattr(errno, "EROFS", None),
+        getattr(errno, "EACCES", None),
+        getattr(errno, "EPERM", None),
+        getattr(errno, "EBUSY", None),
+    ) if e is not None
+)
+
+
+def translate_write_error(exc: BaseException, path) -> BaseException:
+    """Map a read-only-filesystem style failure on a managed path to the managed message.
+
+    Returns a ManagedScopeReadOnlyError (to be raised ``from exc``) when *exc*
+    is an EROFS / EACCES / EPERM / EBUSY ``OSError`` for a path inside the
+    managed directory while exclusive mode is on; otherwise returns *exc*
+    unchanged, so callers can write ``raise translate_write_error(e, p) from e``.
+    """
+    if (
+        isinstance(exc, OSError)
+        and not isinstance(exc, ManagedScopeReadOnlyError)
+        and exc.errno in _READ_ONLY_ERRNOS
+        and is_exclusive()
+        and is_under_managed_dir(path)
+    ):
+        return ManagedScopeReadOnlyError(exclusive_refusal(f"write {path}"))
+    return exc
