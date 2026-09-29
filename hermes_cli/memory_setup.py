@@ -576,6 +576,13 @@ def memory_command(args) -> None:
     """Route memory subcommands."""
     sub = getattr(args, "memory_command", None)
     if sub == "setup":
+        from hermes_cli import managed_scope
+
+        # Exclusive managed scope: the provider configs (and config.yaml /
+        # .env) are the administrator's read-only copies.
+        if managed_scope.is_exclusive():
+            print(managed_scope.exclusive_refusal("set up a memory provider"))
+            return
         provider = getattr(args, "provider", None)
         if provider:
             cmd_setup_provider(provider)

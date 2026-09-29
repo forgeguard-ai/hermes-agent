@@ -20,6 +20,38 @@ logger = logging.getLogger(__name__)
 TRUTHY_STRINGS = frozenset({"1", "true", "yes", "on"})
 
 
+def _managed_scope_write(fn):
+    """Route an atomic writer through the exclusive managed-scope guard.
+
+    Under exclusive managed scope (``managed: {exclusive: true}`` in the
+    managed config.yaml) the administrator-owned files — the home copies of
+    config.yaml / .env / SOUL.md / memory-provider configs, hooks/, plugins/,
+    and anything inside the managed directory — are refused up front with the
+    "managed by your administrator" message (a ``PermissionError``), and a
+    read-only-filesystem failure on a managed path is reported the same way
+    instead of as a bare traceback. A no-op outside exclusive mode.
+    """
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        path = args[0] if args else kwargs.get("path")
+        try:
+            from hermes_cli import managed_scope
+        except Exception:  # noqa: BLE001 — bare utils consumers
+            return fn(*args, **kwargs)
+        managed_scope.check_write_allowed(path)
+        try:
+            return fn(*args, **kwargs)
+        except OSError as exc:
+            translated = managed_scope.translate_write_error(exc, path)
+            if translated is exc:
+                raise
+            raise translated from exc
+
+    return wrapper
+
+
 def is_truthy_value(value: Any, default: bool = False) -> bool:
     """Coerce bool-ish values using the project's shared truthy string set."""
     if value is None:
@@ -276,6 +308,7 @@ def atomic_replace(tmp_path: Union[str, Path], target: Union[str, Path]) -> str:
     return real_path
 
 
+@_managed_scope_write
 def atomic_write_text(
     path: Union[str, Path],
     content: str,
@@ -343,6 +376,7 @@ def atomic_write_text(
         raise
 
 
+@_managed_scope_write
 def atomic_json_write(
     path: Union[str, Path],
     data: Any,
@@ -472,6 +506,7 @@ class IndentDumper(yaml.SafeDumper):
         return super().increase_indent(flow, False)
 
 
+@_managed_scope_write
 def atomic_yaml_write(
     path: Union[str, Path],
     data: Any,
@@ -553,6 +588,7 @@ def atomic_yaml_write(
         raise
 
 
+@_managed_scope_write
 def atomic_roundtrip_yaml_update(
     path: Union[str, Path],
     key_path: str,
@@ -636,6 +672,7 @@ def atomic_roundtrip_yaml_update(
         raise
 
 
+@_managed_scope_write
 def atomic_roundtrip_yaml_save(
     path: Union[str, Path],
     new_state: dict,

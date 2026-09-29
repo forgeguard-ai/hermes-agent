@@ -129,10 +129,28 @@ def build_write_approval_paths(home: str) -> set[str]:
     }
 
 
+def _managed_scope_entry(path: str) -> Optional[str]:
+    """Exclusive managed-scope entry *path* falls under, or None (fail-open)."""
+    try:
+        from hermes_cli import managed_scope
+
+        return managed_scope.protected_entry(path)
+    except Exception:
+        return None
+
+
 def _classify_write_denial(path: str) -> Optional[str]:
-    """Return ``'credential'``, ``'safe_root'``, or ``None`` if writes are allowed."""
+    """Return ``'credential'``, ``'safe_root'``, ``'managed'``, or ``None`` if writes are allowed."""
     home = os.path.realpath(os.path.expanduser("~"))
     resolved = os.path.realpath(os.path.expanduser(str(path)))
+
+    # Exclusive managed scope: the administrator-owned floor files (config,
+    # .env, SOUL.md, memory-provider configs, hooks/, plugins/) are read only
+    # from the managed directory. A write to the home copy would be silently
+    # ignored and the managed copy is read-only, so refuse both with an
+    # explanation instead. skills/ and memories/ are not affected.
+    if _managed_scope_entry(resolved) is not None:
+        return "managed"
 
     # Approval-gated paths (e.g. ~/.ssh/config) are NOT hard-denied here:
     # they are allowed at this layer so the interactive file tools can run
@@ -207,6 +225,8 @@ def get_write_denied_error(path: str, *, verb: str = "Write") -> Optional[str]:
     denial = _classify_write_denial(path)
     if denial is None:
         return None
+    if denial == "managed":
+        return _managed_write_denied_message(path, verb)
     if denial == "safe_root":
         roots_display = os.pathsep.join(sorted(get_safe_write_roots()))
         return (
@@ -214,6 +234,30 @@ def get_write_denied_error(path: str, *, verb: str = "Write") -> Optional[str]:
             f"({roots_display}). Unset the variable or add this path's directory prefix."
         )
     return f"{verb} denied: '{path}' is a protected system/credential file."
+
+
+def _managed_write_denied_message(path: str, verb: str) -> str:
+    """Model-facing explanation for a write exclusive managed scope refuses."""
+    try:
+        from hermes_cli import managed_scope
+
+        entry = managed_scope.protected_entry(path)
+        managed_dir = managed_scope.get_managed_dir()
+    except Exception:
+        entry, managed_dir = None, None
+    where = str(managed_dir) if managed_dir is not None else "the managed directory"
+    if entry == "managed":
+        what = f"'{path}' is inside the administrator's managed directory ({where}), which is read-only"
+    else:
+        what = (
+            f"'{path}' is administrator-managed: its {entry} is read only from "
+            f"{where} (exclusive managed scope), so a copy written here would be ignored"
+        )
+    return (
+        f"{verb} denied: {what}. This configuration is managed by your "
+        f"administrator and cannot be changed by the agent. Skills and "
+        f"memories (MEMORY.md / USER.md) remain writable."
+    )
 
 
 def is_write_approval_required(path: str) -> bool:

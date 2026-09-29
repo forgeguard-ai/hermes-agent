@@ -130,6 +130,10 @@ class HolographicMemoryProvider(MemoryProvider):
         """Write config to config.yaml under plugins.hermes-memory-store."""
         from pathlib import Path
         config_path = Path(hermes_home) / "config.yaml"
+        from hermes_cli import managed_scope
+
+        # Exclusive managed scope: config.yaml is the administrator's copy.
+        managed_scope.check_write_allowed(config_path, "save the memory store config")
         try:
             import yaml
             # Write-back round-trip: raw read is correct (merged defaults

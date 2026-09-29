@@ -789,6 +789,23 @@ def _config_source_path(config_path: Path) -> Path:
     return managed_scope.config_read_path(config_path)
 
 
+def _exclusive_write_refused(action: str) -> bool:
+    """Print the exclusive managed-scope refusal for *action*; True when refused.
+
+    Exclusive managed scope makes the managed directory the only source of
+    config.yaml and .env, so any write to the user copies would be silently
+    ignored on the next load. Writers refuse instead, naming the managed
+    directory — the same "managed by your administrator" shape as the
+    per-key guards below.
+    """
+    from hermes_cli import managed_scope
+
+    if not managed_scope.is_exclusive():
+        return False
+    print(managed_scope.exclusive_refusal(action), file=sys.stderr)
+    return True
+
+
 def _env_source_path(env_path: Path) -> Path:
     """The file a user ``.env`` read actually opens (managed .env in exclusive mode)."""
     from hermes_cli import managed_scope
@@ -2568,6 +2585,21 @@ def migrate_config(interactive: bool = True, quiet: bool = False) -> Dict[str, A
     """
     results = {"env_added": [], "config_added": [], "warnings": []}
 
+    # Exclusive managed scope: the only config.yaml / .env in effect are the
+    # administrator's (read-only) copies, so there is nothing this process may
+    # migrate. The administrator updates the managed files.
+    from hermes_cli import managed_scope
+
+    if managed_scope.is_exclusive():
+        note = (
+            "Config migration skipped: configuration is managed by your "
+            f"administrator ({managed_scope.get_managed_dir()}, exclusive mode)."
+        )
+        results["warnings"].append(note)
+        if not quiet:
+            print(f"  {note}")
+        return results
+
     # ── Always: normalize safe .env line formatting ──
     try:
         fixes = sanitize_env_file()
@@ -3746,7 +3778,10 @@ def atomic_config_write(config_path: Path, data: Any, **kwargs: Any) -> None:
     (``sort_keys``, ``default_flow_style``, ``extra_content``, ...).
     """
     from utils import atomic_yaml_write
+    from hermes_cli import managed_scope
 
+    # Exclusive managed scope: refuse before touching the file at all.
+    managed_scope.check_write_allowed(config_path, f"write {config_path}")
     require_readable_config_before_write(config_path)
     atomic_yaml_write(config_path, data, **kwargs)
 
@@ -4226,6 +4261,8 @@ def save_config(
         if is_managed():
             managed_error("save configuration")
             return
+        if _exclusive_write_refused("save configuration"):
+            return
         # Managed scope: strip any leaf the managed layer pins, so a bulk write
         # (wizard / programmatic save) never persists a user value that would
         # silently lose to managed on the next load. Single-key `config set`
@@ -4582,6 +4619,8 @@ def save_env_value(key: str, value: str):
     if is_managed():
         managed_error(f"set {key}")
         return
+    if _exclusive_write_refused(f"set {key}"):
+        return
     # Managed scope guard: a managed env key can't be set by the user — the
     # managed .env wins at load anyway. Distinct from is_managed() above.
     from hermes_cli import managed_scope
@@ -4695,6 +4734,8 @@ def remove_env_value(key: str) -> bool:
     """
     if is_managed():
         managed_error(f"remove {key}")
+        return False
+    if _exclusive_write_refused(f"remove {key}"):
         return False
     # Managed scope guard: a managed env key can't be removed by the user.
     from hermes_cli import managed_scope
@@ -5192,6 +5233,8 @@ def edit_config():
     """Open config file in user's editor."""
     if is_managed():
         managed_error("edit configuration")
+        return
+    if _exclusive_write_refused("edit configuration"):
         return
     config_path = get_config_path()
     
@@ -5784,6 +5827,8 @@ def set_config_value(key: str, value: str, force: bool = False):
     if is_managed():
         managed_error("set configuration values")
         return
+    if _exclusive_write_refused(f"set '{key}'"):
+        sys.exit(1)
     # Reject malformed dotted keys with empty segments (leading/trailing/
     # double dots). ``"agent."`` split to ["agent", ""] and _set_nested wrote
     # config["agent"][""] = ..., polluting a live schema section with a
@@ -6061,6 +6106,8 @@ def unset_config_value(key: str):
     if is_managed():
         managed_error("unset configuration values")
         return
+    if _exclusive_write_refused(f"unset '{key}'"):
+        sys.exit(1)
     # Managed scope guard: a key pinned by the managed layer cannot be unset by
     # the user — the next load would reinstate it anyway (mirrors set_config_value).
     from hermes_cli import managed_scope
