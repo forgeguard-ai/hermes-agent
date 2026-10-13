@@ -2205,6 +2205,9 @@ export interface ModelsAnalyticsModelEntry {
   tool_calls: number;
   last_used_at: number;
   avg_tokens_per_session: number;
+  /** Non-empty when this row is one auxiliary task's usage (compression,
+   * vision, ...) rather than the main loop's. Absent from older servers. */
+  aux_task?: string;
   capabilities: {
     supports_tools?: boolean;
     supports_vision?: boolean;

@@ -392,6 +392,23 @@ IS the verification hook — run it on the merged branch instead of eyeballing:
       upstream moved the hoisted copy to 6.0.0 and the remaining nested 3.x
       copies resolve to the patched 3.3.18. Take upstream's versions when they
       pass these CVEs.
+- [ ] **Models dashboard identity**:
+      - `hermes_cli/web_server.py::_fold_custom_provider_spellings` merges bare
+        `custom` rows into the single named `custom:<name>` row per
+        (model, aux task). An agent built from config records the runtime id
+        `custom`; a mid-session switch records the named slug; one endpoint
+        then showed as two cards.
+      - `_get_models_analytics` returns each row's `aux_task`; upstream
+        computes it and drops it.
+      - `totals.distinct_models` counts the models the cards name, aux-only
+        ones included.
+      - `web/src/pages/ModelsPage.tsx`: an `aux usage · <task>` badge, MAIN
+        never on an aux-usage card, MAIN matching through
+        `web/src/lib/model-identity.ts::sameMainProvider` (bare `custom` equals
+        a named slug), and a card key that includes the task.
+
+      Tests: `tests/hermes_cli/test_models_analytics_identity.py`,
+      `web/src/lib/model-identity.test.ts`.
 
 ## Docs / instructions
 

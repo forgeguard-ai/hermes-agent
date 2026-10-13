@@ -29,6 +29,7 @@ import {
   shouldCloseOuterModalOnEscape,
 } from "@/lib/dashboard-modal-shell";
 import { formatTokenCount } from "@/lib/format";
+import { sameMainProvider } from "@/lib/model-identity";
 import { Button } from "@nous-research/ui/ui/components/button";
 import { Spinner } from "@nous-research/ui/ui/components/spinner";
 import { Stats } from "@nous-research/ui/ui/components/stats";
@@ -386,16 +387,21 @@ function ModelCard({
   const totalTokens = entry.input_tokens + entry.output_tokens;
   const caps = entry.capabilities;
 
+  // A row that is one auxiliary task's usage is never the main model's card,
+  // even when that task runs on the main model.
+  const usageTask = entry.aux_task || "";
   const isMain =
+    !usageTask &&
     !!main &&
-    main.provider === provider &&
+    sameMainProvider(main.provider, provider) &&
     main.model === entry.model;
 
   // First aux task currently using this model (if any).
-  const mainAuxTask =
-    aux.find(
-      (a) => a.provider === provider && a.model === entry.model,
-    )?.task ?? null;
+  const mainAuxTask = usageTask
+    ? null
+    : (aux.find(
+        (a) => a.provider === provider && a.model === entry.model,
+      )?.task ?? null);
 
   return (
     <Card
@@ -419,6 +425,14 @@ function ModelCard({
               {mainAuxTask && (
                 <span className="inline-flex items-center bg-purple-500/10 px-1.5 py-0.5 text-display text-xs font-medium tracking-wider text-purple-600 dark:text-purple-400">
                   aux · {mainAuxTask}
+                </span>
+              )}
+              {usageTask && (
+                <span
+                  className="inline-flex items-center border border-purple-500/30 px-1.5 py-0.5 text-display text-xs font-medium tracking-wider text-purple-600 dark:text-purple-400"
+                  title={usageTask}
+                >
+                  aux usage · {usageTask}
                 </span>
               )}
             </div>
@@ -1335,7 +1349,7 @@ export default function ModelsPage() {
             <div className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-3">
               {data.models.map((m, i) => (
                 <ModelCard
-                  key={`${m.model}:${m.provider}`}
+                  key={`${m.model}:${m.provider}:${m.aux_task ?? ""}`}
                   entry={m}
                   rank={i + 1}
                   main={aux?.main ?? null}
