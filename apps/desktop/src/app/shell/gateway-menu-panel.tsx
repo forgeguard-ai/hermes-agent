@@ -6,9 +6,10 @@ import { LogView } from '@/components/ui/log-view'
 import { Tip } from '@/components/ui/tooltip'
 import { getLogs } from '@/hermes'
 import { useI18n } from '@/i18n'
-import { LayoutDashboard, Power, RefreshCw } from '@/lib/icons'
+import { Globe, LayoutDashboard, Power, RefreshCw } from '@/lib/icons'
 import type { RuntimeReadinessResult } from '@/lib/runtime-readiness'
 import { cn } from '@/lib/utils'
+import { openConnectionModeDialog } from '@/store/connection-mode'
 import { reconnectGateway } from '@/store/gateway-reconnect'
 import { notifyError } from '@/store/notifications'
 import { runGatewayRestart } from '@/store/system-actions'
@@ -107,6 +108,13 @@ export function GatewayMenuPanel({
     onOpenSystem()
   }
 
+  // Open the Local Runtime vs Client Mode switcher. Dismiss the popover first so
+  // the dialog isn't stacked under it.
+  const openConnection = () => {
+    onClose()
+    openConnectionModeDialog()
+  }
+
   // Shared restart helper: never rejects and surfaces progress in the statusbar
   // gateway indicator, so just fire and close.
   const restart = () => {
@@ -171,6 +179,17 @@ export function GatewayMenuPanel({
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
+          <Tip label={t.connectionMode.title}>
+            <Button
+              aria-label={t.connectionMode.title}
+              className="text-muted-foreground hover:text-foreground"
+              onClick={openConnection}
+              size="icon-xs"
+              variant="ghost"
+            >
+              <Globe />
+            </Button>
+          </Tip>
           {!gatewayOpen && (
             <Tip label={copy.reconnectGateway}>
               <Button

@@ -8,8 +8,9 @@ import { LogView } from '@/components/ui/log-view'
 import type { DesktopConnectionConfig } from '@/global'
 import { useI18n } from '@/i18n'
 import { openExternalLink } from '@/lib/external-link'
-import { ChevronLeft, ExternalLink, FileText, Loader2, LogIn, RefreshCw, SlidersHorizontal, Wrench } from '@/lib/icons'
+import { ChevronLeft, ExternalLink, FileText, Globe, Loader2, LogIn, RefreshCw, SlidersHorizontal, Wrench } from '@/lib/icons'
 import { $desktopBoot } from '@/store/boot'
+import { openConnectionModeDialog } from '@/store/connection-mode'
 import { notify, notifyError } from '@/store/notifications'
 import { $desktopOnboarding } from '@/store/onboarding'
 
@@ -167,8 +168,11 @@ export function BootFailureOverlay() {
   // connection's owning login flow. Hermes Cloud must reuse its portal session
   // and per-agent cascade; generic remote gateways use native/embedded OAuth.
   // Reload after success so boot mints a fresh ticket against the new session.
-  const signInRemote = async () => {
-    if (!remoteReauth) {
+  // ForgeGuard fork: the url parameter lets the remote-failure branch offer
+  // sign-in for OAuth-mode remotes even when the failure did not classify as
+  // auth-shaped (no remoteReauth) — see the remoteSignInAction below.
+  const signInRemote = async (url: string | undefined = remoteReauth?.url) => {
+    if (!url) {
       return
     }
 
@@ -177,7 +181,7 @@ export function BootFailureOverlay() {
     try {
       const desktop = window.hermesDesktop
 
-      await desktop?.oauthLogoutConnectionConfig?.(remoteReauth.url)
+      await desktop?.oauthLogoutConnectionConfig?.(url)
 
       let result: { connected?: boolean } | undefined
 
@@ -198,9 +202,9 @@ export function BootFailureOverlay() {
           }
         }
 
-        result = await desktop.cloud.agentSignIn(remoteReauth.url)
+        result = await desktop.cloud.agentSignIn(url)
       } else {
-        result = await desktop?.oauthLoginConnectionConfig(remoteReauth.url)
+        result = await desktop?.oauthLoginConnectionConfig(url)
       }
 
       if (result?.connected) {
@@ -273,6 +277,18 @@ export function BootFailureOverlay() {
     busy: 'local'
   }
 
+  // Local runtime won't boot? Point this app at an already-running remote
+  // backend (e.g. a self-hosted deployment) instead of the failed local
+  // install, via the guided Client Mode dialog. The reauth case offers a
+  // sign-in path instead.
+  const clientModeAction: RecoveryAction = {
+    key: 'client-mode',
+    label: t.connectionMode.switchToClient,
+    onClick: () => openConnectionModeDialog(),
+    icon: <Globe />,
+    variant: 'secondary'
+  }
+
   let actions: RecoveryAction[]
   let hint: string
   // The electron boot path flags a Nous Cloud backend-down (502/503/504) with
@@ -320,7 +336,28 @@ export function BootFailureOverlay() {
     ]
     hint = copy.cloudDownHint
   } else if (remoteFailure) {
-    actions = [settingsAction, { ...retryAction, variant: 'secondary' }, localAction]
+    // A remote failure that did not classify as auth-shaped can still BE an
+    // expired session — the producer may have lost the HTTP status, or the
+    // gateway answered 503 while its provider registry re-seeded after a
+    // container recreate. Offering sign-in here (only for OAuth-mode remotes,
+    // where it can help) means the operator is never left with a dialog whose
+    // every button re-tries the same dead credential. (ForgeGuard fork)
+    const signInUrl =
+      connectionConfig?.remoteAuthMode === 'oauth' && connectionConfig.remoteUrl ? connectionConfig.remoteUrl : ''
+    const remoteSignInAction: RecoveryAction[] = signInUrl
+      ? [
+          {
+            key: 'signin',
+            label: copy.signOutAndSignIn,
+            onClick: () => void signInRemote(signInUrl),
+            icon: <LogIn />,
+            variant: 'secondary',
+            busy: 'signin'
+          }
+        ]
+      : []
+
+    actions = [settingsAction, ...remoteSignInAction, { ...retryAction, variant: 'secondary' }, localAction, clientModeAction]
     hint = copy.remoteFailureHint
   } else {
     // Local failure: Use-local is redundant with Retry (both re-target local), so
@@ -335,6 +372,7 @@ export function BootFailureOverlay() {
         variant: 'secondary',
         busy: 'repair'
       },
+      clientModeAction,
       { ...settingsAction, variant: 'ghost' }
     ]
     hint = copy.repairHint

@@ -34,6 +34,9 @@ from agent.context_compressor import ContextCompressor
 from agent.iteration_budget import IterationBudget
 from agent.memory_manager import StreamingContextScrubber
 from agent.session_activity import ActivityProvenance
+from agent.output_reservation import (
+    resolve_agent_output_reservation as _resolve_agent_output_reservation,
+)
 from agent.model_metadata import (
     MINIMUM_CONTEXT_LENGTH,
     fetch_model_metadata,
@@ -2789,7 +2792,14 @@ def init_agent(
         # default so the reservation matches what is actually sent. The
         # generic provider-default gap is #63839; this wires only the native
         # Gemini path, where the default is a documented constant.
-        _compressor_max_tokens = agent.max_tokens
+        #
+        # ForgeGuard fork: seed from the reservation the transport will
+        # actually send — user tier or the provider profile's default, not
+        # agent.max_tokens alone (#43547, agent/output_reservation.py). The
+        # Gemini-native fallback below still applies when the profile has no
+        # default (that adapter's cap is an adapter constant, not a profile
+        # default).
+        _compressor_max_tokens = _resolve_agent_output_reservation(agent)
         if _compressor_max_tokens is None:
             try:
                 from agent.gemini_native_adapter import (

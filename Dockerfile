@@ -49,7 +49,25 @@ FROM ghcr.io/astral-sh/uv:0.11.6-python3.13-trixie@sha256:b3c543b6c4f23a5f2df228
 # 2.41) runtime.  Bumping to a new Node major is a one-line ARG change; see
 # #4977.
 FROM node:26-bookworm-slim@sha256:9e6f9357d371591e32ab6f2d8a26d63bdd0d17c29eee3f4f3e7e454d9634bf73 AS node_source
-FROM debian:13.4
+
+# ============================================================================
+# Stage layout (ForgeGuard fork). One file, two published images:
+#
+#   base          shared runtime foundation — system deps, uv/node, npm deps,
+#                 Playwright Chromium. NO compilers, NO supervisor.
+#   toolchain     base + build toolchain (gcc/g++/cmake/python3-dev/libolm-dev)
+#                 — exists only to build virtualenvs; never published.
+#   venv-runtime  toolchain + full production venv (messaging + matrix).
+#   runtime       PUBLISHED (runtime-* tags): s6-supervised server image —
+#                 dashboard, per-profile gateways, web UI. Same behavior as
+#                 the pre-split single image, minus in-image compilers.
+#
+# The compilers live only in `toolchain`; the published image receives its
+# venv via COPY --from, so it never ships gcc/g++/make/cmake.
+# ============================================================================
+
+# ---------- base: shared runtime foundation ----------
+FROM debian:13.4 AS base
 
 # Disable Python stdout buffering to ensure logs are printed immediately.
 # Do not write .pyc files at runtime: /opt/hermes is immutable in the
@@ -61,21 +79,20 @@ ENV PYTHONDONTWRITEBYTECODE=1
 # install survives the /opt/data volume overlay at runtime.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/hermes/.playwright
 
-# Install system dependencies in one layer, clear APT cache.
-# tini was previously PID 1 to reap orphaned zombie processes (MCP stdio
-# subprocesses, git, bun, etc.) that would otherwise accumulate when hermes
-# ran as PID 1. See #15012. Phase 2 of the s6-overlay supervision plan
-# replaces tini with s6-overlay's /init (PID 1 = s6-svscan), which reaps
-# zombies non-blockingly on SIGCHLD and additionally supervises the main
-# hermes process, the dashboard, and per-profile gateways.
+# Runtime system dependencies in one layer, clear APT cache. The build
+# toolchain (gcc/g++/make/cmake/python3-dev/libffi-dev/libolm-dev) is NOT
+# installed here — it lives in the `toolchain` stage below, so compilers
+# never reach a published image.
 RUN apt-get -o Acquire::Retries=3 update && \
     apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
-    ca-certificates curl iputils-ping python3 python-is-python3 ripgrep ffmpeg gcc g++ make cmake python3-dev python3-venv libffi-dev libolm-dev libatomic1 procps git openssh-client docker-cli xz-utils && \
+    ca-certificates curl iputils-ping python3 python-is-python3 python3-venv ripgrep ffmpeg libatomic1 procps git openssh-client xz-utils && \
     rm -rf /var/lib/apt/lists/*
 
 # Prefer the fixed SQLite over Debian's vulnerable libsqlite3.so.0. Keep the
 # public library name stable so both the system interpreter and the uv-created
-# venv resolve the replacement without changing Python import paths.
+# venv resolve the replacement without changing Python import paths. Living in
+# `base` (upstream keeps it in its single image), the published runtime
+# image inherits the fix.
 COPY --from=sqlite_build /opt/sqlite-fixed/lib/libsqlite3.so.3.53.4 /usr/local/lib/
 RUN ln -sf libsqlite3.so.3.53.4 /usr/local/lib/libsqlite3.so.0 && \
     ln -sf libsqlite3.so.3.53.4 /usr/local/lib/libsqlite3.so && \
@@ -89,6 +106,132 @@ db.execute(\"CREATE VIRTUAL TABLE docs USING fts5(content, tokenize='trigram')\"
 db.execute(\"INSERT INTO docs VALUES ('hermes')\"); \
 sys.exit('SQLite FTS5 trigram self-test failed') if db.execute(\"SELECT count(*) FROM docs WHERE docs MATCH 'erm'\").fetchone()[0] != 1 else None; \
 db.close()"
+
+# Non-root user for runtime; UID can be overridden via HERMES_UID at runtime
+RUN useradd -u 10000 -m -d /opt/data hermes
+
+COPY --chmod=0755 --from=uv_source /usr/local/bin/uv /usr/local/bin/uvx /usr/local/bin/
+
+# Node 26: copy the node binary plus the bundled npm JS install from the
+# upstream image.  npm and npx are recreated as symlinks because they're
+# symlinks in the source image (and need to live on PATH).
+#
+# No corepack: Node unbundled it upstream, so node:26 ships only npm in
+# /usr/local/lib/node_modules.  Nothing here needs it — no package.json
+# declares a `packageManager`, and no build step shells out to yarn or pnpm.
+#
+# See node_source stage at the top of the file for the version-bump
+# rationale (#4977).
+COPY --chmod=0755 --from=node_source /usr/local/bin/node /usr/local/bin/
+COPY --from=node_source /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
+RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
+    ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
+
+WORKDIR /opt/hermes
+
+# ---------- Layer-cached dependency install ----------
+# Copy only package manifests first so npm install + Playwright are cached
+# unless the lockfiles themselves change.
+#
+# ui-tui/packages/hermes-ink/ is copied IN FULL (not just its manifests)
+# because it is referenced as a `file:` workspace dependency from
+# ui-tui/package.json.  Copying the tree up front lets npm resolve the
+# workspace to real content instead of stopping at a bare package.json.
+COPY package.json package-lock.json ./
+COPY web/package.json web/
+COPY ui-tui/package.json ui-tui/
+COPY ui-tui/packages/hermes-ink/ ui-tui/packages/hermes-ink/
+# apps/shared/ is copied IN FULL because web/package.json references it as a
+# `file:` workspace dependency (same pattern as hermes-ink above).
+COPY apps/shared/ apps/shared/
+
+# `npm_config_install_links=false` forces npm to install `file:` deps as
+# symlinks instead of copies.  This is the default since npm 10+, which is
+# what the image ships now (via the node:26 source stage).  We set it
+# explicitly anyway as defense-in-depth: the previous Debian-bundled npm
+# 9.x defaulted to install-as-copy, which produced a hidden
+# node_modules/.package-lock.json that permanently disagreed with the root
+# lock on the @hermes/ink entry, tripped the TUI launcher's
+# `_tui_need_npm_install()` check on every startup, and triggered a
+# runtime `npm install` that then failed with EACCES.  Keeping the env
+# guards against a future regression if the source npm version changes.
+ENV npm_config_install_links=false
+
+# `--with-deps` apt-installs Chromium's shared-library dependencies, which is
+# why this layer must run in the shared base lineage (both published images
+# inherit the OS libs) rather than in a copy-out builder stage.
+RUN npm install --prefer-offline --no-audit --fetch-retries=5 && \
+    for i in 1 2 3; do \
+        npx playwright install --with-deps chromium --only-shell && break || \
+        { [ "$i" = 3 ] && exit 1; echo "playwright install failed (attempt $i); retrying in 10s"; sleep 10; }; \
+    done && \
+    npm cache clean --force
+
+# ---------- toolchain: compilers for virtualenv builds (never published) ----------
+FROM base AS toolchain
+RUN apt-get -o Acquire::Retries=3 update && \
+    apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
+    gcc g++ make cmake python3-dev libffi-dev libolm-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+# ---------- Layer-cached Python dependency install (per published image) ----------
+# Copy only pyproject.toml + uv.lock so the Python dep resolve + wheel
+# download + native-extension compile layer is cached unless those inputs
+# change.
+#
+# README.md is referenced by pyproject.toml's `readme =` field, but it's
+# excluded from the build context by .dockerignore's `*.md`.  uv's build
+# frontend stats the readme path during dep resolution, so we `touch` an
+# empty placeholder — the real README is restored by `COPY . .` in the
+# published stages below.
+#
+# `uv sync --frozen --no-install-project --extra all --extra messaging --extra otlp`
+# installs the deps reachable through the composite `[all]` extra
+# (handpicked set intended for the production image — excludes `[dev]`),
+# plus gateway messaging adapters that should work in the published image
+# without a first-boot lazy install.  We do NOT use `--all-extras`:
+# that would pull in `[rl]` (atroposlib + tinker + torch + wandb from
+# git), `[yc-bench]` (another git dep), and `[termux-all]` (Android
+# redundancy), none of which belong in the published container.
+#
+# Provider packages (anthropic, bedrock, azure-identity) are included
+# so Docker users can use these providers without requiring runtime
+# lazy-install access to PyPI (often blocked in containerized envs).
+#
+# The [otlp] extra contains the SDK/exporter imported by Hermes when Gateway
+# Health export is enabled. Collector and observability-backend dependencies
+# remain external and are not part of the Hermes production image.
+#
+# The hindsight memory provider's client (hindsight-client) is baked in
+# for the same reason: it lazy-installs into /opt/hermes/.venv at first
+# use, which lives inside the (immutable) image layer rather than the
+# mounted /opt/data volume, so it is lost on every container recreate /
+# image update and recall/retain then fails with
+# `ModuleNotFoundError: No module named 'hindsight_client'` (#38128).
+#
+# The Matrix gateway's deps ([matrix] extra) are baked in because
+# python-olm (transitive via mautrix[encryption]) builds from source on
+# Python/image combinations without usable wheels.  The Docker image is
+# Linux-only, so keeping the native libolm/build-toolchain packages here
+# avoids the cross-platform failures that kept [matrix] out of [all]
+# while still making Matrix work in the published container. Fixes #30399.
+#
+# The editable link is created after the source copy in the published stages.
+FROM toolchain AS venv-runtime
+COPY pyproject.toml uv.lock ./
+RUN touch ./README.md
+RUN uv sync --frozen --no-install-project --extra all --extra messaging --extra otlp --extra anthropic --extra bedrock --extra azure-identity --extra hindsight --extra matrix
+
+# ============================================================================
+# runtime: the published supervised server image (runtime-* tags)
+# ============================================================================
+FROM base AS runtime
+
+# libolm3: runtime shared library for the venv's compiled python-olm (Matrix
+# e2ee). docker-cli: the agent's docker terminal backend drives a host socket.
+RUN apt-get -o Acquire::Retries=3 update && \
+    apt-get -o Acquire::Retries=3 install -y --no-install-recommends libolm3 docker-cli && \
+    rm -rf /var/lib/apt/lists/*
 
 # ---------- s6-overlay install ----------
 # s6-overlay provides supervision for the main hermes process, the dashboard,
@@ -146,62 +289,9 @@ RUN set -eu; \
 # updated.
 COPY --chmod=0755 docker/tini-shim.sh /usr/bin/tini
 
-# Non-root user for runtime; UID can be overridden via HERMES_UID at runtime
-RUN useradd -u 10000 -m -d /opt/data hermes
-
-COPY --chmod=0755 --from=uv_source /usr/local/bin/uv /usr/local/bin/uvx /usr/local/bin/
-
-# Node 26: copy the node binary plus the bundled npm JS install from the
-# upstream image.  npm and npx are recreated as symlinks because they're
-# symlinks in the source image (and need to live on PATH).
-#
-# No corepack: Node unbundled it upstream, so node:26 ships only npm in
-# /usr/local/lib/node_modules.  Nothing here needs it — no package.json
-# declares a `packageManager`, and no build step shells out to yarn or pnpm.
-#
-# See node_source stage at the top of the file for the version-bump
-# rationale (#4977).
-COPY --chmod=0755 --from=node_source /usr/local/bin/node /usr/local/bin/
-COPY --from=node_source /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
-RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
-    ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
-
-WORKDIR /opt/hermes
-
-# ---------- Layer-cached dependency install ----------
-# Copy only package manifests first so npm install + Playwright are cached
-# unless the lockfiles themselves change.
-#
-# ui-tui/packages/hermes-ink/ is copied IN FULL (not just its manifests)
-# because it is referenced as a `file:` workspace dependency from
-# ui-tui/package.json.  Copying the tree up front lets npm resolve the
-# workspace to real content instead of stopping at a bare package.json.
-COPY package.json package-lock.json ./
-COPY web/package.json web/
-COPY ui-tui/package.json ui-tui/
-COPY ui-tui/packages/hermes-ink/ ui-tui/packages/hermes-ink/
-# apps/shared/ is copied IN FULL because web/package.json references it as a
-# `file:` workspace dependency (same pattern as hermes-ink above).
-COPY apps/shared/ apps/shared/
-
-# `npm_config_install_links=false` forces npm to install `file:` deps as
-# symlinks instead of copies.  This is the default since npm 10+, which is
-# what the image ships now (via the node:22 source stage).  We set it
-# explicitly anyway as defense-in-depth: the previous Debian-bundled npm
-# 9.x defaulted to install-as-copy, which produced a hidden
-# node_modules/.package-lock.json that permanently disagreed with the root
-# lock on the @hermes/ink entry, tripped the TUI launcher's
-# `_tui_need_npm_install()` check on every startup, and triggered a
-# runtime `npm install` that then failed with EACCES.  Keeping the env
-# guards against a future regression if the source npm version changes.
-ENV npm_config_install_links=false
-
-RUN npm install --prefer-offline --no-audit --fetch-retries=5 && \
-    for i in 1 2 3; do \
-        npx playwright install --with-deps chromium --only-shell && break || \
-        { [ "$i" = 3 ] && exit 1; echo "playwright install failed (attempt $i); retrying in 10s"; sleep 10; }; \
-    done && \
-    npm cache clean --force
+# The production virtualenv, built (with compilers) in venv-runtime and copied
+# to the identical path so shebangs/symlinks resolve unchanged.
+COPY --from=venv-runtime /opt/hermes/.venv /opt/hermes/.venv
 
 # ---------- Photon iMessage sidecar deps (baked, NS-606) ----------
 # The photon plugin's Node sidecar needs its own node_modules
@@ -218,53 +308,6 @@ COPY plugins/platforms/photon/sidecar/package.json \
 RUN cd plugins/platforms/photon/sidecar && \
     npm ci --no-audit --fetch-retries=5 && \
     npm cache clean --force
-
-# ---------- Layer-cached Python dependency install ----------
-# Copy only pyproject.toml + uv.lock so the Python dep resolve + wheel
-# download + native-extension compile layer is cached unless those inputs
-# change.  Before this split the Python install sat after `COPY . .`, so
-# every source-only commit re-did ~4-5 min of dep work on cold builds.
-#
-# README.md is referenced by pyproject.toml's `readme =` field, but it's
-# excluded from the build context by .dockerignore's `*.md`.  uv's build
-# frontend stats the readme path during dep resolution, so we `touch` an
-# empty placeholder — the real README is restored by `COPY . .` below.
-#
-# `uv sync --frozen --no-install-project --extra all --extra messaging --extra otlp`
-# installs the deps reachable through the composite `[all]` extra
-# (handpicked set intended for the production image — excludes `[dev]`),
-# plus gateway messaging adapters that should work in the published image
-# without a first-boot lazy install.  We do NOT use `--all-extras`:
-# that would pull in `[rl]` (atroposlib + tinker + torch + wandb from
-# git), `[yc-bench]` (another git dep), and `[termux-all]` (Android
-# redundancy), none of which belong in the published container.
-#
-# Provider packages (anthropic, bedrock, azure-identity) are included
-# so Docker users can use these providers without requiring runtime
-# lazy-install access to PyPI (often blocked in containerized envs).
-#
-# The [otlp] extra contains the SDK/exporter imported by Hermes when Gateway
-# Health export is enabled. Collector and observability-backend dependencies
-# remain external and are not part of the Hermes production image.
-#
-# The hindsight memory provider's client (hindsight-client) is baked in
-# for the same reason: it lazy-installs into /opt/hermes/.venv at first
-# use, which lives inside the (immutable) image layer rather than the
-# mounted /opt/data volume, so it is lost on every container recreate /
-# image update and recall/retain then fails with
-# `ModuleNotFoundError: No module named 'hindsight_client'` (#38128).
-#
-# The Matrix gateway's deps ([matrix] extra) are baked in because
-# python-olm (transitive via mautrix[encryption]) builds from source on
-# Python/image combinations without usable wheels.  The Docker image is
-# Linux-only, so keeping the native libolm/build-toolchain packages here
-# avoids the cross-platform failures that kept [matrix] out of [all]
-# while still making Matrix work in the published container. Fixes #30399.
-#
-# The editable link is created after the source copy below.
-COPY pyproject.toml uv.lock ./
-RUN touch ./README.md
-RUN uv sync --frozen --no-install-project --extra all --extra messaging --extra otlp --extra anthropic --extra bedrock --extra azure-identity --extra hindsight --extra matrix
 
 # ---------- Frontend build (cached independently from Python source) ----------
 # Copy only the frontend source trees first so that Python-only changes don't
@@ -287,7 +330,7 @@ COPY --link --chmod=a+rX,go-w . .
 
 # ---------- Permissions ----------
 # Link hermes-agent itself (editable). Deps are already installed in the
-# cached layer above; `--no-deps` makes this a fast egg-link creation with no
+# copied venv above; `--no-deps` makes this a fast egg-link creation with no
 # resolution or downloads.
 RUN uv pip install --no-cache-dir --no-deps -e "."
 
@@ -386,6 +429,9 @@ ENV HERMES_TUI_DIR=/opt/hermes/ui-tui
 ENV HERMES_HOME=/opt/data
 ENV HERMES_WRITE_SAFE_ROOT=/opt/data
 ENV HERMES_DISABLE_LAZY_INSTALLS=1
+# Same reason as the cli stage: a release-pinned image never checks upstream
+# for updates (banner, `hermes update`, GET /api/hermes/update/check).
+ENV HERMES_DISABLE_UPDATE_CHECKS=1
 # The published image seals /opt/hermes (root-owned, read-only) so a runtime
 # lazy install can't mutate the agent's own venv and brick it. But opt-in
 # backends (Firecrawl web search, Exa, Feishu, …) keep their SDKs in
@@ -428,6 +474,20 @@ COPY --chmod=0755 docker/entrypoint-dispatch.sh /opt/hermes/docker/entrypoint-di
 ENV PATH="/opt/hermes/bin:/opt/hermes/.venv/bin:/opt/data/.local/bin:${PATH}"
 RUN mkdir -p /opt/data
 VOLUME [ "/opt/data" ]
+
+# Prebaked-image marker consumed by downstream deployment tooling (verified
+# post-pull as a guard against tag repoints) + variant label.
+LABEL com.forgeguard.hermes.prebaked="1"
+LABEL com.forgeguard.hermes.variant="runtime"
+
+# Container-level health signal. Only meaningful when the dashboard is
+# enabled: with HERMES_DASHBOARD unset the probe reports healthy (no-op) so
+# plain CLI/one-shot containers don't flap. /api/status is served
+# unauthenticated (it's the same public probe the desktop client uses); the
+# probe targets the dashboard's effective bind host (loopback for a wildcard
+# bind, the specific IP otherwise) — see docker/healthcheck.sh.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
+    CMD ["/opt/hermes/docker/healthcheck.sh"]
 
 # The image ENTRYPOINT is a tiny dispatcher rather than `/init` directly.
 # When the image really owns PID 1 (normal Docker / Podman), the dispatcher

@@ -5,6 +5,7 @@ import { DecodeText } from '@/components/ui/decode-text'
 import { prefersReducedMotion } from '@/hooks/use-media-query'
 import { cn } from '@/lib/utils'
 import { $desktopBoot } from '@/store/boot'
+import { $connectionModeDialog, isFirstRunChoiceActive } from '@/store/connection-mode'
 import { $gatewaySwitching } from '@/store/gateway-switch'
 import { $gatewayState } from '@/store/session'
 
@@ -39,6 +40,7 @@ function forcedPreview(): boolean {
 export function GatewayConnectingOverlay() {
   const gatewayState = useStore($gatewayState)
   const boot = useStore($desktopBoot)
+  const connectionModeDialog = useStore($connectionModeDialog)
   const gatewaySwitching = useStore($gatewaySwitching)
   const [previewing] = useState(forcedPreview)
   const reduce = prefersReducedMotion()
@@ -55,15 +57,29 @@ export function GatewayConnectingOverlay() {
     coldBootDoneRef.current = true
   }
 
+  // The blocking first-run chooser owns the screen before any backend starts.
+  // Stand down so this full-screen splash (z-1200, above the dialog) can't
+  // cover it. Not applicable in the forced dev preview.
+  const firstRunActive = isFirstRunChoiceActive(connectionModeDialog)
+
   // The full-screen connecting overlay is for initial boot only. After a
   // healthy boot, flaky networks / sleep-wake can drop the socket and flip the
   // gateway state back to closed/error while the app reconnects. Do not cover
   // the chat then — users should still be able to type drafts, open settings,
   // and recover instead of staring at a modal CONNECTING screen.
-  const initialBootActive = boot.visible || boot.running || boot.progress < 100
+  //
+  // Activation keys off boot.visible / boot.running, NOT a bare `progress < 100`.
+  // suspendDesktopBootForChoice() parks the boot at progress:0 with
+  // visible:false / running:false / phase 'renderer.first-run' while the
+  // blocking chooser owns the screen; the old `progress < 100` term kept this
+  // splash alive on that 0 alone and could cover the chooser. (applyDesktopBootProgress
+  // already sets visible=true whenever progress<100, so no real boot state is lost.)
+  const suspendedForChoice = boot.phase === 'renderer.first-run'
+  const initialBootActive = !suspendedForChoice && (boot.visible || boot.running)
 
   const connecting =
     !coldBootDoneRef.current && !gatewaySwitching && gatewayState !== 'open' && !boot.error && initialBootActive
+
 
   // Latches once we've actually shown the overlay, so the brief frame where
   // gatewayState flips to "open" (connecting -> false) before the exit phase
@@ -116,6 +132,11 @@ export function GatewayConnectingOverlay() {
       return () => window.clearTimeout(id)
     }
   }, [phase, previewing])
+
+  // First-run chooser is up — let it own the screen.
+  if (firstRunActive && !previewing) {
+    return null
+  }
 
   // Boot failed — BootFailureOverlay owns the screen; don't linger behind it.
   if (boot.error && !previewing) {

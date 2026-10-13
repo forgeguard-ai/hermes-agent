@@ -162,13 +162,29 @@ test('profileRemoteOverride returns the per-profile remote with defaulted auth m
   assert.deepEqual(profileRemoteOverride(config, 'coder'), {
     url: 'https://coder.example.com/hermes',
     authMode: 'token',
-    token: { value: 'sek' }
+    token: { value: 'sek' },
+    allowInvalidCertificate: false
   })
 })
 
 test('profileRemoteOverride preserves an explicit oauth auth mode', () => {
   const config = { profiles: { coder: { mode: 'remote', url: 'https://x', authMode: 'oauth' } } }
   assert.equal(profileRemoteOverride(config, 'coder').authMode, 'oauth')
+})
+
+test('profileRemoteOverride defaults allowInvalidCertificate to false', () => {
+  const config = { profiles: { coder: { mode: 'remote', url: 'https://x' } } }
+  assert.equal(profileRemoteOverride(config, 'coder').allowInvalidCertificate, false)
+})
+
+test('profileRemoteOverride surfaces an explicit allowInvalidCertificate opt-in', () => {
+  const config = { profiles: { coder: { mode: 'remote', url: 'https://x', allowInvalidCertificate: true } } }
+  assert.equal(profileRemoteOverride(config, 'coder').allowInvalidCertificate, true)
+})
+
+test('profileRemoteOverride treats a non-true allowInvalidCertificate as false', () => {
+  const config = { profiles: { coder: { mode: 'remote', url: 'https://x', allowInvalidCertificate: 'yes' } } }
+  assert.equal(profileRemoteOverride(config, 'coder').allowInvalidCertificate, false)
 })
 
 test('profileRemoteOverride preserves normalized remote headers', () => {
@@ -189,6 +205,7 @@ test('profileRemoteOverride preserves normalized remote headers', () => {
     url: 'https://x',
     authMode: 'token',
     token: undefined,
+    allowInvalidCertificate: false,
     headers: {
       'CF-Access-Client-Id': { encoding: 'safeStorage', value: 'encrypted-id' }
     }
@@ -207,7 +224,8 @@ test('profileRemoteOverride treats a cloud entry as a remote override', () => {
   assert.deepEqual(profileRemoteOverride(config, 'coder'), {
     url: 'https://agent-1.agents.nousresearch.com',
     authMode: 'oauth',
-    token: undefined
+    token: undefined,
+    allowInvalidCertificate: false
   })
 })
 

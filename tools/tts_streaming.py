@@ -28,7 +28,7 @@ from abc import ABC, abstractmethod
 from typing import Callable, Dict, Iterator, List, Optional
 
 from tools.tool_backend_helpers import resolve_openai_audio_api_key
-from tools.tts_tool import _get_provider, _load_tts_config, get_env_value
+from tools.tts_tool import DEFAULT_OPENAI_BASE_URL, _get_provider, _load_tts_config, get_env_value
 
 logger = logging.getLogger(__name__)
 
@@ -83,31 +83,49 @@ def take_speech_interrupted() -> bool:
 
 # Sentence boundary: after .!? followed by whitespace, or a blank line.
 SENTENCE_BOUNDARY_RE = re.compile(r"(?<=[.!?])(?:\s|\n)|(?:\n\n)")
+# Paragraph boundary: every line-break run is a cut.
+PARAGRAPH_BOUNDARY_RE = re.compile(r"\n+")
 _THINK_BLOCK_RE = re.compile(r"<think[\s>].*?</think>", flags=re.DOTALL)
 
 
 class SentenceChunker:
-    """Incremental sentence cutter for LLM token deltas.
+    """Incremental speech cutter for LLM token deltas.
 
-    Shared by the speaker pipeline (`stream_tts_to_speaker`) and the
-    speak-stream WebSocket so every surface cuts speech identically. Strips
-    ``<think>`` blocks (even split across deltas) and merges fragments shorter
-    than *min_len* into the following sentence, so "Ha!" rides along with the
-    sentence after it instead of stalling as a tiny clip.
+    Shared by the speaker pipeline (`stream_tts_to_speaker`), the speak-stream
+    WebSocket, and the gateway consumer so every surface cuts speech
+    identically. Strips ``<think>`` blocks (even split across deltas) in every
+    mode.
+
+    Three cutting *modes* (config ``tts.streaming.chunking``, see
+    `resolve_chunking_mode`):
+
+    * ``"punctuation"`` (default) — cut per sentence (`SENTENCE_BOUNDARY_RE`).
+    * ``"paragraphs"`` — cut on every line-break run (`PARAGRAPH_BOUNDARY_RE`,
+      ``\\n+`` — each markdown bullet/line is its own chunk).
+    * ``"none"`` — `feed()` only buffers; the whole reply is one utterance,
+      drained by `flush()`.
+
+    Both cutting modes merge fragments shorter than *min_len* into the
+    following chunk, so "Ha!" rides along with the sentence after it instead
+    of stalling as a tiny clip.
     """
 
-    def __init__(self, min_len: int = 20):
+    def __init__(self, min_len: int = 20, mode: str = "punctuation"):
         self.min_len = min_len
+        self.mode = mode
         self.buf = ""
 
     def feed(self, delta: str) -> List[str]:
-        """Absorb *delta*; return every complete sentence now ready to speak."""
+        """Absorb *delta*; return every complete chunk now ready to speak."""
         self.buf = _THINK_BLOCK_RE.sub("", self.buf + delta)
         if "<think" in self.buf and "</think>" not in self.buf:
             return []  # open think tag — the closing tag may arrive next delta
+        if self.mode == "none":
+            return []  # whole-reply mode: everything waits for flush()
+        boundary = PARAGRAPH_BOUNDARY_RE if self.mode == "paragraphs" else SENTENCE_BOUNDARY_RE
         out: List[str] = []
         start = 0  # skip boundaries that would leave the head too short
-        while m := SENTENCE_BOUNDARY_RE.search(self.buf, start):
+        while m := boundary.search(self.buf, start):
             head = self.buf[: m.end()]
             if len(head.strip()) < self.min_len:
                 start = m.end()
@@ -213,6 +231,24 @@ def resolve_streaming_provider(
     return _try_instantiate(name, tts_config)
 
 
+# Canonical values are ``punctuation`` | ``paragraphs`` | ``none``; a few
+# obvious synonyms normalize instead of silently falling back to the default.
+_CHUNKING_ALIASES = {
+    "sentence": "punctuation", "punctuation": "punctuation",
+    "paragraph": "paragraphs", "paragraphs": "paragraphs",
+    "none": "none", "whole": "none", "off": "none",
+}
+
+
+def resolve_chunking_mode(tts_config: Dict) -> str:
+    """tts.streaming.chunking → 'punctuation' | 'paragraphs' | 'none' (default punctuation)."""
+    streaming = tts_config.get("streaming") or {}
+    if not isinstance(streaming, dict):  # tolerate a malformed section
+        streaming = {}
+    raw = str(streaming.get("chunking") or "").lower().strip()
+    return _CHUNKING_ALIASES.get(raw, "punctuation")
+
+
 # ---------------------------------------------------------------------------
 # Providers
 # ---------------------------------------------------------------------------
@@ -274,22 +310,39 @@ class OpenAIStreamer(StreamingTTSProvider):
     def stream(self, text: str) -> Iterator[bytes]:
         from openai import OpenAI
 
+        # Endpoint: tts.openai.base_url, else the public API. OPENAI_BASE_URL is
+        # the *LLM* custom-endpoint override (hermes_cli/providers.py, the model
+        # setup flows) and the sync path (_generate_openai_tts) never reads it,
+        # so neither do we — a voice request must not land on the chat server.
+        # Passing the explicit default also keeps the SDK from reading that env
+        # var itself (its constructor falls back to it when base_url is None).
+        base_url = self.section.get("base_url") or DEFAULT_OPENAI_BASE_URL
         client = OpenAI(
             api_key=(self.section.get("api_key") or resolve_openai_audio_api_key()),
-            base_url=(
-                self.section.get("base_url")
-                or get_env_value("OPENAI_BASE_URL")
-                or None
-            ),
+            base_url=base_url,
         )
         model = self.section.get("model", "gpt-4o-mini-tts")
         voice = self.section.get("voice", "alloy")
-        with client.audio.speech.with_streaming_response.create(
-            model=model,
-            voice=voice,
-            input=text,
-            response_format="pcm",
-        ) as response:
+        # Same knobs as the whole-file path (tools.tts_tool._generate_openai_tts):
+        # tts.openai.speed > tts.speed, clamped to the API's [0.25, 4.0] and only
+        # sent when non-default; tts.openai.language rides as lang_code for
+        # OpenAI-compatible servers (Kokoro) that support it.
+        create_kwargs = {
+            "model": model,
+            "voice": voice,
+            "input": text,
+            "response_format": "pcm",
+        }
+        try:
+            speed = float(self.section.get("speed", self.tts_config.get("speed", 1.0)))
+        except (TypeError, ValueError):
+            speed = 1.0
+        if speed != 1.0:
+            create_kwargs["speed"] = max(0.25, min(4.0, speed))
+        language = self.section.get("language")
+        if language:
+            create_kwargs["extra_body"] = {"lang_code": language}
+        with client.audio.speech.with_streaming_response.create(**create_kwargs) as response:
             yield from _capped(response.iter_bytes(), "OpenAI streaming TTS")
 
 

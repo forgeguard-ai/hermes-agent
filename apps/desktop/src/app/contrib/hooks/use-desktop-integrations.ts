@@ -4,8 +4,10 @@ import { closeActiveTab } from '@/app/chat/close-tab'
 import { commandFocusedPreview } from '@/app/chat/right-rail/preview-nav'
 import { openSession } from '@/app/open-session'
 import { resolveDeepLinkAction } from '@/lib/deeplink-routes'
+import { FORK_UPDATE_CHECKS_ENABLED } from '@/lib/fork-config'
 import { pathFromHermesDeepLink, resolveHermesOpenPath } from '@/lib/hermes-open-target'
 import { storedSessionIdForNotification } from '@/lib/session-ids'
+import { openConnectionModeDialog } from '@/store/connection-mode'
 import { requestMcpInstallFromDeepLink } from '@/store/mcp-deeplink-install'
 import { startMcpHealthChecker, stopMcpHealthChecker } from '@/store/mcp-health'
 import {
@@ -69,15 +71,27 @@ export function useDesktopIntegrations({
   // statusbar version pill and the update toasts. Also honors the main
   // process's "open updates" menu request.
   useEffect(() => {
-    startUpdatePoller()
+    // ForgeGuard fork: the update poller (upstream-repo checks, the update toast,
+    // the "(+N behind)" pill state) is off by build-time switch — see fork-config.
+    if (FORK_UPDATE_CHECKS_ENABLED) {
+      startUpdatePoller()
+    }
+
     // Background MCP health: HTTP/SSE servers only (never spawns stdio),
     // notifies on transitions into needs-auth/error with a Sign in action.
     startMcpHealthChecker()
-    const unsubscribe = window.hermesDesktop?.onOpenUpdatesRequested?.(() => openUpdatesWindow())
+
+    const unsubscribe = FORK_UPDATE_CHECKS_ENABLED
+      ? window.hermesDesktop?.onOpenUpdatesRequested?.(() => openUpdatesWindow())
+      : undefined
 
     return () => {
       unsubscribe?.()
-      stopUpdatePoller()
+
+      if (FORK_UPDATE_CHECKS_ENABLED) {
+        stopUpdatePoller()
+      }
+
       stopMcpHealthChecker()
     }
   }, [])
@@ -244,6 +258,27 @@ export function useDesktopIntegrations({
   useEffect(() => {
     const unsubscribe = window.hermesDesktop?.onDeepLink?.(payload => {
       if (!payload?.kind) {
+        return
+      }
+
+      // hermes://connect?url=…&token=…&auth=oauth|token — external deployment
+      // tooling (or a docs "Connect" button) hands off a remote backend. Open
+      // the guided Client Mode dialog seeded with the endpoint instead of
+      // dropping the raw URL into the composer. (ForgeGuard fork)
+      if (payload.kind === 'connect') {
+        const params = payload.params || {}
+        const url = (params.url || params.endpoint || payload.name || '').trim()
+
+        if (!url) {
+          return
+        }
+
+        openConnectionModeDialog({
+          url,
+          token: params.token?.trim() || undefined,
+          authMode: params.auth === 'oauth' ? 'oauth' : params.auth === 'token' ? 'token' : undefined
+        })
+
         return
       }
 

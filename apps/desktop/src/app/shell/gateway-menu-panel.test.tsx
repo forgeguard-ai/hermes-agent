@@ -18,6 +18,8 @@ vi.mock('@/i18n', () => ({
   useI18n: () => ({
     t: {
       commandCenter: { restartGateway: 'Restart gateway' },
+      // ForgeGuard fork: the panel also renders the connection-mode button.
+      connectionMode: { title: 'Connection mode' },
       shell: {
         gatewayMenu: {
           checkingInference: 'Checking inference',

@@ -540,6 +540,9 @@ function profileRemoteOverride(config, profile) {
     url,
     authMode: normAuthMode(entry.authMode),
     token: entry.token,
+    // Opt-in TLS bypass for a self-signed / untrusted gateway certificate.
+    // Defaults to false so a legacy entry never silently skips verification.
+    allowInvalidCertificate: entry.allowInvalidCertificate === true,
     ...(Object.keys(headers).length > 0 ? { headers } : {})
   }
 }

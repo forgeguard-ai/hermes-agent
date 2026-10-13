@@ -16,6 +16,7 @@ import type {
 } from '@/global'
 import { checkHermesUpdate, getActionStatus, updateHermes } from '@/hermes'
 import { translateNow } from '@/i18n'
+import { FORK_UPDATE_CHECKS_ENABLED } from '@/lib/fork-config'
 import { persistString, storedString } from '@/lib/storage'
 import { $connectionsRegistry, refreshConnectionsRegistry } from '@/store/connections'
 import { reconnectGateway } from '@/store/gateway-reconnect'
@@ -207,6 +208,12 @@ export function reportInstallMethodWarning(message: string | undefined): void {
  * on every new commit. The snooze is persisted, so it survives relaunches too.
  */
 export function maybeNotifyUpdateAvailable(status: DesktopUpdateStatus | null) {
+  // ForgeGuard fork: no update toast, ever, while update checks are off — the
+  // poller never runs, but the manual check paths could still call this.
+  if (!FORK_UPDATE_CHECKS_ENABLED) {
+    return
+  }
+
   if (!status || status.supported === false || status.error || !status.targetSha) {
     return
   }

@@ -48,6 +48,9 @@ export function createPrimaryRemoteConnection<State extends object>(
     mode: 'remote' as const,
     source: remote.source,
     authMode: remote.authMode || 'token',
+    // ForgeGuard fork: the renderer needs the TLS-bypass flag so recovery
+    // affordances and hermes:api proxying know this remote opted in.
+    allowInvalidCertificate: (remote as { allowInvalidCertificate?: unknown }).allowInvalidCertificate === true,
     remoteHost: remote.remoteHost,
     remoteKind: remote.remoteKind,
     remoteHermesVersion: remote.remoteHermesVersion,

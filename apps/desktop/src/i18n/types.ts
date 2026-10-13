@@ -244,6 +244,39 @@ export interface Translations {
     message: (reason: string) => string
   }
 
+  connectionMode: {
+    title: string
+    description: string
+    localTitle: string
+    localDesc: string
+    clientTitle: string
+    clientDesc: string
+    currentLocal: string
+    currentRemote: (url: string) => string
+    urlTitle: string
+    urlDesc: string
+    connect: string
+    useLocal: string
+    switchToLocal: string
+    switchToClient: string
+    reconnect: string
+    recentEndpoints: string
+    advanced: string
+    connectedTitle: string
+    connectedMessage: string
+    switchedLocalTitle: string
+    switchedLocalMessage: string
+    firstRunTitle: string
+    firstRunDescription: string
+    firstRunLocalDesc: string
+    firstRunClientDesc: string
+    firstRunSetUpLocal: string
+    firstRunLocalToastTitle: string
+    firstRunLocalToastMessage: string
+    insecureCertTitle: string
+    insecureCertDesc: string
+  },
+
   billingBlock: {
     titleNous: string
     titleProvider: (provider: string) => string
@@ -770,6 +803,8 @@ export interface Translations {
       authNeedsOauth: (provider: string) => string
       tokenTitle: string
       tokenDesc: string
+      insecureCertTitle: string
+      insecureCertDesc: string
       existingToken: (value: string) => string
       savedToken: string
       pasteSessionToken: string

@@ -17,6 +17,7 @@ function config(overrides: Partial<DesktopConnectionConfig> = {}): DesktopConnec
     envOverride: false,
     mode: 'remote',
     profile: null,
+    remoteAllowInvalidCertificate: false,
     remoteAuthMode: 'oauth',
     remoteOauthConnected: false,
     remoteTokenPreview: null,
@@ -25,6 +26,7 @@ function config(overrides: Partial<DesktopConnectionConfig> = {}): DesktopConnec
     remoteTokenPlainText: false,
     remoteUrl: 'https://box:9119',
     cloudOrg: '',
+    savedRemotes: [],
     sshHost: '',
     sshUser: '',
     sshPort: null,
@@ -107,6 +109,17 @@ describe('isRemoteReauthError', () => {
   it('recognizes auth-shaped boot errors', () => {
     expect(isRemoteReauthError('Your remote gateway session has expired.')).toBe(true)
     expect(isRemoteReauthError('OAuth: please sign in')).toBe(true)
+  })
+
+  // ForgeGuard fork: the gateway's own 401 body and the ticket-refresh failure
+  // a recreated container produces are reauth problems, not transport ones.
+  it('recognizes the gateway session_expired body and the ticket-refresh failure', () => {
+    expect(isRemoteReauthError('401: {"error":"session_expired","detail":"Unauthorized"}')).toBe(true)
+    expect(
+      isRemoteReauthError(
+        'Could not reach the remote Hermes gateway while refreshing its WebSocket ticket. Try reconnecting.'
+      )
+    ).toBe(true)
   })
 
   it('ignores non-auth boot errors and nullish', () => {

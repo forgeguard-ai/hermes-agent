@@ -306,7 +306,7 @@ The packaged app ships the Electron shell and a native React chat surface. On fi
 
 ## Connecting to a remote backend
 
-By default the app starts and manages its own **local** backend. You can instead point it at a Hermes backend running on another machine — a VPS, a home server, or a Mini behind Tailscale.
+On this fork's desktop builds, **Client Mode is the default experience**: a fresh install's first-run chooser preselects connecting to an already-running Hermes backend — a VPS, a home server, a self-hosted container, or a Mini behind Tailscale — and running a **local** backend remains fully supported as the advanced/secondary choice on the same chooser (existing local installs keep booting locally, undisturbed). Previously used endpoints are remembered and one click away in the connection dialog's **Recent endpoints** list.
 
 Everything connection-related lives on one settings page: **Settings → Gateways**. (Older builds split this across separate **Gateway** and **Connections** pages — those are now unified, and old `?tab=connections` deep links redirect to the unified page.)
 
@@ -474,6 +474,85 @@ rm -rf "$HOME/.hermes/hermes-agent/venv"
 # Reset a stuck macOS microphone prompt
 tccutil reset Microphone com.nousresearch.hermes
 ```
+
+### macOS: start completely fresh
+
+Deleting `~/Library/Application Support/Hermes` alone is not a clean slate, for
+two reasons that are easy to miss:
+
+- **Closing the window does not quit the app.** On macOS, Hermes keeps running
+  in the Dock after its last window closes, and a running app writes its
+  state back to disk when it finally exits — recreating the folder you just
+  deleted. Quit with **Cmd+Q** first, and check nothing is left.
+- **Saved gateway tokens are encrypted with a key in your login keychain**, in
+  the item **"Hermes Safe Storage"**. It survives the folder being deleted.
+
+Quit Hermes, then confirm no Hermes process remains. Both commands should print
+nothing; if they print a process, quit it (or `kill` the PID) before going on.
+
+```bash
+pgrep -fl 'Hermes.app'
+pgrep -fl 'hermes (serve|dashboard|gateway)'
+```
+
+Remove the app's data, its local runtime, and the keychain item:
+
+```bash
+rm -rf "$HOME/Library/Application Support/Hermes"
+rm -rf "$HOME/.hermes"
+security delete-generic-password -s "Hermes Safe Storage"
+```
+
+`security` answers "The specified item could not be found in the keychain"
+when there was no key to delete — that is fine. `$HOME/.hermes` also holds a
+**local** Hermes agent's configuration, memory and sessions, if you run one on
+this Mac — skip that line if you do, or use `hermes uninstall --full` instead.
+If you set `HERMES_HOME`, that directory is the one in use.
+
+Optionally, clear what macOS itself keeps for the app. `defaults` reports that
+the domain does not exist when there was nothing to clear:
+
+```bash
+rm -rf "$HOME/Library/Caches/com.nousresearch.hermes" "$HOME/Library/Caches/Hermes" "$HOME/Library/HTTPStorages/com.nousresearch.hermes" "$HOME/Library/Saved Application State/com.nousresearch.hermes.savedState"
+defaults delete com.nousresearch.hermes
+tccutil reset All com.nousresearch.hermes
+```
+
+Finally, make sure no launch-time override is set, since each one skips part of
+first run. This should print four empty lines:
+
+```bash
+launchctl getenv HERMES_DESKTOP_REMOTE_URL; launchctl getenv HERMES_DESKTOP_REMOTE_TOKEN; launchctl getenv HERMES_DESKTOP_USER_DATA_DIR; launchctl getenv HERMES_HOME
+```
+
+**The theme is not leftover state.** A fresh install follows the macOS
+appearance (System Settings → Appearance), so on a Mac in Dark Mode a clean
+Hermes opens dark by design.
+
+### macOS: "Hermes is damaged and can't be opened"
+
+This appears when you launch a **prebuilt ForgeGuard fork installer** (the `.dmg`/`.zip`
+attached to a [fork release](https://github.com/forgeguard-ai/hermes-agent/releases)) rather
+than a locally built app. The fork's macOS builds are ad-hoc signed but **not notarized**
+— there are no Apple Developer credentials on the fork — so Gatekeeper quarantines the app
+on download and blocks it. The message says "damaged," but nothing is wrong with the
+download, and right-click → Open does **not** clear it on Apple Silicon.
+
+Strip the quarantine attribute once, after copying the app to `/Applications`:
+
+```bash
+xattr -cr /Applications/Hermes.app
+```
+
+Then open it normally. Alternatively, download the release `.zip` (not the `.dmg`) with
+`curl` — a curl download never sets the quarantine attribute, so no `xattr` step is needed:
+
+```bash
+curl -L -o hermes.zip "<zip-asset-url-from-the-release-page>"
+```
+
+(This applies only to the fork's prebuilt binaries. A locally built `hermes desktop` app is
+signed with your own machine's ad-hoc identity and is not quarantined.)
 
 ### "The host key has CHANGED since you last connected" (SSH remote)
 

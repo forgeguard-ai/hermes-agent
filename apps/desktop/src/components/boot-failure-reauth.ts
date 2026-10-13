@@ -56,6 +56,12 @@ export function isRemoteReauthError(error: string | null | undefined): boolean {
     text.includes('remote gateway session has expired') ||
     text.includes('gateway sign-in required') ||
     text.includes('needs oauth login') ||
+    // The gateway's own 401 body for a dead session, and the ticket-refresh
+    // failure that a recreated agent container produces before the client
+    // has re-authenticated — both are reauth problems, not transport ones.
+    // (ForgeGuard fork)
+    text.includes('session_expired') ||
+    text.includes('while refreshing its websocket ticket') ||
     (text.includes('oauth') && (text.includes('not signed in') || text.includes('sign in')))
   )
 }
@@ -69,6 +75,17 @@ export function isRemoteReauthError(error: string | null | undefined): boolean {
  * for 1–3 minutes while the socket self-heals.
  */
 export function shouldApplyPostBootProgressError(error: string | null | undefined): boolean {
+  // ForgeGuard fork: isRemoteReauthError treats the ticket-refresh failure as
+  // reauth-shaped so the BOOT-time overlay offers Sign in (the recreated-
+  // container case). Post-boot, that same message is usually a transient mint
+  // blip the reconnect loop heals — it must not take over the screen; only
+  // confirmed reauth may.
+  const text = String(error || '').toLowerCase()
+
+  if (text.includes('while refreshing its websocket ticket')) {
+    return false
+  }
+
   return isRemoteReauthError(error)
 }
 

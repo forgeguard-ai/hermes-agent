@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { Tip } from '@/components/ui/tooltip'
 import type { DesktopAuthProvider, DesktopCloudAgent, DesktopCloudOrg, DesktopConnectionProbeResult } from '@/global'
 import { useI18n } from '@/i18n'
@@ -52,6 +53,9 @@ export interface GatewaySettingsState {
   // disk (opted-in on a machine without secure storage). Drives the warning banner.
   remoteTokenPlainText: boolean
   remoteUrl: string
+  // ForgeGuard fork: opt-in TLS bypass for a self-signed / untrusted gateway
+  // certificate.
+  remoteAllowInvalidCertificate: boolean
   cloudOrg: string
   sshHost: string
   sshUser: string
@@ -73,6 +77,7 @@ const EMPTY_STATE: GatewaySettingsState = {
   secureTokenStorage: true,
   remoteTokenPlainText: false,
   remoteUrl: '',
+  remoteAllowInvalidCertificate: false,
   cloudOrg: '',
   sshHost: '',
   sshUser: '',
@@ -327,7 +332,7 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
 
     const timer = setTimeout(() => {
       desktop
-        .probeConnectionConfig(trimmedUrl)
+        .probeConnectionConfig(trimmedUrl, state.remoteAllowInvalidCertificate)
         .then(result => {
           if (seq !== probeSeq.current) {
             return
@@ -347,7 +352,7 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
     }, 500)
 
     return () => clearTimeout(timer)
-  }, [state.mode, trimmedUrl])
+  }, [state.mode, state.remoteAllowInvalidCertificate, trimmedUrl])
 
   // Effective auth mode: a reachable probe wins; otherwise fall back to the
   // saved config's mode so a re-open of settings doesn't flicker.
@@ -474,6 +479,7 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
 
   const payload = (allowPlainTextToken?: boolean) => ({
     mode: state.mode,
+    remoteAllowInvalidCertificate: state.remoteAllowInvalidCertificate,
     remoteAuthMode: authMode,
     remoteToken: authMode === 'token' ? remoteToken.trim() || undefined : undefined,
     remoteUrl: trimmedUrl,
@@ -1386,6 +1392,24 @@ export function GatewaySettings({ embedded = false }: { embedded?: boolean } = {
                 </div>
               ) : null}
             </>
+          ) : null}
+
+          {/* ForgeGuard fork: TLS bypass for a self-signed / untrusted gateway
+              certificate. Toggling re-probes via the debounced effect above. */}
+          {state.mode === 'remote' ? (
+            <ListRow
+              action={
+                <Switch
+                  checked={state.remoteAllowInvalidCertificate}
+                  disabled={state.envOverride}
+                  onCheckedChange={checked =>
+                    setState(current => ({ ...current, remoteAllowInvalidCertificate: checked }))
+                  }
+                />
+              }
+              description={g.insecureCertDesc}
+              title={g.insecureCertTitle}
+            />
           ) : null}
         </div>
       ) : null}

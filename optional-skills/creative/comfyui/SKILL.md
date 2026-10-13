@@ -149,7 +149,9 @@ python scripts/extract_schema.py workflow_api.json
 ### Step 3: Run with parameters
 
 ```bash
-# Local (defaults to http://127.0.0.1:8188)
+# Local (defaults to http://127.0.0.1:8188, or $COMFYUI_HOST when that is set —
+# a managed/self-hosted ComfyUI reachable over the network; $COMFY_CLOUD_API_KEY
+# is sent as X-API-Key to it too, which is how a bearer-guarded front admits you)
 python scripts/run_workflow.py \
   --workflow workflow_api.json \
   --args '{"prompt": "a beautiful sunset over mountains", "seed": -1, "steps": 30}' \

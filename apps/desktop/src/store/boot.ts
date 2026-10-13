@@ -66,6 +66,24 @@ export function setDesktopBootStep(step: {
   })
 }
 
+// Park the boot splash while the blocking first-run chooser is up: nothing is
+// connecting yet, so drop the running/visible flags (and progress) so the
+// CONNECTING overlay stays down. Distinct from completeDesktopBoot — the app
+// is NOT ready; it's waiting on the user's local-vs-remote choice, after which
+// the window reloads and boot restarts for real.
+export function suspendDesktopBootForChoice() {
+  const current = $desktopBoot.get()
+  $desktopBoot.set({
+    ...current,
+    error: null,
+    phase: 'renderer.first-run',
+    progress: 0,
+    running: false,
+    timestamp: Date.now(),
+    visible: false
+  })
+}
+
 /**
  * Re-arm the boot overlay for an automatic bounded retry of a failed REMOTE
  * boot (#82679). Unlike setDesktopBootStep — whose null `error` intentionally

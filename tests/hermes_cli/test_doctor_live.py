@@ -30,12 +30,15 @@ def _args(live: bool = True) -> argparse.Namespace:
 def _clean_env(monkeypatch):
     """Strip backend credentials so each test opts in explicitly."""
     for var in ("FIRECRAWL_API_KEY", "FAL_KEY", "OPENAI_API_KEY",
-                "ELEVENLABS_API_KEY", "GROQ_API_KEY"):
+                "VOICE_TOOLS_OPENAI_KEY", "ELEVENLABS_API_KEY", "GROQ_API_KEY"):
         monkeypatch.delenv(var, raising=False)
     # Default: empty config, no MCP servers, local tts/stt.
     monkeypatch.setattr(doctor_live, "_load_config", lambda: {})
     # Default: browser not installed.
     monkeypatch.setattr(doctor_live, "_browser_available", lambda: False)
+    # Default: no OpenAI audio key resolvable (the real seam walks env/.env and
+    # the credential pool — keep the probe hermetic; tests opt in explicitly).
+    monkeypatch.setattr(doctor_live, "_openai_audio_key", lambda: "")
 
 
 class TestLiveFlagGating:
@@ -153,15 +156,106 @@ class TestConfiguredOnlySelection:
         assert results["TTS"].status == "skip"
 
     def test_tts_openai_probed_with_key(self, monkeypatch):
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        # The openai audio key resolves through the shared resolver seam
+        # (VOICE_TOOLS_OPENAI_KEY > OPENAI_API_KEY > credential pool).
+        monkeypatch.setattr(doctor_live, "_openai_audio_key", lambda: "sk-test")
         monkeypatch.setattr(
             doctor_live, "_load_config",
             lambda: {"tts": {"provider": "openai"}})
-        monkeypatch.setattr(
-            doctor_live, "_http_get",
-            lambda *a, **k: SimpleNamespace(status_code=200))
+        seen = {}
+
+        def _get(url, headers=None, timeout=None):
+            seen["url"] = url
+            seen["headers"] = headers
+            return SimpleNamespace(status_code=200)
+
+        monkeypatch.setattr(doctor_live, "_http_get", _get)
         results = {r.name: r for r in run_live_checks([])}
         assert results["TTS"].status == "pass"
+        assert seen["url"] == doctor_live.OPENAI_MODELS_URL
+        assert seen["headers"]["Authorization"] == "Bearer sk-test"
+        assert "@" not in results["TTS"].detail
+
+    def test_tts_openai_probe_without_any_key_warns(self, monkeypatch):
+        monkeypatch.setattr(
+            doctor_live, "_load_config",
+            lambda: {"tts": {"provider": "openai",
+                             "openai": {"base_url": "http://127.0.0.1:8880/v1"}}})
+
+        def _no_net(*a, **k):
+            raise AssertionError("HTTP call made without a key")
+
+        monkeypatch.setattr(doctor_live, "_http_get", _no_net)
+        results = {r.name: r for r in run_live_checks([])}
+        assert results["TTS"].status == "warn"
+        assert "tts.openai.api_key" in results["TTS"].detail
+        assert "VOICE_TOOLS_OPENAI_KEY" in results["TTS"].detail
+
+    def test_tts_openai_probe_uses_config_base_url_and_key(self, monkeypatch):
+        # A local OpenAI-compatible server (Kokoro-FastAPI): probe *its*
+        # /models with the configured (placeholder) key, not api.openai.com
+        # with OPENAI_API_KEY, and say where we looked.
+        monkeypatch.setattr(
+            doctor_live, "_load_config",
+            lambda: {"tts": {"provider": "openai",
+                             "openai": {"base_url": "http://127.0.0.1:8880/v1/",
+                                        "api_key": "no-key"}}})
+        seen = {}
+
+        def _get(url, headers=None, timeout=None):
+            seen["url"] = url
+            seen["headers"] = headers
+            return SimpleNamespace(status_code=200)
+
+        monkeypatch.setattr(doctor_live, "_http_get", _get)
+        results = {r.name: r for r in run_live_checks([])}
+        assert seen["url"] == "http://127.0.0.1:8880/v1/models"
+        assert seen["headers"] == {"Authorization": "Bearer no-key"}
+        assert results["TTS"].status == "pass"
+        assert "http://127.0.0.1:8880/v1" in results["TTS"].detail
+
+    def test_tts_openai_probe_uses_voice_tools_key(self, monkeypatch):
+        # No tts.openai.api_key: the resolver seam (VOICE_TOOLS_OPENAI_KEY >
+        # OPENAI_API_KEY) supplies the bearer and the probe runs.
+        monkeypatch.setattr(doctor_live, "_openai_audio_key", lambda: "vt-key")
+        monkeypatch.setattr(
+            doctor_live, "_load_config",
+            lambda: {"tts": {"provider": "openai",
+                             "openai": {"base_url": "http://127.0.0.1:8880/v1"}}})
+        seen = {}
+
+        def _get(url, headers=None, timeout=None):
+            seen["url"] = url
+            seen["headers"] = headers
+            return SimpleNamespace(status_code=200)
+
+        monkeypatch.setattr(doctor_live, "_http_get", _get)
+        results = {r.name: r for r in run_live_checks([])}
+        assert results["TTS"].status == "pass"
+        assert seen["url"] == "http://127.0.0.1:8880/v1/models"
+        assert seen["headers"]["Authorization"] == "Bearer vt-key"
+
+    def test_stt_openai_probe_ignores_tts_openai_section(self, monkeypatch):
+        # tts.openai.base_url is a TTS setting; the STT probe keeps the
+        # public endpoint (and the shared audio-key resolver).
+        monkeypatch.setattr(doctor_live, "_openai_audio_key", lambda: "sk-test")
+        monkeypatch.setattr(
+            doctor_live, "_load_config",
+            lambda: {"stt": {"provider": "openai"},
+                     "tts": {"provider": "openai",
+                             "openai": {"base_url": "http://127.0.0.1:8880/v1"}}})
+        seen = []
+
+        def _get(url, headers=None, timeout=None):
+            seen.append(url)
+            return SimpleNamespace(status_code=200)
+
+        monkeypatch.setattr(doctor_live, "_http_get", _get)
+        results = {r.name: r for r in run_live_checks([])}
+        assert results["STT"].status == "pass"
+        assert results["TTS"].status == "pass"
+        assert doctor_live.OPENAI_MODELS_URL in seen
+        assert "http://127.0.0.1:8880/v1/models" in seen
 
     def test_stt_groq_probed_with_key(self, monkeypatch):
         monkeypatch.setenv("GROQ_API_KEY", "gsk-test")

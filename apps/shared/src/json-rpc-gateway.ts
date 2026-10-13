@@ -95,6 +95,16 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 120_000
 const REPLAY_REQUEST_TIMEOUT_MS = 10_000
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 15_000
 const DEFAULT_HEARTBEAT_DEADLINE_MS = 45_000
+
+const REQUEST_TIMEOUT_PREFIX = 'request timed out'
+
+// True only when a request died waiting for a reply (transport-level silence).
+// An RPC *error* reply — including "unknown method" from an older backend —
+// still proves the socket is alive, so liveness probes must not treat it as a
+// dead connection.
+export function isGatewayRequestTimeout(error: unknown): boolean {
+  return error instanceof Error && error.message.startsWith(REQUEST_TIMEOUT_PREFIX)
+}
 // A reconnect after sleep/wake must not hang forever in 'connecting' (which
 // keeps the composer disabled and stuck on "Starting Hermes..."). If the open
 // handshake doesn't land in this window, fail to 'error' so callers can retry.
@@ -387,7 +397,7 @@ export class JsonRpcGatewayClient {
             // at an error toast) can tell whether the default 30s window
             // fired or a per-call override — e.g. /compress opts into 120s.
             const seconds = Math.round(timeoutMs / 1000)
-            reject(new Error(`request timed out after ${seconds}s: ${method}`))
+            reject(new Error(`${REQUEST_TIMEOUT_PREFIX} after ${seconds}s: ${method}`))
           }
         }, timeoutMs)
       }

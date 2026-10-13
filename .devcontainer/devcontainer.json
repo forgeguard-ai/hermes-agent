@@ -1,0 +1,58 @@
+{
+  "name": "Hermes Agent",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "features": {
+    // Node 22 LTS — matches the production image and root package.json engines
+    // (>=20). Needed for browser tools, the TUI (ui-tui), and the dashboard /
+    // desktop frontends.
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22"
+    }
+  },
+  // Dashboard (`hermes dashboard`) and the OpenAI-compatible API/serve port.
+  "forwardPorts": [9119],
+  "portsAttributes": {
+    "9119": {
+      "label": "Hermes dashboard",
+      "onAutoForward": "silent"
+    }
+  },
+  "containerEnv": {
+    // Keep all Hermes state (config, sessions, skills, logs) inside the
+    // container user's home so it persists in the named volume below but never
+    // leaks onto the host ~/.hermes.
+    "HERMES_HOME": "/home/vscode/.hermes"
+  },
+  "mounts": [
+    // Persist ~/.hermes (API keys, sessions, skills, state.db) across rebuilds.
+    "source=hermes-home,target=/home/vscode/.hermes,type=volume",
+    // Persist the project-local virtualenv so a rebuild doesn't reinstall deps.
+    "source=hermes-venv,target=${containerWorkspaceFolder}/.venv,type=volume"
+  ],
+  "onCreateCommand": "bash .devcontainer/post-create.sh",
+  "remoteUser": "vscode",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "charliermarsh.ruff",
+        "ms-python.debugpy",
+        "tamasfe.even-better-toml",
+        "redhat.vscode-yaml",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "${containerWorkspaceFolder}/.venv/bin/python",
+        "python.testing.pytestEnabled": true,
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff"
+        },
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  }
+}

@@ -104,7 +104,10 @@ conservative at the waist.
   thresholds, feature flags, display prefs — go in `config.yaml`. Bridge to an
   internal env var if the mechanism needs one, but user-facing docs point to
   `config.yaml`. Reject PRs that tell users to "set X in your .env" unless X
-  is a credential.
+  is a credential. *Documented exception:* the `HERMES_OFFLINE_*` privacy/offline
+  gate (`hermes_cli/offline.py`) stays env-var-driven — it is a deliberate
+  cross-repo interface owned jointly with the ForgeGuard deployment manager's
+  `write_env_file`, not general user-facing config.
 - **A new core tool when terminal + file already do the job, or when a skill
   would.** If the only barrier is file visibility on a remote backend, fix the
   mount, not the toolset.
@@ -1782,3 +1785,84 @@ test('windowsHide defaults to true on Windows, is left alone elsewhere', () => {
 If the logic lives inline in a god-file (`main.ts`, `cli.py`,
 `gateway/run.py`) and extracting it feels disruptive: that's the actual
 signal to do the extraction, not to regex around it.
+
+---
+
+## ForgeGuard Fork — Additions Below This Line
+
+Everything above this line is inherited from upstream
+(`NousResearch/hermes-agent`) and should stay that way through future syncs —
+resolve merge conflicts in favor of upstream's wording there whenever
+possible. Everything **below** this line is fork-specific and should survive
+upstream syncs unchanged (carry it forward manually if a sync ever touches
+this file's tail).
+
+### Fork PR Policy
+
+This fork (`ForgeGuard/hermes-agent`) does **not** open pull requests against
+`NousResearch/hermes-agent` unless a human explicitly directs it to do so for
+a specific branch, at a specific time. Default behavior for all agents working
+in this repo:
+
+- All feature/fix work merges into **`ForgeGuard/hermes-agent:main`** (this
+  fork's own main), not upstream.
+- Never run `gh pr create --repo NousResearch/hermes-agent ...` (or the
+  equivalent web-UI action) speculatively "to contribute back." Treat that as
+  requiring explicit, out-of-band instruction every single time — a prior
+  approval to upstream one branch does not imply approval for any other
+  branch or a future date.
+- It is fine, and expected, to keep long-lived feature branches on this fork
+  (e.g. `feat/devcontainer`, `feature/desktop-font-size`) indefinitely as
+  candidates for a future upstream contribution — "keep the branch" and "open
+  the PR" are two separate, separately-authorized actions.
+- See `docs/maintainers/upstream-sync/sync-policy.md` for the reusable runbook
+  this fork uses to pull changes *from* `NousResearch/hermes-agent` (the
+  direction that's on by default) — contributing *to* it is the direction
+  that requires explicit sign-off.
+
+### Plan-Saving Rule (Step 0 Of Any Plan)
+
+Before starting implementation of any non-trivial, multi-step plan in this
+repo (fork or upstream), **step 0 is to save a detailed, checkbox-tracked copy
+of the approved plan** to `docs/agent-plans/` (create the directory if it
+doesn't exist yet; it is git-ignored, so plans stay local and are never
+committed), named `YYYY-MM-DD-<short-slug>-plan.md`. This applies
+regardless of which coding agent is doing the work (Cursor, Claude Code,
+GitHub Copilot, Codex, etc.) — the point is a durable, human-readable record
+that survives a paused session, a crashed agent, or a handoff to a different
+agent/tool.
+
+The saved plan file should include, at minimum:
+
+- The full approved plan text (context, phases, key findings/decisions).
+- A checkbox (`- [ ]` / `- [x]`) per concrete work item, updated in place as
+  work completes — this is the resumable state, not a narrative log.
+- Enough surrounding context (file paths, commit/branch names, external
+  system state discovered during research) that a fresh agent session could
+  pick the file up cold and know exactly what's done and what's left.
+
+`docs/agent-plans/` is local, git-ignored scratch space for this workflow —
+never commit or force-add anything under it. It is distinct from the upstream-inherited `docs/plans/` directory (which holds
+upstream's own historical fix/feature plans) so the two never collide during
+a sync.
+
+### Code-Review & Codebase-Map Skills
+
+Two fork-local runbooks make code reviews (local `/code-review` and the billed
+cloud `/code-review ultra`) more accurate by giving the reviewer repo-specific
+context and an up-to-date structural map of the codebase:
+
+- [`docs/maintainers/development/review.md`](docs/maintainers/development/review.md)
+  — how to trigger a review plus this repo's structure, conventions, risk
+  hotspots, validation commands, and fork guardrails. **Read it before triggering
+  a review.**
+- [`docs/maintainers/development/graphify-refresh.md`](docs/maintainers/development/graphify-refresh.md)
+  — regenerate the [Graphify](https://graphify.net) code map with
+  `scripts/graphify-refresh.sh` (code-only, no API key). Only the small
+  `graphify-out/GRAPH_REPORT.md` is committed (the ~49 MB `graph.json` is
+  git-ignored and rebuilt locally); the cloud reviewer reads the report.
+
+**Keep `code-review-instructions.md` current**: whenever project structure,
+conventions, validation commands, or the Graphify workflow change, update that
+doc in the same change. Before requesting a review, run
+`scripts/graphify-refresh.sh` and commit the refreshed `GRAPH_REPORT.md`.

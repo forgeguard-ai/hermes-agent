@@ -1918,7 +1918,11 @@ def _normalize_main_model_assignment(provider: str, model: str) -> tuple[str, st
     from hermes_cli.config import get_compatible_custom_providers
     from hermes_cli.models import _KNOWN_PROVIDER_NAMES, normalize_provider
     from hermes_cli.model_normalize import normalize_model_for_provider
-    from hermes_cli.providers import resolve_custom_provider, resolve_user_provider
+    from hermes_cli.providers import (
+        canonicalize_provider_slug,
+        resolve_custom_provider,
+        resolve_user_provider,
+    )
 
     prov_in = (provider or "").strip()
     model_in = (model or "").strip()
@@ -1955,6 +1959,42 @@ def _normalize_main_model_assignment(provider: str, model: str) -> tuple[str, st
     # would also swallow unrelated unconfigured vendor names that merely
     # happen to start with "custom" (e.g. "customproxy").
     is_custom_provider_slug = canonical == "custom" or canonical.startswith("custom:")
+
+    # ForgeGuard fork: the BARE custom endpoint's UI row is the one namespaced
+    # slug that must never be persisted verbatim. ``custom:custom`` is what the
+    # pickers hand around for ``model.provider: custom`` + base_url with no
+    # declared entry (the shape deployment managers write) — it resolves to no
+    # entry above, and writing it to config bricks the next agent init with
+    # "Unknown provider 'custom:custom'" (2026-08-12, live). Collapse exactly
+    # that slug back to the bare provider id. A named ``custom:<name>`` that
+    # missed resolution keeps its durable slug (upstream behavior directly
+    # above): preserving the name keeps the config actionable — the resolver's
+    # AuthError/healing path reports the missing entry by name instead of
+    # silently rebinding the model to the bare endpoint.
+    if canonical == "custom:custom":
+        return canonicalize_provider_slug(prov_in, cfg if isinstance(cfg, dict) else {}), model_in
+    # ForgeGuard fork (2026-08-19): a named ``custom:<name>`` that resolves to
+    # NO entry (the deployment manager rewrote config.yaml and dropped it, or
+    # the desktop's cached row outlived it) must not be persisted verbatim
+    # when the bare endpoint is ROUTABLE — ``model.base_url`` is set — because
+    # agent init then dies with "Unknown provider 'custom:<name>'" for every
+    # new session while the URL it should use sits right there. Collapse it to
+    # ``custom`` and let the log carry the name. With no base_url there is
+    # nothing to route to, so the slug stays (upstream behaviour: the resolver
+    # reports the missing entry by name).
+    if canonical.startswith("custom:"):
+        model_block = cfg.get("model") if isinstance(cfg, dict) else None
+        routable = isinstance(model_block, dict) and bool(str(model_block.get("base_url") or "").strip())
+        if routable:
+            collapsed = canonicalize_provider_slug(prov_in, cfg if isinstance(cfg, dict) else {})
+            if collapsed != canonical:
+                _log.warning(
+                    "model.provider %r names no configured custom endpoint; storing %r "
+                    "(model.base_url routes the bare endpoint)",
+                    canonical, collapsed,
+                )
+            return collapsed, model_in
+
     if (
         canonical not in _KNOWN_PROVIDER_NAMES
         and not is_custom_provider_slug
@@ -2024,11 +2064,26 @@ def _apply_main_model_assignment(
         model_cfg = {}
     prev_provider = str(model_cfg.get("provider") or "").strip().lower()
     new_provider = provider.strip().lower()
+    prev_base_url = str(model_cfg.get("base_url") or "").strip().rstrip("/")
+    # ForgeGuard fork: bare ``custom`` and ``custom:<name>`` are the SAME
+    # endpoint when they name the same base_url — the desktop's Model settings
+    # goes bare-custom → named row for the URL it already had (its first Apply
+    # auto-registers the entry, the second selects it). Treating that as a
+    # provider switch cleared model.api_key and the next request went out
+    # with a placeholder bearer (HTTP 401, 2026-08-18). Same endpoint ⇒ same
+    # credentials.
+    same_custom_endpoint = (
+        _is_custom_class(prev_provider)
+        and _is_custom_class(new_provider)
+        and bool(prev_base_url)
+        and (base_url.strip().rstrip("/") or prev_base_url) == prev_base_url
+    )
+    provider_changed = new_provider != prev_provider and not same_custom_endpoint
     model_cfg["provider"] = provider
     model_cfg["default"] = model
     if base_url.strip():
         model_cfg["base_url"] = base_url.strip()
-    elif model_cfg.get("base_url") and new_provider != prev_provider:
+    elif model_cfg.get("base_url") and provider_changed:
         # Switching providers: the old URL belonged to the old provider, drop
         # it so the new provider's default endpoint is used. Same-provider
         # re-assignment keeps the user's configured base_url intact.
@@ -2040,17 +2095,49 @@ def _apply_main_model_assignment(
     if api_key.strip():
         model_cfg["api_key"] = api_key.strip()
         model_cfg.pop("api", None)
-    elif (model_cfg.get("api_key") or model_cfg.get("api")) and new_provider != prev_provider:
+    elif (model_cfg.get("api_key") or model_cfg.get("api")) and provider_changed:
         # A stale endpoint secret can live under the legacy ``api`` alias with
         # no ``api_key`` (the resolver still reads ``model.api`` as a key), so
         # the switch-clears-the-key path must trigger on either field — else the
         # old endpoint's secret survives in config.yaml and contaminates a later
         # custom resolution. clear_model_endpoint_credentials scrubs both.
         clear_model_endpoint_credentials(model_cfg, clear_api_mode=False)
-    if new_provider != prev_provider:
+    if provider_changed:
         clear_model_endpoint_credentials(model_cfg, clear_api_key=False)
     model_cfg.pop("context_length", None)
     return model_cfg
+
+
+def _is_custom_class(provider: str) -> bool:
+    """Bare ``custom`` and any ``custom:<name>`` slug — one endpoint class."""
+    p = (provider or "").strip().lower()
+    return p == "custom" or p.startswith("custom:")
+
+
+def _model_endpoint_credential_for_entry() -> tuple[str, str]:
+    """(api_key, key_env) a ``custom_providers`` entry auto-registered for the
+    CURRENT ``model.*`` endpoint should carry. Reads the RAW config so a
+    ``${HERMES_LLM_API_KEY}``-style reference (the shape deployment managers
+    write) is preserved as ``key_env`` rather than expanded and written to
+    config.yaml as a literal secret."""
+    try:
+        from hermes_cli.config import _env_ref_var_name, read_raw_config_readonly
+
+        raw_model = read_raw_config_readonly().get("model")
+        raw_key = ""
+        if isinstance(raw_model, dict):
+            raw_key = str(raw_model.get("api_key") or raw_model.get("api") or "").strip()
+        if not raw_key:
+            return "", ""
+        import re as _re
+
+        ref = _re.fullmatch(r"\$\{([^}]+)\}", raw_key)
+        if ref:
+            var = _env_ref_var_name(ref.group(1))
+            return ("", var) if var else ("", "")
+        return raw_key, ""
+    except Exception:
+        return "", ""
 
 
 _GATEWAY_HEALTH_URL = os.getenv("GATEWAY_HEALTH_URL")
@@ -5676,6 +5763,11 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
                binary PCM frames, then ``{"type": "end"}``
       server → ``{"type": "fallback"}`` when the configured provider has no
                chunked API — the client uses the POST endpoint instead.
+      server → ``{"type": "error", "message": "..."}`` instead of ``end``
+               when the provider raised mid-session (bad voice/model, server
+               down). The client falls back to POST /api/audio/speak if no
+               audio was emitted yet, otherwise finishes what played — the
+               same rule as gateway/streaming_tts_consumer.py. Never silence.
     """
     if not _ws_auth_ok(ws):
         await ws.close(code=4401)
@@ -5694,20 +5786,21 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
     loop = asyncio.get_running_loop()
 
     def _resolve():
-        from tools.tts_streaming import resolve_streaming_provider
+        from tools.tts_streaming import resolve_chunking_mode, resolve_streaming_provider
         from tools.tts_tool import _get_provider, _load_tts_config, _resolve_max_text_length
 
         with _config_profile_scope(profile):
             cfg = _load_tts_config()
             streamer = resolve_streaming_provider(cfg)
             cap = _resolve_max_text_length(_get_provider(cfg), cfg) if streamer else 0
-        return streamer, cap
+            mode = resolve_chunking_mode(cfg)
+        return streamer, cap, mode
 
     try:
-        streamer, cap = await loop.run_in_executor(None, _resolve)
+        streamer, cap, mode = await loop.run_in_executor(None, _resolve)
     except Exception:
         _log.exception("speak-stream provider resolution failed")
-        streamer, cap = None, 0
+        streamer, cap, mode = None, 0, "punctuation"
     if streamer is None:
         with contextlib.suppress(Exception):
             await ws.send_json({"type": "fallback"})
@@ -5721,12 +5814,13 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
     stop = threading.Event()
     text_q: queue.Queue = queue.Queue()  # str deltas; None = end-of-text
     chunks: asyncio.Queue = asyncio.Queue()  # PCM out; None = synthesis done
+    failure: list = []  # provider exception text, if synthesis raised
 
     def _produce():
         from tools.tts_streaming import SentenceChunker
         from tools.tts_tool import _strip_markdown_for_tts
 
-        chunker = SentenceChunker()
+        chunker = SentenceChunker(mode=mode)
 
         # The session stays open for a whole agent turn, and the client only
         # sends `done` when the turn ends. During tool execution no text
@@ -5745,6 +5839,8 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
                 try:
                     delta = text_q.get(timeout=idle_poll_seconds)
                 except queue.Empty:
+                    if mode == "none":
+                        continue  # whole-reply mode: only `done` flushes — never idle
                     idle_polls += 1
                     buffered = chunker.buf.strip()
                     if not buffered or ("<think" in chunker.buf and "</think>" not in chunker.buf):
@@ -5770,6 +5866,7 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
                         loop.call_soon_threadsafe(chunks.put_nowait, chunk)
         except Exception as exc:
             _log.warning("speak-stream synthesis failed: %s", exc)
+            failure.append(str(exc) or exc.__class__.__name__)
         finally:
             loop.call_soon_threadsafe(chunks.put_nowait, None)
 
@@ -5800,7 +5897,12 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
                 break
             await ws.send_bytes(chunk)
         if not stop.is_set():
-            await ws.send_json({"type": "end"})
+            if failure:
+                # Tell the client, don't end quietly: an `end` after a
+                # provider error reads as a successful (silent) reply.
+                await ws.send_json({"type": "error", "message": failure[0][:200]})
+            else:
+                await ws.send_json({"type": "end"})
     except (WebSocketDisconnect, RuntimeError):
         pass
     finally:
@@ -7793,7 +7895,13 @@ def _apply_model_assignment_sync(
             raise HTTPException(status_code=400, detail="provider and model required for main")
         provider, model = _normalize_main_model_assignment(provider, model)
         providers_cfg = cfg.get("providers")
-        provider_entry = providers_cfg.get(provider) if isinstance(providers_cfg, dict) else None
+        provider_entry = None
+        if isinstance(providers_cfg, dict):
+            # ``providers:`` entries are keyed by bare name; the slug the UI
+            # hands back is ``custom:<name>``. Look both up (ForgeGuard fork).
+            provider_entry = providers_cfg.get(provider)
+            if provider_entry is None and provider.lower().startswith("custom:"):
+                provider_entry = providers_cfg.get(provider.split(":", 1)[1])
         if not base_url and isinstance(provider_entry, dict) and provider_entry.get("base_url"):
             base_url = str(provider_entry.get("base_url") or "").strip()
         model_cfg = _apply_main_model_assignment(
@@ -7875,11 +7983,22 @@ def _apply_model_assignment_sync(
             try:
                 from hermes_cli.main import _auto_provider_name, _save_custom_provider
 
+                # ForgeGuard fork: the desktop never sends the endpoint key
+                # (secrets do not cross the settings wire), so this used to
+                # register a KEYLESS entry for an endpoint that requires auth
+                # — selecting that row next was HTTP 401 on every request.
+                # Carry the credential model.* already holds: a ${VAR}
+                # reference becomes the entry's key_env (never the literal),
+                # a literal key is copied.
+                entry_key, entry_key_env = api_key, ""
+                if not entry_key:
+                    entry_key, entry_key_env = _model_endpoint_credential_for_entry()
                 _save_custom_provider(
                     base_url,
-                    api_key,
+                    entry_key,
                     model,
                     name=_auto_provider_name(base_url),
+                    key_env=entry_key_env,
                 )
             except Exception:
                 # Never block the assignment on the bookkeeping write —
@@ -7904,9 +8023,12 @@ def _apply_model_assignment_sync(
                 if not isinstance(slot_cfg, dict):
                     continue
                 slot_provider = str(slot_cfg.get("provider", "") or "").strip()
+                # "main" is the runtime alias for the configured main provider
+                # (auxiliary_client._normalize_aux_provider) — it follows the
+                # switch like "auto" and is not a stale pin (ForgeGuard fork).
                 if (
                     slot_provider
-                    and slot_provider.lower() not in {"auto", ""}
+                    and slot_provider.lower() not in {"auto", "main", ""}
                     and slot_provider.lower() != new_provider
                 ):
                     stale_aux.append({
@@ -7962,6 +8084,15 @@ def _apply_model_assignment_sync(
 
     if not provider:
         raise HTTPException(status_code=400, detail="provider required for auxiliary")
+
+    # The main branch canonicalizes through _normalize_main_model_assignment;
+    # this branch wrote the caller's string verbatim, so a desktop row slug
+    # (``custom:custom``) landed in EVERY slot when no task was named — and,
+    # because it compares unequal to "custom", the block below also wrongly
+    # cleared each slot's base_url and credentials. Canonicalize first.
+    from hermes_cli.providers import canonicalize_provider_slug
+
+    provider = canonicalize_provider_slug(provider, cfg)
 
     targets = [task] if task else list(_AUX_TASK_SLOTS)
     for slot in targets:
@@ -8882,6 +9013,37 @@ async def validate_provider_credential(body: EnvVarUpdate, request: Request):
             return {"ok": True, "reachable": True, "message": "", "models": _parse_model_ids(resp)}
         except Exception:
             return {"ok": False, "reachable": False, "message": f"Could not reach {url}."}
+
+    # OPENAI_API_KEY doubles as the CUSTOM endpoint's credential: on a config
+    # whose model provider is custom (a vLLM / llama.cpp / any self-hosted
+    # OpenAI-compatible server), the key authenticates against model.base_url,
+    # not api.openai.com. The fixed-table probe below would send that key to
+    # OpenAI and report its 401 as "That API key was rejected" — a false
+    # rejection of a perfectly good key (2026-08-12, live). Probe the
+    # configured endpoint instead, with the same response contract.
+    if key == "OPENAI_API_KEY":
+        custom_base = ""
+        try:
+            with _profile_scope(body.profile):
+                cfg = load_config()
+            model_cfg = cfg.get("model", {}) if isinstance(cfg, dict) else {}
+            prov = str(model_cfg.get("provider", "") or "").strip().lower()
+            if prov == "custom" or prov.startswith("custom:"):
+                custom_base = str(model_cfg.get("base_url", "") or "").strip()
+        except Exception:
+            custom_base = ""
+        if custom_base:
+            url = custom_base.rstrip("/") + "/models"
+            try:
+                with httpx.Client(timeout=httpx.Timeout(10.0)) as client:
+                    resp = client.get(url, headers={"Authorization": f"Bearer {value}"})
+            except Exception:
+                return {"ok": False, "reachable": False, "message": f"Could not reach {url}."}
+            if resp.status_code in (401, 403):
+                return {"ok": False, "reachable": True, "message": "That API key was rejected. Double-check it and try again."}
+            if resp.status_code == 429 or resp.is_success:
+                return {"ok": True, "reachable": True, "message": ""}
+            return {"ok": False, "reachable": True, "message": f"Provider returned HTTP {resp.status_code} for this key."}
 
     probe = _CREDENTIAL_PROBES.get(key)
     if not probe:

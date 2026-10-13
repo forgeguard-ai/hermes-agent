@@ -162,6 +162,13 @@ export function clearsEnabledToolsets(prev: HermesConfigRecord, next: HermesConf
 // Voice renders only fields for the selected TTS/STT provider. Search and the
 // page share this rule so every indexed field can actually mount when opened.
 export function voiceFieldVisible(key: string, config: HermesConfigRecord): boolean {
+  // tts.streaming.* is cross-provider config, not a provider section — the
+  // regex below would read 'streaming' as a provider name and hide it.
+  // (ForgeGuard fork)
+  if (key.startsWith('tts.streaming.')) {
+    return true
+  }
+
   const match = /^(tts|stt)\.([^.]+)\./.exec(key)
 
   if (!match) {

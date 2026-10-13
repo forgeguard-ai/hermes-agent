@@ -65,7 +65,11 @@ class StreamingTTSConsumer:
         metadata: Optional[Dict[str, Any]] = None,
         audio_format: Optional[AudioFormat] = None,
     ) -> None:
-        from tools.tts_streaming import SentenceChunker, resolve_streaming_provider
+        from tools.tts_streaming import (
+            SentenceChunker,
+            resolve_chunking_mode,
+            resolve_streaming_provider,
+        )
 
         self._adapter = adapter
         self._chat_id = chat_id
@@ -76,7 +80,7 @@ class StreamingTTSConsumer:
         # Resolve the streaming provider once. If unavailable, the consumer is
         # inactive and the gateway falls back to whole-file TTS.
         self._streamer = resolve_streaming_provider(tts_config)
-        self._chunker = SentenceChunker()
+        self._chunker = SentenceChunker(mode=resolve_chunking_mode(tts_config))
 
         if self._streamer is not None:
             self._audio_format = AudioFormat(

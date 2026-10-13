@@ -45,4 +45,10 @@ describe('voiceFieldVisible', () => {
     expect(voiceFieldVisible('tts.openai.voice', cfg({ tts: { provider: 'openai', openai: {} } }))).toBe(true)
     expect(voiceFieldVisible('tts.edge.voice', cfg({ tts: { provider: 'openai', openai: {} } }))).toBe(false)
   })
+
+  it('always shows the cross-provider speech-chunking field', () => {
+    // 'streaming' is not a provider — the provider regex must not hide it.
+    expect(voiceFieldVisible('tts.streaming.chunking', cfg({ tts: { provider: 'openai', openai: {} } }))).toBe(true)
+    expect(voiceFieldVisible('tts.streaming.chunking', cfg())).toBe(true)
+  })
 })

@@ -9,6 +9,18 @@ name: Docker / shell lint
 # shellcheck severity is pinned to `error` so SC1091-style "can't follow
 # sourced script" info-level warnings don't fail the job — the .venv
 # activate script doesn't exist at lint time.
+#
+# FORK DELTA (2026-08-12): both linters run as plain commands instead of
+# through hadolint/hadolint-action and ludeeus/action-shellcheck. The
+# forgeguard-ai org restricts workflows to actions that are GitHub-authored,
+# org-owned, or Marketplace-verified, and those two are none of the three —
+# which failed the whole CI run at STARTUP (ci.yml calls this file as a
+# reusable workflow, so its actions are validated before any job runs), not
+# just this job. Behaviour is kept equivalent: same hadolint version the
+# action wraps (2.12.0, pinned by digest), same config file and warning
+# threshold, same --severity=error and the same shebang-or-extension file
+# discovery under docker/. Upstream syncs that touch this file will conflict
+# here; keep the direct invocations.
 
 on:
   workflow_call:
@@ -30,11 +42,14 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: hadolint
-        uses: hadolint/hadolint-action@54c9adbab1582c2ef04b2016b760714a4bfde3cf # v3.1.0
-        with:
-          dockerfile: Dockerfile
-          config: .hadolint.yaml
-          failure-threshold: warning
+        # Digest pin, not a tag: the tag is mutable and this replaces a
+        # SHA-pinned action, so the supply-chain guarantee has to survive the
+        # swap. v2.12.0-alpine is the hadolint the action shipped.
+        run: |
+          docker run --rm -i \
+            -v "$PWD/.hadolint.yaml:/.hadolint.yaml:ro" \
+            hadolint/hadolint@sha256:3c206a451cec6d486367e758645269fd7d696c5ccb6ff59d8b03b0e45268a199 \
+            hadolint --config /.hadolint.yaml --failure-threshold warning - < Dockerfile
 
   shellcheck:
     name: Lint docker/ shell scripts (shellcheck)
@@ -45,11 +60,34 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: shellcheck
-        uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38 # v2.0.0
         env:
           # Severity = error: SC1091 (can't follow sourced script) is info-
           # level and would otherwise fail when the venv activate script
           # doesn't exist at lint time.
           SHELLCHECK_OPTS: --severity=error
-        with:
-          scandir: ./docker
+        run: |
+          set -euo pipefail
+          command -v shellcheck >/dev/null 2>&1 || sudo apt-get install -y --no-install-recommends shellcheck
+          shellcheck --version
+
+          # Same discovery rule the action used: shell files by extension,
+          # PLUS extensionless files carrying a shell shebang — docker/
+          # keeps s6-rc.d and cont-init.d service scripts with no suffix, and
+          # dropping them would silently narrow this job's coverage.
+          mapfile -t files < <(
+            {
+              find ./docker -type f \( -name '*.sh' -o -name '*.bash' -o -name '*.ksh' -o -name '*.zsh' \) -print
+              grep -rlE '^#!.*\b(sh|bash|ksh|zsh|dash)\b' ./docker --include='*' --exclude='*.sh' \
+                --exclude='*.bash' --exclude='*.ksh' --exclude='*.zsh' 2>/dev/null || true
+            } | sort -u
+          )
+
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No shell scripts found under ./docker — the discovery rule above stopped matching." >&2
+            exit 1
+          fi
+
+          printf 'Linting %d file(s):\n' "${#files[@]}"
+          printf '  %s\n' "${files[@]}"
+          # shellcheck disable=SC2086  # SHELLCHECK_OPTS must word-split into flags
+          shellcheck $SHELLCHECK_OPTS "${files[@]}"

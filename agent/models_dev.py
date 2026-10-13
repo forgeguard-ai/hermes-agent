@@ -60,6 +60,8 @@ _MODELS_DEV_RETRY_DELAY = 300  # 5 minutes after a failed refresh
 # In-memory cache
 _models_dev_cache: Dict[str, Any] = {}
 _models_dev_cache_time: float = 0
+# One-shot flag: log at most once when offline mode suppresses a forced refresh.
+_models_dev_offline_refresh_logged: bool = False
 _models_dev_retry_after: float = 0
 _models_dev_fetch_lock = threading.Lock()
 _models_dev_refresh_lock = threading.Lock()
@@ -613,7 +615,26 @@ def fetch_models_dev(
     vision routing, context-length lookup) that must never wait on the
     network.
     """
-    global _models_dev_cache, _models_dev_cache_time, _models_dev_retry_after
+    global _models_dev_cache, _models_dev_cache_time, _models_dev_retry_after, \
+        _models_dev_offline_refresh_logged
+
+    # Native offline gate (ForgeGuard fork): when the profile disables remote
+    # metadata, never hit the network — collapse into the allow_network=False
+    # path below, which serves any memory/disk cache regardless of age and
+    # never spawns the background refresh thread. One INFO line the first
+    # time a force-refresh is suppressed so `hermes config refresh` is not
+    # silently a no-op in offline mode.
+    if allow_network:
+        from hermes_cli import offline
+        if offline.remote_metadata_disabled():
+            logger.debug("offline mode: skipping models.dev network fetch")
+            if force_refresh and not _models_dev_offline_refresh_logged:
+                logger.info(
+                    "offline mode: suppressing models.dev force-refresh; "
+                    "serving cached/bundled data"
+                )
+                _models_dev_offline_refresh_logged = True
+            allow_network = False
 
     if not allow_network:
         if _models_dev_cache:

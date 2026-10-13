@@ -48,6 +48,12 @@ vi.mock('@/store/notifications', () => ({
   dismissNotification: (...args: unknown[]) => dismissSpy(...args)
 }))
 
+// ForgeGuard fork: the shipped build has update checks OFF (src/lib/fork-config),
+// which short-circuits the toast and the poller. This file validates upstream's
+// update logic, so pin the switch ON here; updates.fork.test.ts covers the
+// shipped (off) behaviour.
+vi.mock('@/lib/fork-config', () => ({ FORK_UPDATE_CHECKS_ENABLED: true }))
+
 // updates.ts reads the connections registry (multi-target gating + the
 // everything-flow fan-out). Mock the store shallowly: the real module drags in
 // the profile/gateway-switch graph, which is far heavier than these tests need.

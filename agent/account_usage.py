@@ -243,6 +243,12 @@ def nous_credits_lines(*, markdown: bool = False, timeout: float = 10.0) -> list
     renders from that fixture instead of the real portal (so the block + gauge are
     testable without a live account). Throwaway scaffolding.
     """
+    # Native offline gate: privacy/offline mode suppresses the Nous Portal usage
+    # fetch entirely (the /usage credits block just renders nothing).
+    from hermes_cli import offline
+    if offline.portal_checks_disabled():
+        return []
+
     # Dev fixture short-circuit — render /usage from the injected state, no portal.
     try:
         from agent.credits_tracker import dev_fixture_credits_state

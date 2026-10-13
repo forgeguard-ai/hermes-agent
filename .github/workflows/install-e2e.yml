@@ -37,14 +37,10 @@ on:
         required: false
         type: string
         default: '5'
-  schedule:
-    # Every 12 hours, off the hour to avoid the top-of-hour runner crunch.
-    - cron: '20 7,19 * * *'
-  push:
-    tags:
-      # Release tags only: the repo also carries backup/* and one-off tags.
-      - 'v[0-9]+.[0-9]+.[0-9]+'
-      - 'v[0-9]+.[0-9]+.[0-9]+.[0-9]+'
+  # ForgeGuard fork: schedule + push(tags) triggers removed — the jobs are
+  # upstream-infrastructure (and the v* tag patterns match fork release tags),
+  # so they only produced skipped runs here. See patch-inventory.md
+  # ("Trigger-stripped upstream-infra workflows").
 
 permissions:
   contents: read
@@ -58,6 +54,10 @@ jobs:
   # by both route matrices, so the two routes cover the same set.
   pick-releases:
     name: Pick release tags
+    # ForgeGuard fork guard: the twice-daily cron and the release-tag trigger
+    # exercise upstream's install/update channels; the fork's own release tags
+    # (plain product semver) match the tag patterns and must not fire this.
+    if: github.repository == 'NousResearch/hermes-agent'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -81,7 +81,9 @@ jobs:
 
   # `hermes update` -- the route most users take.
   update:
-    if: github.event_name != 'workflow_dispatch' || inputs.route != 'installer'
+    # ForgeGuard fork guard: explicit `if:` bypasses needs-skip propagation
+    # (upload_to_pypi `sign` precedent), so this job needs its own guard.
+    if: github.repository == 'NousResearch/hermes-agent' && (github.event_name != 'workflow_dispatch' || inputs.route != 'installer')
     needs: pick-releases
     strategy:
       # One release breaking is worth knowing about even if another already
@@ -97,7 +99,8 @@ jobs:
   # Re-running the curl one-liner over an existing checkout: autostash + pull
   # rather than the updater's own git handling.
   installer:
-    if: github.event_name != 'workflow_dispatch' || inputs.route != 'update'
+    # ForgeGuard fork guard: same explicit-`if:` rule as the update job.
+    if: github.repository == 'NousResearch/hermes-agent' && (github.event_name != 'workflow_dispatch' || inputs.route != 'update')
     needs: pick-releases
     strategy:
       fail-fast: false

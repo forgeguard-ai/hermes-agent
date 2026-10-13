@@ -183,6 +183,7 @@ import {
   performFindAfterIndexingStarted,
   stopFind
 } from './find-in-page'
+import { buildFirstRunChoiceRecord, firstRunChoiceRequired, normalizeFirstRunChoice } from './first-run-choice'
 import { createFirstRunSetupGate } from './first-run-setup-gate'
 import { registerFsIpc } from './fs-ipc'
 import {
@@ -196,6 +197,7 @@ import {
   resolveGatewayFileBackend,
   writeBufferToFile
 } from './gateway-file-download'
+import { describeGatewayProbeError } from './gateway-probe-errors'
 import { probeGatewayWebSocket } from './gateway-ws-probe'
 import { registerGitIpc } from './git-ipc'
 import { clearStaleGitLocks } from './gitlock'
@@ -266,8 +268,10 @@ import {
 } from './native-oauth'
 import { runNativeLogin } from './native-oauth-login'
 import { loadNativeTokenSet, type NativeTokenStoreIo, persistNativeTokenSet } from './native-token-store'
+import { moveOauthCookies } from './oauth-cookie-move'
 import { serializeJsonBody, setJsonRequestHeaders } from './oauth-net-request'
 import { LEGACY_OAUTH_PARTITION, resolveOauthPartition } from './oauth-partition'
+import { planOauthPartitionMoves } from './oauth-partition-moves'
 import { createParentStartMarkerResolver, parentWatchdogEnv } from './parent-process-identity'
 import { registerPetOverlayIpc } from './pet-overlay-ipc'
 import {
@@ -310,6 +314,7 @@ import {
 } from './profile-session-routing'
 import { createQuickEntryShortcut, quickEntryWindowBounds, sanitizeQuickEntrySettings } from './quick-entry'
 import { type ActiveWork, mergeActiveWork, normalizeActiveWork, quitPromptFor } from './quit-guard'
+import { decideQuitPass, shouldQuitOnAllWindowsClosed } from './quit-sequence'
 import * as remoteLifecycle from './remote-lifecycle'
 import {
   attachPowerResumeRemoteRevalidation,
@@ -821,6 +826,11 @@ const BOOTSTRAP_COMPLETE_MARKER = path.join(ACTIVE_HERMES_ROOT, '.hermes-bootstr
 const BOOTSTRAP_MARKER_SCHEMA_VERSION = 1
 
 const DESKTOP_CONNECTION_CONFIG_PATH = path.join(app.getPath('userData'), 'connection.json')
+// Records the user's one-time first-run choice (local runtime vs external
+// Hermes backend). Lives in userData — NOT renderer localStorage — because main
+// must read it before the renderer loads to decide whether to eagerly start a
+// local backend. See first-run-choice.cjs for the record shape + gate.
+const DESKTOP_FIRST_RUN_CONFIG_PATH = path.join(app.getPath('userData'), 'first-run.json')
 // v2 multi-connection registry (named agent sources). Lives BESIDE
 // connection.json — v1 stays on disk untouched so older builds sharing the
 // profile keep working; the registry imports from it once and then owns its
@@ -4355,6 +4365,16 @@ function activeRuntimeState() {
   return classifyActiveRuntime(readBootstrapMarker(), BOOTSTRAP_MARKER_SCHEMA_VERSION, isActiveRuntimeUsable())
 }
 
+// ForgeGuard fork: "a desktop-managed bootstrap completed here AND the runtime
+// it left behind is actually usable" — the first-run chooser's
+// existing-local-install bypass. Expressed through upstream's runtime
+// classifier (rather than re-reading the marker) so the two can't disagree.
+function isBootstrapComplete() {
+  const state = activeRuntimeState()
+
+  return state.hasValidMarker && state.shouldUseActiveRuntime
+}
+
 function writeBootstrapMarker(payload) {
   fs.mkdirSync(path.dirname(BOOTSTRAP_COMPLETE_MARKER), { recursive: true })
 
@@ -5042,7 +5062,18 @@ function fetchJson(url, token, options: any = {}) {
               // no cookie involved.
               ...(options.bearer ? { Authorization: `Bearer ${options.bearer}` } : {}),
               ...(body ? { 'Content-Length': String(body.length) } : {})
-            }
+            },
+            // Opt-in TLS bypass for a self-signed / untrusted gateway certificate.
+            // Only ever set false when the caller resolved the toggle for THIS
+            // remote; ignored by http:// requests. When the call site does not
+            // decide explicitly, fall back to the per-host opt-in list so upstream
+            // call sites (readiness probe, revalidation, profile fetches) inherit
+            // the bypass without threading it through every signature.
+            // (ForgeGuard fork)
+            ...(options.rejectUnauthorized === false ||
+            (options.rejectUnauthorized === undefined && hostAllowsInvalidCertificate(parsed.hostname))
+              ? { rejectUnauthorized: false }
+              : {})
           },
           res => {
             const chunks = []
@@ -5052,7 +5083,18 @@ function fetchJson(url, token, options: any = {}) {
               const text = Buffer.concat(chunks).toString('utf8')
 
               if ((res.statusCode || 500) >= 400) {
-                reject(new Error(`${res.statusCode}: ${text || res.statusMessage}`))
+                // Carry the HTTP status on the error object, not only in its
+                // message: the gateway auth classifier (isGatewayAuthRejection →
+                // gatewayTicketFailure) decides "session expired, sign in again"
+                // vs "gateway unreachable" from error.statusCode. Without it a
+                // 401 from /api/auth/ws-ticket after the agent container was
+                // recreated read as a transport failure, the stale native token
+                // stayed on disk, and every recovery affordance hid its sign-in
+                // button — the only way out was wiping Application Support.
+                // (ForgeGuard fork)
+                const httpError: any = new Error(`${res.statusCode}: ${text || res.statusMessage}`)
+                httpError.statusCode = res.statusCode || 500
+                reject(httpError)
 
                 return
               }
@@ -5209,7 +5251,18 @@ function fetchPublicJson(url, options: any = {}) {
               ...(options.headers || {}),
               'Content-Type': 'application/json',
               ...(body ? { 'Content-Length': String(body.length) } : {})
-            }
+            },
+            // Opt-in TLS bypass for a self-signed / untrusted gateway certificate.
+            // Only ever set false when the caller resolved the toggle for THIS
+            // remote; ignored by http:// requests. When the call site does not
+            // decide explicitly, fall back to the per-host opt-in list so upstream
+            // call sites (readiness probe, revalidation, profile fetches) inherit
+            // the bypass without threading it through every signature.
+            // (ForgeGuard fork)
+            ...(options.rejectUnauthorized === false ||
+            (options.rejectUnauthorized === undefined && hostAllowsInvalidCertificate(parsed.hostname))
+              ? { rejectUnauthorized: false }
+              : {})
           },
           res => {
             const chunks = []
@@ -5218,7 +5271,18 @@ function fetchPublicJson(url, options: any = {}) {
               const text = Buffer.concat(chunks).toString('utf8')
 
               if ((res.statusCode || 500) >= 400) {
-                reject(new Error(`${res.statusCode}: ${text || res.statusMessage}`))
+                // Carry the HTTP status on the error object, not only in its
+                // message: the gateway auth classifier (isGatewayAuthRejection →
+                // gatewayTicketFailure) decides "session expired, sign in again"
+                // vs "gateway unreachable" from error.statusCode. Without it a
+                // 401 from /api/auth/ws-ticket after the agent container was
+                // recreated read as a transport failure, the stale native token
+                // stayed on disk, and every recovery affordance hid its sign-in
+                // button — the only way out was wiping Application Support.
+                // (ForgeGuard fork)
+                const httpError: any = new Error(`${res.statusCode}: ${text || res.statusMessage}`)
+                httpError.statusCode = res.statusCode || 500
+                reject(httpError)
 
                 return
               }
@@ -6930,6 +6994,86 @@ function installDownloadHandling() {
   })
 }
 
+// Hosts the user has explicitly opted into an untrusted certificate for. Reads
+// the live connection config (global remote + every per-profile remote) so the
+// bypass is scoped to exactly the gateway host(s) that carry the opt-in — never
+// applied app-wide. The env-override remote intentionally has no bypass (add
+// the URL in Settings if a self-signed env target needs one).
+function hostAllowsInvalidCertificate(hostname) {
+  if (!hostname) {
+    return false
+  }
+
+  const config = readDesktopConnectionConfig()
+  const urls = []
+
+  if (config.remote?.url && config.remote.allowInvalidCertificate === true) {
+    urls.push(config.remote.url)
+  }
+
+  for (const entry of Object.values(config.profiles || {}) as any[]) {
+    if (entry?.mode === 'remote' && entry.url && entry.allowInvalidCertificate === true) {
+      urls.push(entry.url)
+    }
+  }
+
+  // ...and every gateway saved in Settings → Connections (the v2 registry)
+  // that carries the opt-in. A registry read must never break certificate
+  // verification, so a failure here just contributes nothing.
+  try {
+    for (const entry of readDesktopConnectionsRegistry().connections || []) {
+      if ((entry.kind === 'remote' || entry.kind === 'cloud') && entry.url && entry.allowInvalidCertificate === true) {
+        urls.push(entry.url)
+      }
+    }
+  } catch {
+    // Unreadable registry: the v1 sources above still apply.
+  }
+
+  for (const url of urls) {
+    try {
+      if (new URL(url).hostname === hostname) {
+        return true
+      }
+    } catch {
+      // Malformed stored URL — ignore; it can't match a real request host.
+    }
+  }
+
+  return false
+}
+
+// Wire the certificate-bypass into every Chromium/Electron transport the app
+// uses to reach a remote gateway: the renderer's live WebSocket (defaultSession)
+// and the OAuth REST/login flows (the OAuth partition + its login BrowserWindow).
+// Node's own https/WebSocket legs are handled separately via `rejectUnauthorized`.
+//
+// The verify proc trusts a cert only for a host the user opted into; every other
+// host defers to Chromium's own verification (callback(-3)), so normal TLS
+// enforcement is untouched everywhere else. Must run after `app` is ready.
+// Shared by every session that carries gateway traffic, including the
+// per-connection cookie jars created on demand in getOauthSessionForUrl.
+function gatewayCertificateVerifyProc(request, callback) {
+  // 0 = trust; -3 = fall back to Chromium's own verification result.
+  callback(hostAllowsInvalidCertificate(request.hostname) ? 0 : -3)
+}
+
+function installCertificateBypass() {
+  const verify = gatewayCertificateVerifyProc
+
+  try {
+    session.defaultSession.setCertificateVerifyProc(verify)
+  } catch (error) {
+    rememberLog(`[gateway] could not install default-session certificate verifier: ${error?.message || error}`)
+  }
+
+  try {
+    getOauthSession()?.setCertificateVerifyProc(verify)
+  } catch (error) {
+    rememberLog(`[gateway] could not install oauth-session certificate verifier: ${error?.message || error}`)
+  }
+}
+
 function installMediaPermissions() {
   // Async request handler: the prompt-style path (most platforms).
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback, details) => {
@@ -7026,9 +7170,60 @@ function getOauthSessionForUrl(url) {
   if (!sess) {
     sess = session.fromPartition(partition)
     oauthSessionsByPartition.set(partition, sess)
+
+    // ForgeGuard fork: a per-connection jar carries its gateway's login window
+    // and cookie-authenticated REST, so it needs the same opt-in certificate
+    // policy as the legacy jar (installCertificateBypass).
+    try {
+      sess.setCertificateVerifyProc(gatewayCertificateVerifyProc)
+    } catch (error) {
+      rememberLog(`[gateway] could not install certificate verifier on ${partition}: ${error?.message || error}`)
+    }
   }
 
   return sess
+}
+
+// ForgeGuard fork: a cookie-flow gateway's jar follows the registry's shape
+// (above), so a registry mutation can strand its session in a jar nothing
+// reads any more — Settings → Connections signs in BEFORE Save, and a primary
+// flip swaps two gateways' jars. Each mutation that can do that snapshots the
+// registry around itself and carries the affected sessions across
+// (oauth-partition-moves.ts plans, oauth-cookie-move.ts moves). Reads that
+// race a move wait for it in warmOauthCookieStore.
+let pendingOauthPartitionMoves = null
+
+function oauthPartitionSnapshot(registry, v1RemoteUrl = readDesktopConnectionConfig()?.remote?.url) {
+  return { registry, v1RemoteUrl }
+}
+
+async function migrateOauthCookiesForRegistryChange(before, after) {
+  const moves = planOauthPartitionMoves(before, after)
+
+  if (!moves.length || !app.isReady()) {
+    return
+  }
+
+  for (const move of moves) {
+    oauthCookieWarmups.delete(move.from)
+    oauthCookieWarmups.delete(move.to)
+  }
+
+  const run = moveOauthCookies(moves, {
+    fromPartition: partition =>
+      partition === OAUTH_SESSION_PARTITION ? getOauthSession() : session.fromPartition(partition),
+    log: rememberLog
+  })
+    .then(() => undefined)
+    .catch(error => rememberLog(`[oauth-partition] session move failed: ${error?.message || error}`))
+    .finally(() => {
+      if (pendingOauthPartitionMoves === run) {
+        pendingOauthPartitionMoves = null
+      }
+    })
+
+  pendingOauthPartitionMoves = run
+  await run
 }
 
 // Cold-start cookie-jar warm-up. A `persist:` partition materialized via
@@ -7056,6 +7251,10 @@ function warmOauthCookieStore(url?) {
   }
 
   const warmup = (async () => {
+    // A registry mutation may be carrying this gateway's session into the
+    // jar about to be read (migrateOauthCookiesForRegistryChange).
+    await pendingOauthPartitionMoves
+
     const sess = getOauthSessionForUrl(url)
 
     if (!sess) {
@@ -7887,12 +8086,33 @@ async function mintGatewayWsTicket(baseUrl, headers = {}) {
     const nativeAt = await ensureNativeAccessToken(baseUrl).catch(() => null)
 
     if (nativeAt) {
-      const body = (await fetchJson(`${baseUrl}/api/auth/ws-ticket`, null, {
-        method: 'POST',
-        timeoutMs: 8_000,
-        bearer: nativeAt,
-        headers
-      })) as any
+      let body: any
+
+      try {
+        body = await fetchJson(`${baseUrl}/api/auth/ws-ticket`, null, {
+          method: 'POST',
+          timeoutMs: 8_000,
+          bearer: nativeAt,
+          headers
+        })
+      } catch (error: any) {
+        // The gateway refused a bearer it minted itself: the session behind it
+        // is gone (the container was recreated, its provider registry
+        // re-seeded, or the token was revoked). Drop ONLY the native token
+        // pair so hasNativeSession() stops reporting a live session and the
+        // sign-in affordances reappear — connection.json, first-run choice,
+        // update prefs and the renderer's appearance/statusbar localStorage
+        // are untouched, so signing in again costs no settings. A 503 is the
+        // provider being unreachable and keeps the tokens for a retry.
+        // (ForgeGuard fork)
+        const status = Number(error?.statusCode ?? NaN)
+
+        if (status === 401 || status === 403) {
+          _clearNativeTokens(baseUrl)
+        }
+
+        throw error
+      }
 
       const ticket = body?.ticket
 
@@ -8896,6 +9116,7 @@ function sanitizeConnectionProfiles(raw: Record<string, any>) {
       mode: 'remote' | 'local' | 'cloud'
       url?: string
       authMode?: string
+      allowInvalidCertificate?: boolean
       token?: object
       headers?: object
       org?: string
@@ -8919,6 +9140,8 @@ function sanitizeConnectionProfiles(raw: Record<string, any>) {
     }
 
     cleaned.authMode = normAuthMode(entry.authMode)
+    // Opt-in TLS bypass for a self-signed / untrusted gateway certificate.
+    cleaned.allowInvalidCertificate = entry.allowInvalidCertificate === true
 
     if ((entry as any).token && typeof entry.token === 'object') {
       cleaned.token = entry.token
@@ -8946,6 +9169,87 @@ function sanitizeConnectionProfiles(raw: Record<string, any>) {
   return out
 }
 
+// Saved-endpoint history: previously used remote gateways, most recent first.
+// Each entry keeps its own (encrypted) token + auth settings so re-picking an
+// endpoint reconnects without re-entering credentials. Secrets never reach the
+// renderer — sanitizeDesktopConnectionConfig exposes metadata only.
+const SAVED_REMOTES_MAX = 8
+
+// normalizeRemoteBaseUrl throws on invalid input (it validates user entry);
+// history matching must never throw, so map invalid → '' (no match).
+function safeNormalizeRemoteUrl(rawUrl) {
+  try {
+    return normalizeRemoteBaseUrl(rawUrl)
+  } catch {
+    return ''
+  }
+}
+
+function sanitizeSavedRemotes(raw) {
+  if (!Array.isArray(raw)) {
+    return []
+  }
+
+  const seen = new Set()
+  const out = []
+
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') {
+      continue
+    }
+
+    const url = safeNormalizeRemoteUrl(entry.url)
+
+    if (!url || seen.has(url)) {
+      continue
+    }
+
+    seen.add(url)
+
+    const cleaned = {
+      url,
+      authMode: normAuthMode(entry.authMode),
+      allowInvalidCertificate: entry.allowInvalidCertificate === true,
+      lastUsedAt: Number.isFinite(entry.lastUsedAt) ? entry.lastUsedAt : 0,
+      ...(entry.token && typeof entry.token === 'object' ? { token: entry.token } : {})
+    }
+
+    out.push(cleaned)
+
+    if (out.length >= SAVED_REMOTES_MAX) {
+      break
+    }
+  }
+
+  return out
+}
+
+// Record a just-saved remote block in the history: newest first, deduped by
+// normalized URL, capped at SAVED_REMOTES_MAX.
+function upsertSavedRemote(remotes, block) {
+  const url = safeNormalizeRemoteUrl(block?.url)
+
+  if (!url) {
+    return remotes
+  }
+
+  // The endpoint history is written to disk, so only carry an ENCRYPTED token
+  // blob here — never a plaintext one (a persistToken:false coercion, or a
+  // safeStorage-unavailable fallback). The entry still records the endpoint;
+  // a dropped plaintext token just means re-entering it on reselect.
+  const entry = {
+    url,
+    authMode: normAuthMode(block.authMode),
+    allowInvalidCertificate: block.allowInvalidCertificate === true,
+    lastUsedAt: Date.now(),
+    ...(block.token && typeof block.token === 'object' && block.token.encoding !== 'plain'
+      ? { token: block.token }
+      : {})
+  }
+
+  return [entry, ...remotes.filter(existing => existing.url !== url)].slice(0, SAVED_REMOTES_MAX)
+}
+
 function readDesktopConnectionConfig() {
   // Check if file changed on disk since last read (e.g. modified by another
   // process or an external tool).  Our own writes update the cache inline
@@ -8962,7 +9266,7 @@ function readDesktopConnectionConfig() {
     return connectionConfigCache
   }
 
-  let config = { mode: 'local', remote: {}, profiles: {} }
+  let config = { mode: 'local', remote: {}, profiles: {}, remotes: [] }
 
   try {
     const raw = fs.readFileSync(DESKTOP_CONNECTION_CONFIG_PATH, 'utf8')
@@ -8998,13 +9302,18 @@ function readDesktopConnectionConfig() {
       // or 'token' (legacy static session token). Default to 'token' for
       // backward compatibility with configs written before OAuth support.
       remote.authMode = remote.authMode === 'oauth' ? 'oauth' : 'token'
+      // Opt-in TLS bypass for a self-signed / untrusted gateway certificate.
+      remote.allowInvalidCertificate = remote.allowInvalidCertificate === true
       config = {
         mode: parsed.mode === 'ssh' ? 'ssh' : modeIsRemoteLike(parsed.mode) ? parsed.mode : 'local',
         remote,
         // Per-profile remote overrides: each profile may point at its own
         // backend (local spawn or its own remote URL). Preserved verbatim so
         // profileRemoteOverride() can resolve them; normalized lazily on save.
-        profiles: sanitizeConnectionProfiles(parsed.profiles)
+        profiles: sanitizeConnectionProfiles(parsed.profiles),
+        // Saved-endpoint history (absent in configs written before this
+        // existed — old shapes read compatibly as an empty history).
+        remotes: sanitizeSavedRemotes(parsed.remotes)
       }
     }
   } catch {
@@ -9029,6 +9338,100 @@ function writeDesktopConnectionConfig(config) {
   writeSecretFileAtomic(DESKTOP_CONNECTION_CONFIG_PATH, JSON.stringify(config, null, 2))
   connectionConfigCache = config
   connectionConfigCacheMtime = fs.statSync(DESKTOP_CONNECTION_CONFIG_PATH).mtimeMs
+  // A connection-config change can flip hasExplicitRemoteTarget() (e.g. the user
+  // just pointed the desktop at a remote gateway), so the cached first-run
+  // decision must recompute on the next read rather than serve a stale value.
+  resetFirstRunChoiceDecision()
+}
+
+// Read the persisted first-run choice, or null when the user hasn't chosen yet
+// (fresh install) or the file is missing/malformed.
+function readFirstRunChoice() {
+  return normalizeFirstRunChoice(readJson(DESKTOP_FIRST_RUN_CONFIG_PATH))
+}
+
+// Persist the user's first-run choice ('local' | 'remote'). Throws on an
+// unknown choice (buildFirstRunChoiceRecord validates).
+function writeFirstRunChoice(choice) {
+  const record = buildFirstRunChoiceRecord(choice)
+  fs.mkdirSync(path.dirname(DESKTOP_FIRST_RUN_CONFIG_PATH), { recursive: true })
+  writeFileAtomic(DESKTOP_FIRST_RUN_CONFIG_PATH, JSON.stringify(record, null, 2) + '\n', 'utf8')
+  // A choice was just recorded — the next desktopFirstRunChoiceRequired() must
+  // recompute (and will now return false). The window reloads in the SAME
+  // process after a choice, so without this reset the stale cached `true` would
+  // keep every gate deferring forever.
+  resetFirstRunChoiceDecision()
+
+  return record
+}
+
+// True when an explicit external backend is already targeted: the env override,
+// a global remote in connection.json, or a per-profile remote override on the
+// primary profile. Any of these means the local-vs-remote decision is already
+// made, so we don't ask on first run.
+function hasExplicitRemoteTarget() {
+  if (process.env.HERMES_DESKTOP_REMOTE_URL) {
+    return true
+  }
+
+  const config = readDesktopConnectionConfig()
+
+  // 'remote' or 'cloud' — both resolve to an external backend (Q6).
+  if (modeIsRemoteLike(config.mode)) {
+    return true
+  }
+
+  return Boolean(profileRemoteOverride(config, primaryProfileKey()))
+}
+
+// Cached first-run decision. null = not yet computed. Computed ONCE per process
+// and reused by every gate (did-finish-load, the startHermes() gate, and the
+// hermes:first-run:get IPC). This is deliberate: the decision depends on
+// isActiveRuntimeUsable(), which spawns a Python import probe (execFileSync)
+// that returns false on timeout. Re-evaluating it on every call made the gates
+// disagree — one call saw the prior ~/.hermes install as usable ("not first
+// run", so startHermes spawned a backend) while a later call under boot load
+// timed out ("first run", so did-finish-load deferred). That split-brain
+// started a local backend AND parked the chooser, hanging the UI. Caching makes
+// all gates return the SAME answer for the life of the process. Reset when a
+// choice is recorded or the connection config changes (both happen in-process
+// before the window reload that re-drives boot).
+let _firstRunChoiceRequiredCache = null
+// One-time guard so the startHermes() sentinel block logs once per process,
+// not on every getConnection()/ensureBackend() retry while the chooser is up.
+let _firstRunSentinelLogged = false
+
+function resetFirstRunChoiceDecision() {
+  _firstRunChoiceRequiredCache = null
+  _firstRunSentinelLogged = false
+}
+
+// Whether the desktop should show the first-run local-vs-remote choice before
+// starting a backend. Bypassed for returning users (choice already recorded),
+// an explicit remote target, or an existing usable local install (desktop
+// bootstrap marker OR a CLI-installed runnable runtime). A dev source checkout
+// with no ~/.hermes install still asks — that is a genuine first run.
+function desktopFirstRunChoiceRequired() {
+  if (_firstRunChoiceRequiredCache === null) {
+    const choiceRecorded = Boolean(readFirstRunChoice())
+    const hasExplicitRemote = hasExplicitRemoteTarget()
+    const hasExistingLocalInstall = isBootstrapComplete() || isActiveRuntimeUsable()
+    _firstRunChoiceRequiredCache = firstRunChoiceRequired({
+      choiceRecorded,
+      hasExplicitRemote,
+      hasExistingLocalInstall
+    })
+    // Log the decision + its inputs exactly once (the result is cached for the
+    // life of the process). Makes a stuck-boot report unambiguous: whether the
+    // chooser should show, and which bypass signal (if any) suppressed it.
+    rememberLog(
+      `[boot] first-run choice decision: required=${_firstRunChoiceRequiredCache} ` +
+        `(choiceRecorded=${choiceRecorded}, hasExplicitRemote=${hasExplicitRemote}, ` +
+        `hasExistingLocalInstall=${hasExistingLocalInstall})`
+    )
+  }
+
+  return _firstRunChoiceRequiredCache
 }
 
 // ── v2 connection registry (multi-source) ──────────────────────────────────
@@ -9262,6 +9665,14 @@ async function saveRegistryConnection(input: any = {}) {
 
   writeDesktopConnectionsRegistry(upsertConnection(registry, entry))
 
+  // ForgeGuard fork: a gateway signed in to BEFORE this save logged in on the
+  // jar an unregistered URL resolves to; carry that session to the jar the
+  // saved entry resolves to now, before any renderer redials against it.
+  await migrateOauthCookiesForRegistryChange(
+    oauthPartitionSnapshot(registry),
+    oauthPartitionSnapshot(readDesktopConnectionsRegistry())
+  )
+
   // A dial-material edit (endpoint/auth/ssh routing — NOT a label rename)
   // leaves pooled backends under `conn:<id>::*` and renderer sockets pointing
   // at the OLD target while the UI shows the new one. Recycle them: stop this
@@ -9368,6 +9779,7 @@ async function sanitizeDesktopConnectionConfig(config = readDesktopConnectionCon
     // Echo the scope back so the UI knows which profile (if any) this reflects.
     profile: key,
     remoteAuthMode: authMode,
+    remoteAllowInvalidCertificate: block.allowInvalidCertificate === true,
     remoteOauthConnected,
     remoteUrl,
     // The persisted Hermes Cloud org (slug/id) for a cloud connection, or '' for
@@ -9375,6 +9787,16 @@ async function sanitizeDesktopConnectionConfig(config = readDesktopConnectionCon
     cloudOrg: mode === 'cloud' ? String(block.org || '') : '',
     remoteTokenPreview: tokenPreview(remoteToken),
     remoteTokenSet: Boolean(remoteToken),
+    // Saved-endpoint history, metadata only — entries' tokens stay in the main
+    // process and are re-attached by coerceDesktopConnectionConfig when a
+    // history URL is picked and saved.
+    savedRemotes: (config.remotes || []).map(entry => ({
+      url: entry.url,
+      authMode: normAuthMode(entry.authMode),
+      allowInvalidCertificate: entry.allowInvalidCertificate === true,
+      tokenSet: Boolean(entry.token),
+      lastUsedAt: entry.lastUsedAt || 0
+    })),
     // Whether the OS keyring can encrypt a token; drives the plain-text opt-in
     // affordance in Settings → Gateway on keyring-less Linux.
     secureTokenStorage,
@@ -9398,15 +9820,24 @@ async function sanitizeDesktopConnectionConfig(config = readDesktopConnectionCon
 // `org` (optional) is the Hermes Cloud org slug/id the instance was discovered
 // under — persisted so Settings can reopen into the same org; omitted from the
 // block when empty so plain remote connections stay unchanged.
-function buildRemoteBlock(remoteUrl, authMode, token, org?: string, headers?: object) {
+function buildRemoteBlock(remoteUrl, authMode, token, allowInvalidCertificate, org?: string, headers?: object) {
   if (authMode !== 'oauth' && !decryptDesktopSecret(token)) {
     throw new Error('Remote gateway session token is required.')
   }
 
-  const block: { url: string; authMode: string; token: object; headers?: object; org?: string } = {
+  const block: {
+    url: string
+    authMode: string
+    token: object
+    allowInvalidCertificate: boolean
+    headers?: object
+    org?: string
+  } = {
     url: normalizeRemoteBaseUrl(remoteUrl),
     authMode,
-    token
+    token,
+    // Opt-in TLS bypass for a self-signed / untrusted gateway certificate.
+    allowInvalidCertificate: allowInvalidCertificate === true
   }
 
   const remoteHeaders = normalizeRemoteHeaders(headers)
@@ -9446,8 +9877,23 @@ function coerceDesktopConnectionConfig(input: any = {}, existing = readDesktopCo
   const leavingSsh = rawExistingBlock.mode === 'ssh' && mode !== 'ssh' && mode !== 'local'
   const existingBlock = leavingCloud || leavingSsh ? {} : rawExistingBlock
   const remoteUrl = String(input.remoteUrl ?? existingBlock.url ?? '').trim()
+  // When the target URL differs from the block being edited, a matching
+  // saved-endpoint history entry supplies the credential/auth fallbacks — this
+  // is what lets "pick a recent endpoint → Connect" work without re-entering
+  // its token. Same-URL edits keep inheriting from the block itself.
+  const normalizedUrl = safeNormalizeRemoteUrl(remoteUrl)
+  const urlChanged = Boolean(normalizedUrl) && normalizedUrl !== safeNormalizeRemoteUrl(existingBlock.url)
+  const savedEntry = urlChanged ? (existing.remotes || []).find(entry => entry.url === normalizedUrl) : null
+  // Credential/auth fallback source. Same-URL edits inherit from the block being
+  // edited. A changed URL inherits ONLY from a matching saved-endpoint entry
+  // (its own token) — a brand-new URL that isn't in history falls back to an
+  // EMPTY block so it can never inherit the previously-connected endpoint's
+  // token (which would send that session token to a different server). The user
+  // must supply a token / sign in for a new endpoint.
+  const fallbackBlock = urlChanged ? savedEntry || {} : existingBlock
+
   // authMode: explicit input wins; otherwise inherit the saved value, default 'token'.
-  const authMode = resolveAuthMode(input.remoteAuthMode, existingBlock.authMode)
+  const authMode = resolveAuthMode(input.remoteAuthMode, fallbackBlock.authMode)
   // Cloud org: only meaningful for 'cloud' mode. Explicit input wins; otherwise
   // inherit the saved org. A plain 'remote' connection never carries an org
   // (switching cloud→remote drops it), so it stays unset unless mode is cloud.
@@ -9470,6 +9916,14 @@ function coerceDesktopConnectionConfig(input: any = {}, existing = readDesktopCo
     encryptSecret: encryptDesktopSecret
   })
 
+  // allowInvalidCertificate (ForgeGuard fork): explicit input wins;
+  // otherwise inherit the saved value. Defaults to false so certificate
+  // verification stays on unless a user opts in.
+  const allowInvalidCertificate =
+    typeof input.remoteAllowInvalidCertificate === 'boolean'
+      ? input.remoteAllowInvalidCertificate
+      : existingBlock.allowInvalidCertificate === true
+
   if (mode === 'ssh') {
     const sshBlock = buildSshBlock(input, savedProfileSsh(existing, key) || rawExistingBlock)
 
@@ -9491,11 +9945,18 @@ function coerceDesktopConnectionConfig(input: any = {}, existing = readDesktopCo
     // backend; a local entry clears the override so the profile inherits the
     // default. The mode tag (remote vs cloud) is preserved on the entry.
     const profiles = { ...(existing.profiles || {}) }
+    let remotes = existing.remotes || []
 
     if (remoteLike) {
-      profiles[key] = {
-        mode,
-        ...buildRemoteBlock(remoteUrl, authMode, nextToken, cloudOrg, remoteHeaders)
+      const block = buildRemoteBlock(remoteUrl, authMode, nextToken, allowInvalidCertificate, cloudOrg, remoteHeaders)
+
+      profiles[key] = { mode, ...block }
+
+      // Only user-entered remote gateways go in the endpoint history; a
+      // discovered Hermes Cloud instance is re-picked via discovery, not the
+      // recent-endpoints list.
+      if (mode === 'remote') {
+        remotes = upsertSavedRemote(remotes, block)
       }
     } else {
       const localEntry = localProfileEntry(rawExistingBlock)
@@ -9510,18 +9971,28 @@ function coerceDesktopConnectionConfig(input: any = {}, existing = readDesktopCo
     return {
       mode: existing.mode === 'ssh' || modeIsRemoteLike(existing.mode) ? existing.mode : 'local',
       remote: existing.remote || {},
-      profiles
+      profiles,
+      remotes
     }
   }
 
   const nextRemote = remoteLike
-    ? buildRemoteBlock(remoteUrl, authMode, nextToken, cloudOrg, remoteHeaders)
+    ? buildRemoteBlock(remoteUrl, authMode, nextToken, allowInvalidCertificate, cloudOrg, remoteHeaders)
     : existingMode === 'ssh'
       ? rawExistingBlock
-      : { url: remoteUrl ? normalizeRemoteBaseUrl(remoteUrl) : remoteUrl, authMode, token: nextToken }
+      : {
+          url: remoteUrl ? normalizeRemoteBaseUrl(remoteUrl) : remoteUrl,
+          authMode,
+          token: nextToken,
+          allowInvalidCertificate
+        }
+
+  // Record an actually-selected remote gateway in the endpoint history; local
+  // and cloud saves just carry the history through unchanged. (ForgeGuard fork)
+  const remotes = mode === 'remote' ? upsertSavedRemote(existing.remotes || [], nextRemote) : existing.remotes || []
 
   // Preserve per-profile overrides when saving the global connection.
-  return { mode, remote: nextRemote, profiles: existing.profiles || {} }
+  return { mode, remote: nextRemote, profiles: existing.profiles || {}, remotes }
 }
 
 // Build an SSH connection block from a save payload, preserving an
@@ -9567,9 +10038,12 @@ async function buildRemoteConnection(
   remoteHost?,
   remoteKind = 'url',
   remoteIdentity?,
+  // ForgeGuard fork: opt-in TLS bypass for a self-signed gateway certificate.
+  allowInvalidCertificate?,
   headers?
 ) {
   const baseUrl = normalizeRemoteBaseUrl(rawUrl)
+  const insecureTls = allowInvalidCertificate === true
   const remoteHeaders = decryptRemoteHeaders(headers)
   // For token/oauth remotes the meaningful host is the real backend URL; for
   // SSH remotes the caller passes the entered/resolved host explicitly (the
@@ -9633,6 +10107,7 @@ async function buildRemoteConnection(
       mode: 'remote',
       source,
       authMode: 'oauth',
+      allowInvalidCertificate: insecureTls,
       remoteHost: host || undefined,
       remoteIdentity,
       remoteKind,
@@ -9659,6 +10134,7 @@ async function buildRemoteConnection(
     mode: 'remote',
     source,
     authMode: 'token',
+    allowInvalidCertificate: insecureTls,
     remoteHost: host || undefined,
     remoteIdentity,
     remoteKind,
@@ -9852,6 +10328,11 @@ const sshBootstrapCoordinator = createBootstrapCoordinator()
 
 let sshQuitTeardownDone = false
 let backendQuitTeardownDone = false
+// The user asked to quit and the async teardown pass is running (or done):
+// window-all-closed must end the process on darwin from now on, and a repeated
+// Cmd+Q must not restart the teardown. See quit-sequence.ts.
+let quitTeardownStarted = false
+let userQuitInProgress = false
 
 function sshScopeKey(profile) {
   return connectionScopeKey(profile) || ''
@@ -10478,6 +10959,8 @@ async function resolveRemoteBackend(profile, options: { poolKey?: string; primar
       undefined,
       route.kind === 'cloud' ? 'cloud' : 'url',
       undefined,
+      // ForgeGuard fork: 8th arg is the TLS bypass, headers moved to 9th.
+      route.allowInvalidCertificate === true,
       route.headers
     )
   }
@@ -10556,7 +11039,13 @@ async function fetchJsonForProfile(profile, path) {
 async function requestJsonForProfile(profile: string, path: string, method: string, body?: string) {
   const conn = await ensureBackend(profile)
   const url = `${conn.baseUrl}${path}`
-  const opts = { method, body, timeoutMs: DEFAULT_FETCH_TIMEOUT_MS }
+  const opts: any = { method, body, timeoutMs: DEFAULT_FETCH_TIMEOUT_MS }
+
+  // Carry the resolved remote's TLS-bypass opt-in into the Node REST leg. The
+  // Electron `net` leg (OAuth) is handled by the session verify proc instead.
+  if (conn.allowInvalidCertificate) {
+    opts.rejectUnauthorized = false
+  }
 
   if (conn.authMode === 'oauth') {
     // Native RFC 8252 flow: authenticate with the bearer token (cookieless)
@@ -10573,7 +11062,7 @@ async function requestJsonForProfile(profile: string, path: string, method: stri
   return fetchJson(url, conn.token, { ...opts, headers: conn.headers })
 }
 
-async function probeRemoteAuthMode(rawUrl) {
+async function probeRemoteAuthMode(rawUrl, allowInvalidCertificate) {
   // Determine how a remote gateway expects callers to authenticate, WITHOUT
   // sending any credentials. ``/api/status`` is public on every Hermes
   // gateway (it backs the portal liveness probe) and reports:
@@ -10586,12 +11075,17 @@ async function probeRemoteAuthMode(rawUrl) {
   // OAuth login button vs a session-token entry box. Network/parse failures
   // surface as ``reachable: false`` rather than throwing, so a half-typed or
   // unreachable URL degrades to "can't tell yet" instead of a hard error.
+  //
+  // `allowInvalidCertificate` is the live toggle value from the settings form
+  // (the config may not be saved yet while the user types), so a self-signed
+  // gateway can be probed before it is persisted.
   const baseUrl = normalizeRemoteBaseUrl(rawUrl)
+  const publicOpts = { timeoutMs: 8_000, ...(allowInvalidCertificate ? { rejectUnauthorized: false } : {}) }
 
   let status
 
   try {
-    status = await fetchPublicJson(`${baseUrl}/api/status`, { timeoutMs: 8_000 })
+    status = await fetchPublicJson(`${baseUrl}/api/status`, publicOpts)
   } catch (error: any) {
     return {
       baseUrl,
@@ -10599,7 +11093,9 @@ async function probeRemoteAuthMode(rawUrl) {
       authMode: 'unknown',
       providers: [],
       version: null,
-      error: error instanceof Error ? error.message : String(error)
+      // ForgeGuard fork: a rejected hostname (TLS alert 112) reads like a
+      // certificate problem; say what it is (gateway-probe-errors.ts).
+      error: describeGatewayProbeError(error, baseUrl)
     }
   }
 
@@ -10613,7 +11109,7 @@ async function probeRemoteAuthMode(rawUrl) {
     // an OAuth-redirect one (``supports_password``). A failure here doesn't
     // change the auth mode, so swallow it.
     try {
-      const body = (await fetchPublicJson(`${baseUrl}/api/auth/providers`, { timeoutMs: 8_000 })) as any
+      const body = (await fetchPublicJson(`${baseUrl}/api/auth/providers`, publicOpts)) as any
 
       if (Array.isArray(body?.providers)) {
         providers = body.providers
@@ -10742,11 +11238,13 @@ async function testDesktopConnectionConfig(input: any = {}) {
   let baseUrl
   let token = null
   let authMode = 'token'
+  let allowInvalidCertificate = false
   let testHeaders = {}
 
   if (wantRemote && block?.url) {
     baseUrl = normalizeRemoteBaseUrl(block.url)
     authMode = normAuthMode(block.authMode)
+    allowInvalidCertificate = block.allowInvalidCertificate === true
     testHeaders = decryptRemoteHeaders(block.headers)
 
     if (authMode !== 'oauth') {
@@ -10757,10 +11255,11 @@ async function testDesktopConnectionConfig(input: any = {}) {
     baseUrl = remote.baseUrl
     token = remote.token
     authMode = normAuthMode(remote.authMode)
+    allowInvalidCertificate = remote.allowInvalidCertificate === true
     testHeaders = remote.headers || {}
   }
 
-  const status = (await fetchConnectionStatus(baseUrl, authMode, token, testHeaders)) as any
+  const status = (await fetchConnectionStatus(baseUrl, authMode, token, testHeaders, allowInvalidCertificate)) as any
 
   // The HTTP status check above proves the backend is reachable, but the chat
   // surface only works once the renderer's live WebSocket to ``/api/ws``
@@ -10773,10 +11272,18 @@ async function testDesktopConnectionConfig(input: any = {}) {
     mintTicket: url => mintGatewayWsTicket(url, testHeaders)
   })
 
-  // Skip the WS leg only when the runtime genuinely lacks a WebSocket (so an
-  // older Electron/Node never fails the test spuriously); Electron's main
-  // process ships a global WebSocket on every supported version.
-  if (wsUrl && typeof globalThis.WebSocket === 'function') {
+  // Skip the WS leg when the runtime genuinely lacks a WebSocket (so an older
+  // Electron/Node never fails the test spuriously); Electron's main process
+  // ships a global WebSocket on every supported version.
+  //
+  // Also skip it under the self-signed opt-in: the main-process global
+  // WebSocket is Node's (undici), which the Electron session verify proc does
+  // NOT cover, and its TLS verification can't be relaxed without bundling an
+  // extra dependency into the packaged app. The REST leg above already proved
+  // reachability with the bypass, and the REAL boot WebSocket runs in the
+  // renderer (Chromium, covered by installCertificateBypass) — so a passing
+  // REST check here is a faithful signal for a self-signed gateway.
+  if (wsUrl && typeof globalThis.WebSocket === 'function' && !allowInvalidCertificate) {
     const probe = await probeGatewayWebSocket(wsUrl, { WebSocketImpl: globalThis.WebSocket, headers: testHeaders })
 
     if (!probe.ok) {
@@ -10794,8 +11301,12 @@ async function testDesktopConnectionConfig(input: any = {}) {
   }
 }
 
-async function fetchConnectionStatus(baseUrl, authMode, token, headers = {}) {
+// ForgeGuard fork: `allowInvalidCertificate` opts in to the TLS bypass for a
+// candidate connection that is not yet saved (so the per-host fallback list
+// inside fetchJson cannot cover it yet).
+async function fetchConnectionStatus(baseUrl, authMode, token, headers = {}, allowInvalidCertificate = false) {
   const url = `${baseUrl}/api/status`
+  const tlsOpts = allowInvalidCertificate ? { rejectUnauthorized: false } : {}
 
   if (authMode === 'oauth') {
     // Native PKCE bearer first, OAuth session cookies second — the same two
@@ -10807,13 +11318,13 @@ async function fetchConnectionStatus(baseUrl, authMode, token, headers = {}) {
     const nativeAt = await ensureNativeAccessToken(baseUrl).catch(() => null)
 
     if (nativeAt) {
-      return fetchJson(url, null, { timeoutMs: 8_000, bearer: nativeAt, headers })
+      return fetchJson(url, null, { timeoutMs: 8_000, bearer: nativeAt, headers, ...tlsOpts })
     }
 
     return fetchJsonViaOauthSession(url, { timeoutMs: 8_000, headers })
   }
 
-  return fetchJson(url, token, { timeoutMs: 8_000, headers })
+  return fetchJson(url, token, { timeoutMs: 8_000, headers, ...tlsOpts })
 }
 
 function resetBootProgressForReconnect() {
@@ -11365,6 +11876,8 @@ async function connectRegistryBackend(
     undefined,
     source.kind === 'cloud' ? 'cloud' : 'url',
     undefined,
+    // ForgeGuard fork: 8th arg is the TLS bypass, headers moved to 9th.
+    (source as { allowInvalidCertificate?: unknown }).allowInvalidCertificate === true,
     source.headers
   )
 
@@ -12261,6 +12774,29 @@ async function startHermes() {
   }
 
   await reapOrphanedBackendsOnce()
+
+  // First-run gate (authoritative). did-finish-load defers its own eager
+  // startHermes(), but the renderer also reaches this via getConnection AND via
+  // early hermes:api calls (status/config/sessions) through ensureBackend — any
+  // of those would otherwise spawn the local install/serve before the user has
+  // chosen local vs remote, and its boot-progress would drive the splash to 94%
+  // behind the chooser. Refuse here so NO path starts a local backend while a
+  // choice is required. This is safe for remote: desktopFirstRunChoiceRequired()
+  // is only true when there is no explicit remote target, so we never block a
+  // legitimate remote connection. Cleared once the choice is recorded (the
+  // renderer reloads after choosing, and this returns false thereafter).
+  if (desktopFirstRunChoiceRequired()) {
+    if (!_firstRunSentinelLogged) {
+      _firstRunSentinelLogged = true
+      rememberLog(
+        '[boot] startHermes() blocked: first-run choice required — no local backend will start until the user chooses'
+      )
+    }
+
+    throw Object.assign(new Error('FIRST_RUN_CHOICE_REQUIRED: waiting for the first-run connection choice'), {
+      code: 'FIRST_RUN_CHOICE_REQUIRED'
+    })
+  }
 
   // Latched-failure short-circuit: once bootstrap has failed in this
   // process, every subsequent startHermes() call re-throws the same error
@@ -14170,7 +14706,19 @@ function createWindow() {
   // shared (backendConnectionState), so the renderer's getConnection() joins
   // this in-flight boot instead of duplicating it; early boot-progress events
   // the renderer misses are recovered by its getBootProgress() pull on mount.
-  startHermes().catch(error => rememberLog(error.stack || error.message))
+  //
+  // First-run gate: on a truly fresh install (no prior choice, no explicit
+  // remote target, no existing local install) defer starting a local backend
+  // until the user picks "local runtime" or "external Hermes" in the renderer.
+  // Starting here would kick off the full local install before they can
+  // choose. The renderer reads hermes:first-run:get and drives the choice;
+  // completing it (local) or applying a remote config both reload the window,
+  // and this gate then lets startHermes() through.
+  if (desktopFirstRunChoiceRequired()) {
+    rememberLog('[boot] first-run choice required; deferring local backend startup until the user chooses')
+  } else {
+    startHermes().catch(error => rememberLog(error.stack || error.message))
+  }
 
   mainWindow.webContents.once('did-finish-load', () => {
     // Zoom restore is handled by wireCommonWindowHandlers (shared with session
@@ -14571,6 +15119,16 @@ ipcMain.handle('hermes:bootstrap:cancel', async () => {
 })
 ipcMain.handle('hermes:boot-progress:get', async () => bootProgressState)
 ipcMain.handle('hermes:bootstrap:get', async () => getBootstrapState())
+// First-run local-vs-remote choice. `get` tells the renderer whether to show
+// the chooser before connecting; `complete` records the choice so subsequent
+// boots (and the post-choice window reload) proceed straight to startHermes().
+ipcMain.handle('hermes:first-run:get', async () => ({ required: desktopFirstRunChoiceRequired() }))
+ipcMain.handle('hermes:first-run:complete', async (_event, payload) => {
+  const choice = payload && typeof payload === 'object' ? payload.choice : payload
+  writeFirstRunChoice(choice)
+
+  return { ok: true, required: desktopFirstRunChoiceRequired() }
+})
 ipcMain.handle('hermes:connection-config:get', async (_event, profile) =>
   sanitizeDesktopConnectionConfig(readDesktopConnectionConfig(), profile)
 )
@@ -14687,6 +15245,9 @@ ipcMain.handle('hermes:ssh-config:resolve', async (_event, host) => {
   })
 })
 ipcMain.handle('hermes:connection-config:test', async (_event, payload) => testDesktopConnectionConfig(payload))
+ipcMain.handle('hermes:connection-config:probe', async (_event, rawUrl, allowInvalidCertificate) =>
+  probeRemoteAuthMode(rawUrl, allowInvalidCertificate === true)
+)
 
 // ── Opt-in keychain encryption for stored secrets ───────────────────────────
 // get returns the current policy without touching safeStorage; set flips it
@@ -14721,8 +15282,15 @@ ipcMain.handle('hermes:connections:remove', async (_event, id) => {
 })
 ipcMain.handle('hermes:connections:set-primary', async (_event, id) => {
   assertCanMutateManagedPrimaryRouting()
-  const registry = setPrimaryConnection(readDesktopConnectionsRegistry(), String(id || ''))
+  const previousRegistry = readDesktopConnectionsRegistry()
+  const registry = setPrimaryConnection(previousRegistry, String(id || ''))
   writeDesktopConnectionsRegistry(registry)
+  // ForgeGuard fork: the promoted gateway moves onto the shared jar and the
+  // demoted one off it; carry both sessions (oauth-partition-moves.ts).
+  await migrateOauthCookiesForRegistryChange(
+    oauthPartitionSnapshot(previousRegistry),
+    oauthPartitionSnapshot(readDesktopConnectionsRegistry())
+  )
 
   return { ok: true, registry: sanitizeConnectionsRegistry(registry) }
 })
@@ -14799,7 +15367,9 @@ ipcMain.handle('hermes:connections:test', async (_event, id) => {
     }
   }
 
-  const status = (await fetchConnectionStatus(baseUrl, authMode, token, testHeaders)) as any
+  const allowInvalidCertificate = entry.allowInvalidCertificate === true
+
+  const status = (await fetchConnectionStatus(baseUrl, authMode, token, testHeaders, allowInvalidCertificate)) as any
 
   // The Test button is the cheapest moment to (re)learn this backend's stable
   // identity for the same-backend roster collapse + Settings hint.
@@ -14811,7 +15381,10 @@ ipcMain.handle('hermes:connections:test', async (_event, id) => {
     mintTicket: url => mintGatewayWsTicket(url, testHeaders)
   })
 
-  if (wsUrl && typeof globalThis.WebSocket === 'function') {
+  // ForgeGuard fork: skipped under the self-signed opt-in for the reason
+  // testDesktopConnectionConfig gives — main's WebSocket is Node's, which no
+  // Electron verify proc covers; the renderer's real socket is covered.
+  if (wsUrl && typeof globalThis.WebSocket === 'function' && !allowInvalidCertificate) {
     const probe = await probeGatewayWebSocket(wsUrl, { WebSocketImpl: globalThis.WebSocket, headers: testHeaders })
 
     if (!probe.ok) {
@@ -15309,7 +15882,6 @@ async function fetchJsonForBackend(
   })
 }
 
-ipcMain.handle('hermes:connection-config:probe', async (_event, rawUrl) => probeRemoteAuthMode(rawUrl))
 ipcMain.handle('hermes:connection-config:oauth-login', async (_event, rawUrl) => {
   // Capability-gated login (RFC 8252). Probe the gateway's public /api/status
   // for supported auth_flows and /api/auth/providers for provider capabilities:
@@ -15445,28 +16017,44 @@ ipcMain.handle('hermes:connection-config:apply', async (_event, payload) => {
     preflight: !key && modeIsRemoteLike(config.mode) ? () => testDesktopConnectionConfig(payload) : undefined,
     writeConfig: writeDesktopConnectionConfig,
     writeRegistry: writeDesktopConnectionsRegistry,
-    apply: () =>
-      applyConnectionChange({
-        cancelAndWait: value => sshBootstrapCoordinator.cancelAndWait(value),
-        isPrimary: !key || key === primaryProfileKey(),
-        rehomePrimary: () =>
-          rehomePrimaryConnection({
-            clearLocalBootstrapFailure: () => {
-              // A remote connection bypasses local runtime/bootstrap failures. Clear
-              // the local-install latch so unsupported/failure escape paths can re-home.
-              bootstrapFailure = null
-            },
-            mode: config.mode,
-            notifyConnectionApplied: sendConnectionApplied,
-            resumeFirstRunRemote: abandonFirstRunSetupChoiceForRemoteApply,
-            teardownPrimaryBackend: teardownPrimaryBackendAndWait
-          }),
-        scope,
-        sendApplied: sendConnectionApplied,
-        stopPool: stopPoolBackend,
-        teardownPrimary: () => teardownPrimaryBackendAndWait({ soft: true }),
-        teardownSsh: value => teardownSshConnection(value || null)
-      })
+    // ForgeGuard fork: applying a gateway makes it the primary and the v1
+    // remote, which moves it onto the shared cookie jar (and its predecessor
+    // off it). Carry both sessions after the writes and before the re-home
+    // dials, and carry them back if activation fails and the writes roll back.
+    apply: async () => {
+      const oauthBefore = oauthPartitionSnapshot(previousRegistry, previousConfig?.remote?.url)
+      const oauthAfter = oauthPartitionSnapshot(nextRegistry, config?.remote?.url)
+
+      await migrateOauthCookiesForRegistryChange(oauthBefore, oauthAfter)
+
+      try {
+        await applyConnectionChange({
+          cancelAndWait: value => sshBootstrapCoordinator.cancelAndWait(value),
+          isPrimary: !key || key === primaryProfileKey(),
+          rehomePrimary: () =>
+            rehomePrimaryConnection({
+              clearLocalBootstrapFailure: () => {
+                // A remote connection bypasses local runtime/bootstrap failures. Clear
+                // the local-install latch so unsupported/failure escape paths can re-home.
+                bootstrapFailure = null
+              },
+              mode: config.mode,
+              notifyConnectionApplied: sendConnectionApplied,
+              resumeFirstRunRemote: abandonFirstRunSetupChoiceForRemoteApply,
+              teardownPrimaryBackend: teardownPrimaryBackendAndWait
+            }),
+          scope,
+          sendApplied: sendConnectionApplied,
+          stopPool: stopPoolBackend,
+          teardownPrimary: () => teardownPrimaryBackendAndWait({ soft: true }),
+          teardownSsh: value => teardownSshConnection(value || null)
+        })
+      } catch (error) {
+        await migrateOauthCookiesForRegistryChange(oauthAfter, oauthBefore)
+
+        throw error
+      }
+    }
   })
 
   return sanitizeDesktopConnectionConfig(config, payload?.profile)
@@ -16000,7 +16588,10 @@ async function handleHermesApiRequest(request) {
         method: request?.method,
         body: request?.body,
         upload: request?.upload,
-        timeoutMs
+        timeoutMs,
+        // ForgeGuard fork: this connection explicitly opted in to the TLS
+        // bypass (fetchJson's per-host fallback also covers saved remotes).
+        ...(connection.allowInvalidCertificate ? { rejectUnauthorized: false } : {})
       })
     }
   } catch (error) {
@@ -17367,6 +17958,7 @@ app.whenReady().then(() => {
   }
 
   installMediaPermissions()
+  installCertificateBypass()
   installDownloadHandling()
   registerMediaProtocol()
   installEmbedReferer()
@@ -17376,6 +17968,18 @@ app.whenReady().then(() => {
   ensureWslWindowsFonts()
   configureSpellChecker()
   registerPowerResumeListeners()
+
+  // Compute the first-run decision ONCE, now — before createWindow() can let
+  // did-finish-load or any renderer-triggered startHermes()/ensureBackend() run
+  // the Python-probe-backed check under boot load (where a timeout would flip
+  // the answer). Every later gate reads this cached value, so they can't
+  // disagree and half-start a local backend behind the chooser.
+  try {
+    desktopFirstRunChoiceRequired()
+  } catch (error) {
+    rememberLog(`[boot] first-run decision precompute failed: ${error?.message || error}`)
+  }
+
   keepAwake.set(readPersistedKeepAwake())
   f12Blocked = readPersistedDisableF12()
   // Seed this before the first window exists: a picker can open before
@@ -17493,55 +18097,45 @@ function heldQuitForActiveWork(event: Electron.Event): boolean {
   return true
 }
 
-app.on('before-quit', event => {
-  // Runs ahead of every teardown below, so "Keep Running" leaves the app
-  // exactly as it was.
-  if (heldQuitForActiveWork(event)) {
-    return
-  }
-
+// Everything that must finish before the process may exit: the backend
+// children (memoised — a second run is a no-op) and, when SSH is in play, the
+// tunnels and any in-flight bootstrap, bounded so a wedged host cannot pin the
+// quit. Runs ONCE per quit; the caller re-issues app.quit() afterwards.
+async function runQuitAsyncTeardown(): Promise<void> {
   // A detached remote updater can outlive this Electron process. Do not tear
   // down its SSH observer/restore transaction at the generic SSH shutdown
-  // deadline: join it first (BEFORE sealing the bootstrap coordinator, whose
-  // shutdown would refuse the restore dials), then re-enter before-quit for
-  // normal teardown. A crash still fails closed on next launch via the remote
-  // install-marker preflight in both POSIX and Windows lifecycle
-  // implementations.
+  // deadline: join it first, BEFORE sealing the bootstrap coordinator (whose
+  // shutdown would refuse the restore dials) or shutting the backends down.
+  // A crash still fails closed on next launch via the remote install-marker
+  // preflight in both POSIX and Windows lifecycle implementations.
   if (
     !managedUpdateQuitWaitDone &&
     (managedUpdateQuitWait || managedConnectionUpdates.size > 0 || managedConnectionRecoveries.size > 0)
   ) {
-    event.preventDefault()
-
     if (!managedUpdateQuitWait) {
       managedUpdateQuitWait = waitForManagedUpdateOperations(() => [
         ...managedConnectionUpdates.values(),
         ...managedConnectionRecoveries.values()
       ]).finally(() => {
         managedUpdateQuitWaitDone = true
-        app.quit()
       })
     }
 
-    return
+    await managedUpdateQuitWait
   }
 
-  // A prevented first quit leaves the renderer alive while teardown runs.
   // Seal the SSH coordinator before touching connections so reconnect
   // callbacks cannot recreate a backend for a registration whose app is
   // already quitting (#91668).
   sshBootstrapCoordinator.shutdown()
 
-  if (!backendQuitTeardownDone) {
-    event.preventDefault()
-    void backendShutdown.run().finally(() => {
-      backendQuitTeardownDone = true
-      app.quit()
-    })
+  try {
+    await backendShutdown.run()
+  } finally {
+    backendQuitTeardownDone = true
   }
 
-  if ((sshConnections.size > 0 || sshBootstrapCoordinator.promises().length > 0) && !sshQuitTeardownDone) {
-    event.preventDefault()
+  if (sshConnections.size > 0 || sshBootstrapCoordinator.promises().length > 0) {
     const scopes = [...sshConnections.keys()]
 
     const pending = Promise.allSettled([
@@ -17552,11 +18146,61 @@ app.on('before-quit', event => {
     // cleanupStale waits up to 5s for the owned pid to exit (50 * 100ms).
     // The previous 4s race could close SSH first and leave serve --isolated
     // reparented to pid 1.
-    void Promise.race([pending, new Promise(resolve => setTimeout(resolve, 6_000))]).then(async () => {
+    await Promise.race([pending, new Promise(resolve => setTimeout(resolve, 6_000))])
+
+    try {
       await sshBootstrapCoordinator.forceCleanupAll()
-      sshQuitTeardownDone = true
-      app.quit()
-    })
+    } catch {
+      void 0
+    }
+  }
+
+  sshQuitTeardownDone = true
+}
+
+app.on('before-quit', event => {
+  // Runs ahead of every teardown below, so "Keep Running" leaves the app
+  // exactly as it was.
+  if (heldQuitForActiveWork(event)) {
+    return
+  }
+
+  // Cmd+Q used to need two presses on macOS: the first pass preventDefault()ed
+  // for the async teardown but fell through into the destructive body below
+  // (overlays, HUD, quick entry, PTYs), and only an async continuation ever
+  // re-issued app.quit() — with window-all-closed keeping the darwin process
+  // in the Dock meanwhile. The passes are explicit now (quit-sequence.ts):
+  // defer once, swallow repeats while the teardown runs, proceed on the
+  // re-issued quit.
+  const hasAsyncWork =
+    !backendQuitTeardownDone || sshConnections.size > 0 || sshBootstrapCoordinator.promises().length > 0
+
+  const decision = decideQuitPass({
+    teardownStarted: quitTeardownStarted,
+    teardownDone: backendQuitTeardownDone && sshQuitTeardownDone,
+    hasAsyncWork
+  })
+
+  userQuitInProgress = true
+
+  if (decision === 'wait') {
+    event.preventDefault()
+
+    return
+  }
+
+  if (decision === 'defer') {
+    event.preventDefault()
+    quitTeardownStarted = true
+    void runQuitAsyncTeardown()
+      .catch(() => {
+        // A teardown we cannot finish must not become a quit we cannot perform.
+        backendQuitTeardownDone = true
+        sshQuitTeardownDone = true
+      })
+      .finally(() => app.quit())
+
+    return
   }
 
   // Clean quit mid-boot should not trip next-launch --no-sandbox (#38216).
@@ -17620,11 +18264,17 @@ app.on('before-quit', event => {
 app.on('window-all-closed', () => {
   // macOS convention: keep the process alive in the Dock when the user closes
   // the last window. But when we're handing off to a detached updater / swap /
-  // uninstall script, the process MUST exit so the script can replace or remove
-  // the bundle and relaunch — without this the script's PID-wait spins to its
-  // full timeout and the user is left with an invisible app (or an uninstall
-  // that appears to do nothing).
-  if (process.platform !== 'darwin' || isQuittingForHandoff) {
+  // uninstall script — or the user asked to quit and the last window went
+  // during the teardown pass — the process MUST exit: the script's PID-wait
+  // would otherwise spin to its full timeout, and a Cmd+Q would leave a
+  // windowless zombie in the Dock needing a second Cmd+Q.
+  if (
+    shouldQuitOnAllWindowsClosed({
+      platform: process.platform,
+      quittingForHandoff: isQuittingForHandoff,
+      userQuitInProgress
+    })
+  ) {
     app.quit()
   }
 })

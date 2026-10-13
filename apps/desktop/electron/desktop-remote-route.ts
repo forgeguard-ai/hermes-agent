@@ -23,6 +23,9 @@ interface SshRouteConfig {
 
 export type DesktopRemoteRoute =
   | {
+      // ForgeGuard fork: opt-in TLS bypass for a self-signed gateway
+      // certificate, threaded from the stored connection into the dial.
+      allowInvalidCertificate?: boolean
       authMode: 'oauth' | 'token'
       connectionId?: string
       headers?: Record<string, unknown>
@@ -90,6 +93,7 @@ export function resolveDesktopRemoteRoute({
 
     return withConnectionId(
       {
+        allowInvalidCertificate: override.allowInvalidCertificate === true,
         authMode,
         headers: override.headers,
         kind,
@@ -149,6 +153,7 @@ export function resolveDesktopRemoteRoute({
 
   return withConnectionId(
     {
+      allowInvalidCertificate: config.remote?.allowInvalidCertificate === true,
       authMode,
       headers: config.remote?.headers,
       kind,
@@ -200,6 +205,7 @@ function resolveRegistryPrimaryRoute(registry: ConnectionRegistry): DesktopRemot
   }
 
   return {
+    allowInvalidCertificate: (entry as { allowInvalidCertificate?: unknown }).allowInvalidCertificate === true,
     authMode: normAuthMode(entry.authMode),
     connectionId: entry.id,
     headers: entry.headers,

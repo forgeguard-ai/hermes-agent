@@ -705,8 +705,6 @@ export function useVoiceConversation({
         dropSpeechSession()
         pendingStartRef.current = true
         setStatus('idle')
-
-        return
       }
     }
 

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DesktopConnectionsRegistry } from '@/global'
 import { createClientSessionState } from '@/lib/chat-runtime'
 import { $desktopBoot } from '@/store/boot'
+import { $connectionModeDialog } from '@/store/connection-mode'
 import {
   $connectionsRegistry,
   _resetConnectionsForTests,
@@ -98,6 +99,8 @@ class FakeWebSocket {
   static pingMode: 'pong' | 'silent' | 'method-not-found' = 'pong'
 
   readyState = 0
+  // Frames written by the client (heartbeat pings land here).
+  sent: string[] = []
   private listeners: Record<string, Set<Listener>> = {}
 
   constructor(public url: string) {
@@ -136,6 +139,10 @@ class FakeWebSocket {
   }
 
   send(data: string) {
+    // ForgeGuard fork: record every frame (fork tests assert on socket.sent)
+    // before running upstream's ping-answering machine below.
+    this.sent.push(data)
+
     let frame: { id?: unknown; method?: string }
 
     try {
@@ -164,7 +171,7 @@ class FakeWebSocket {
     // 'silent': swallow — a healthy socket answers, a half-open one never does.
   }
 
-  private emit(type: string, ev: unknown) {
+  emit(type: string, ev: unknown) {
     for (const fn of this.listeners[type] ?? []) {
       fn(ev)
     }
@@ -292,6 +299,7 @@ beforeEach(() => {
   ;(globalThis as { WebSocket: unknown }).WebSocket = FakeWebSocket
   ;(window as { hermesDesktop?: unknown }).hermesDesktop = fakeDesktop()
   $gatewayState.set('idle')
+  $connectionModeDialog.set({ open: false, prefill: null, firstRun: false })
   $busy.set(false)
   $awaitingResponse.set(false)
   $desktopBoot.set({
@@ -341,9 +349,12 @@ afterEach(() => {
 })
 
 // Let pending microtasks (awaits) AND the queued 0ms socket open/error fire.
+// Advances a few fake ms (not 0): a 0ms timer scheduled DURING a previous
+// advance window lands just past its boundary and never fires on a 0ms
+// advance — observed with the retry chain's delay → dial → socket-event hops.
 async function flushAsync() {
   await act(async () => {
-    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(50)
   })
 }
 
@@ -392,6 +403,89 @@ describe('useGatewayBoot remote reconnect loop (real hook, fake socket)', () => 
     })
 
     expect($desktopBoot.get().error).toBeTruthy()
+  })
+
+  it('FIX: a WS-stage failure on INITIAL boot retries with backoff and connects when the gateway comes back', async () => {
+    // The HTTP probe passed (getConnection resolves) but the WS dial fails —
+    // e.g. the gateway restarting between probe and dial. Previously a single
+    // failed attempt dropped straight to the failure overlay.
+    FakeWebSocket.mode = 'fail'
+
+    render(<Harness />)
+    await flushAsync()
+
+    // First attempt failed, but boot is still retrying — no failure overlay.
+    expect(FakeWebSocket.instances).toHaveLength(1)
+    expect($desktopBoot.get().error).toBeNull()
+
+    // The gateway comes back before the retries run out.
+    FakeWebSocket.mode = 'open'
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000)
+    })
+    await flushAsync()
+
+    expect($gatewayState.get()).toBe('open')
+    expect($desktopBoot.get().error).toBeNull()
+    expect(FakeWebSocket.instances).toHaveLength(2)
+  })
+
+  it('a persistently dead WS on INITIAL boot exhausts the bounded retries, then fails', async () => {
+    FakeWebSocket.mode = 'fail'
+
+    render(<Harness />)
+    await flushAsync()
+
+    // Walk through the 1s, 2s, 4s waits between the four attempts.
+    for (const delay of [1_000, 2_000, 4_000]) {
+      expect($desktopBoot.get().error).toBeNull()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(delay)
+      })
+      await flushAsync()
+    }
+
+    expect(FakeWebSocket.instances).toHaveLength(4)
+    expect($desktopBoot.get().error).toBeTruthy()
+  })
+
+  it('FIX: a silent half-dead socket is heartbeat-detected and force-closed into the reconnect loop', async () => {
+    render(<Harness />)
+    await flushAsync()
+    expect($gatewayState.get()).toBe('open')
+    const socket = FakeWebSocket.instances[0]
+
+    // The heartbeat arms only when the server advertises it in gateway.ready
+    // (upstream's shared JsonRpcGateway contract; the fork's tui_gateway ws
+    // transport advertises heartbeat: true).
+    act(() => {
+      socket.emit('message', {
+        data: JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'event',
+          params: { type: 'gateway.ready', payload: { heartbeat: true } }
+        })
+      })
+    })
+
+    // First heartbeat ticks: the ping goes out on the wire (15s interval).
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000)
+    })
+    expect(socket.sent.some(frame => frame.includes('gateway.ping'))).toBe(true)
+
+    // No reply ever arrives (the socket is half-dead — open at the TCP layer,
+    // delivering nothing). Once the 45s inbound deadline lapses the shared
+    // gateway force-closes it, handing off to the reconnect loop, which mints
+    // a fresh socket.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20_000)
+    })
+    expect(socket.readyState).toBe(FakeWebSocket.CLOSED)
+
+    await advanceBackoff()
+    expect($gatewayState.get()).toBe('open')
+    expect(FakeWebSocket.instances.length).toBeGreaterThan(1)
   })
 
   it('resets the old machine context before connecting an applied gateway', async () => {
@@ -1036,6 +1130,51 @@ describe('useGatewayBoot remote reconnect loop (real hook, fake socket)', () => 
     expect($gatewayState.get()).not.toBe('open')
     // Still retrying.
     expect(FakeWebSocket.instances.length).toBeGreaterThan(1)
+  })
+
+  it('first-run required: defers connecting and opens the blocking chooser instead', async () => {
+    const desktop = fakeDesktop() as ReturnType<typeof fakeDesktop> & {
+      firstRunChoice?: { get: ReturnType<typeof vi.fn>; complete: ReturnType<typeof vi.fn> }
+    }
+
+    desktop.firstRunChoice = {
+      get: vi.fn(async () => ({ required: true })),
+      complete: vi.fn(async () => ({ ok: true, required: false }))
+    }
+    ;(window as { hermesDesktop?: unknown }).hermesDesktop = desktop
+
+    render(<Harness />)
+    await flushAsync()
+
+    // No backend is dialed while the user still has to choose.
+    expect(desktop.getConnection).not.toHaveBeenCalled()
+    expect(FakeWebSocket.instances).toHaveLength(0)
+    // The blocking first-run chooser is up, and the boot splash stood down.
+    expect($connectionModeDialog.get().open).toBe(true)
+    expect($connectionModeDialog.get().firstRun).toBe(true)
+    expect($desktopBoot.get().visible).toBe(false)
+    expect($desktopBoot.get().running).toBe(false)
+    // The gateway machinery never subscribed to boot progress either — the whole
+    // init was deferred behind the gate, not just the getConnection call.
+    expect(desktop.onBootProgress).not.toHaveBeenCalled()
+  })
+
+  it('first-run check is best-effort: a rejecting get() still boots normally', async () => {
+    const desktop = fakeDesktop() as ReturnType<typeof fakeDesktop> & {
+      firstRunChoice?: { get: ReturnType<typeof vi.fn> }
+    }
+
+    // An older/erroring main (IPC throws) must not wedge the app on the splash:
+    // we fall through to the normal connect path exactly as before the gate.
+    desktop.firstRunChoice = { get: vi.fn(async () => Promise.reject(new Error('no ipc'))) }
+    ;(window as { hermesDesktop?: unknown }).hermesDesktop = desktop
+
+    render(<Harness />)
+    await flushAsync()
+
+    expect(desktop.getConnection).toHaveBeenCalled()
+    expect($connectionModeDialog.get().open).toBe(false)
+    expect($gatewayState.get()).toBe('open')
   })
 
   it('FIX: a successful reconnect after a prolonged drop restores the open gateway', async () => {

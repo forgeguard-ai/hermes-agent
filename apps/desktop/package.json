@@ -2,12 +2,13 @@
   "name": "hermes",
   "productName": "Hermes",
   "private": true,
-  "version": "0.17.0",
+  "version": "0.21.1",
   "description": "Native desktop shell for Hermes Agent.",
   "author": "Nous Research",
+  "homepage": "https://github.com/forgeguard-ai/hermes-agent#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/NousResearch/hermes-agent.git"
+    "url": "git+https://github.com/forgeguard-ai/hermes-agent.git"
   },
   "type": "module",
   "main": "dist/electron-main.mjs",
@@ -33,14 +34,15 @@
     "prebuilder": "node scripts/patch-electron-builder-mac-binary.mjs",
     "builder": "cross-env NODE_OPTIONS=--max-old-space-size=16384 node scripts/run-electron-builder.mjs",
     "pack": "npm run build && npm run builder -- --dir --publish never",
-    "dist": "npm run build && npm run builder",
-    "dist:mac": "npm run build && npm run builder -- --mac",
-    "dist:mac:dmg": "npm run build && npm run builder -- --mac dmg",
-    "dist:mac:zip": "npm run build && npm run builder -- --mac zip",
-    "dist:win": "npm run build && npm run builder -- --win",
-    "dist:win:msi": "npm run build && npm run builder -- --win msi",
-    "dist:win:nsis": "npm run build && npm run builder -- --win nsis",
-    "dist:linux": "npm run build && npm run builder -- --linux AppImage deb rpm",
+    "dist": "npm run build && npm run builder -- --publish never",
+    "dist:mac": "npm run build && npm run builder -- --mac --publish never",
+    "dist:mac:dmg": "npm run build && npm run builder -- --mac dmg --publish never",
+    "dist:mac:zip": "npm run build && npm run builder -- --mac zip --publish never",
+    "dist:win": "npm run build && npm run builder -- --win --publish never",
+    "dist:win:msi": "npm run build && npm run builder -- --win msi --publish never",
+    "dist:win:nsis": "npm run build && npm run builder -- --win nsis --publish never",
+    "dist:win:portable": "npm run build && npm run builder -- --win portable --publish never",
+    "dist:linux": "npm run build && npm run builder -- --linux AppImage deb rpm --publish never",
     "perf": "node scripts/perf/run.mjs",
     "update:shim": "bash ../../scripts/desktop-update/repro.sh shim",
     "update:shim:fail": "bash ../../scripts/desktop-update/repro.sh shim-fail",
@@ -172,7 +174,7 @@
     "bippy": "0.5.43",
     "concurrently": "10.0.4",
     "cross-env": "10.1.0",
-    "electron": "40.10.2",
+    "electron": "40.10.6",
     "electron-builder": "26.15.3",
     "esbuild": "0.28.1",
     "jsdom": "29.1.1",
@@ -185,7 +187,7 @@
     "wait-on": "9.0.10"
   },
   "build": {
-    "electronVersion": "40.10.2",
+    "electronVersion": "40.10.6",
     "appId": "com.nousresearch.hermes",
     "productName": "Hermes",
     "executableName": "Hermes",
@@ -197,7 +199,7 @@
         ]
       }
     ],
-    "artifactName": "Hermes-${version}-${os}-${arch}.${ext}",
+    "artifactName": "hermes-desktop-client-${version}-${os}-${arch}.${ext}",
     "icon": "assets/icon",
     "directories": {
       "output": "release"
@@ -280,12 +282,13 @@
       "legalTrademarks": "Hermes",
       "target": [
         "nsis",
-        "msi"
+        "portable"
       ],
       "signAndEditExecutable": false
     },
     "linux": {
       "category": "Development",
+      "icon": "assets/icons",
       "maintainer": "Nous Research <support@nousresearch.com>",
       "synopsis": "Native desktop shell for Hermes Agent.",
       "target": [
@@ -295,12 +298,16 @@
       ]
     },
     "nsis": {
+      "artifactName": "hermes-desktop-client-${version}-win-${arch}-setup.${ext}",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "perMachine": false,
       "shortcutName": "Hermes",
       "uninstallDisplayName": "Hermes",
       "warningsAsErrors": false
+    },
+    "portable": {
+      "artifactName": "hermes-desktop-client-${version}-win-${arch}-portable.${ext}"
     }
   }
 }

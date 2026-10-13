@@ -1,0 +1,272 @@
+name: Release on Merge
+
+# Fork-oriented release automation. A release-relevant PR merged into `main`
+# gets a GitHub Release: Linux + macOS desktop installers attached, and both
+# runtime images (ghcr.io/forgeguard-ai/hermes-agent) tagged with the same
+# version in addition to their rolling <variant>-<sha>/<variant>-latest tags.
+#
+# Version scheme (since Hermes 0.19.0): v<hermes-version>, e.g. v0.19.0 —
+# the Hermes Agent product semver read from pyproject.toml, aligning fork
+# releases with ForgeGuard project versioning conventions. The product
+# version only bumps on upstream syncs, but this workflow fires on every
+# release-relevant merge, so a RE-CUT of an already-released product version
+# (e.g. a fork-only fix) gets a "-forgeguard.<n>" suffix (v0.19.0-forgeguard.2,
+# counting the plain tag as cut 1) instead of colliding on the duplicate tag.
+# The upstream base tag (FORK_UPSTREAM_BASE marker at repo root, maintained by
+# the upstream-sync runbook — see docs/maintainers/upstream-sync/sync-policy.md)
+# no longer names the release; it is surfaced in the release notes for
+# traceability only. (Releases up to v2026.7.1-forgeguard.3 used the old
+# <upstream-base-tag>-forgeguard.<n> date-shaped scheme.)
+#
+# Release gating (2026-07-03): merges skip the whole pipeline — no macOS
+# runner, no image builds, no release — when either
+#   • the PR carries the `no-release` label, or
+#   • the PR touches no release-relevant paths (docs-/CI-/tests-only merges
+#     don't change the shipped artifacts).
+# This replaced the deliberately-unfiltered release-every-merge behavior once
+# the doc-only release churn outweighed its simplicity.
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+  packages: write
+
+# One fixed group (not per-PR) so releases SERIALIZE: two PRs merged close
+# together would otherwise run compute-version in parallel, both read the same
+# highest -forgeguard.N, compute N+1, push images over each other, and the
+# second `gh release create` would fail on the duplicate tag. Queue them so each
+# reads the previous release's tag.
+concurrency:
+  group: release-on-merge-main
+  cancel-in-progress: false
+
+jobs:
+  compute-version:
+    name: Compute release version
+    if: github.event.pull_request.merged == true && !contains(github.event.pull_request.labels.*.name, 'no-release')
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.gate.outputs.should_release }}
+      version: ${{ steps.version.outputs.version }}
+      base_tag: ${{ steps.version.outputs.base_tag }}
+      hermes_version: ${{ steps.version.outputs.hermes_version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      # Skip the release when the merged PR changed nothing that ships:
+      # docs, website, markdown, CI/workflow config, and tests don't alter
+      # the desktop installers or the runtime images. Skills ARE shipped —
+      # the image bakes the whole tree in (`COPY . .`) and stage2-hook syncs
+      # skills/ + optional-skills/ into the running agent — so a skills-only
+      # change is release-relevant and must NOT be skipped.
+      # Uses the paginated files API (a sync PR can touch >100 files; the
+      # single-page `gh pr view --json files` would silently truncate).
+      - name: Decide whether this merge ships a release
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          files="$(gh api "repos/${{ github.repository }}/pulls/${PR}/files" --paginate --jq '.[].filename')"
+          should=false
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            case "$f" in
+              docs/*|website/*|tests/*|.github/*|*.md) ;;
+              *) should=true; break ;;
+            esac
+          done <<EOF2
+          $files
+          EOF2
+          echo "should_release=$should" >> "$GITHUB_OUTPUT"
+          if [ "$should" = "false" ]; then
+            echo "::notice::No release-relevant paths in PR #${PR} — skipping the release pipeline (label a PR 'no-release' to skip explicitly)."
+          fi
+
+      - name: Compute release version
+        id: version
+        if: steps.gate.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # Upstream base tag — release-notes traceability only; it no longer
+          # names the release.
+          if [ -f FORK_UPSTREAM_BASE ]; then
+            BASE_TAG="$(tr -d '[:space:]' < FORK_UPSTREAM_BASE)"
+          else
+            BASE_TAG="$(git describe --tags --abbrev=0 HEAD)"
+            echo "::notice::No FORK_UPSTREAM_BASE marker yet; using nearest reachable tag '$BASE_TAG'. Run the upstream-sync runbook (docs/maintainers/upstream-sync/sync-policy.md) to pin this properly once main is synced to a real upstream release."
+          fi
+
+          # The release is named after the Hermes Agent product semver from
+          # pyproject.toml (ForgeGuard project versioning convention).
+          HERMES_VERSION="$(grep -m1 '^version' pyproject.toml | sed -E 's/version = "(.*)"/\1/')"
+          SEMVER_BASE="v${HERMES_VERSION}"
+
+          # First cut of a product version gets the plain tag (v0.19.0); a
+          # re-cut of an already-released product version gets a
+          # "-forgeguard.<n>" suffix, counting the plain tag as cut 1.
+          # Match ONLY suffixed tags whose final segment is exactly
+          # "-forgeguard.<digits>" (via test()+capture, not split|last|tonumber)
+          # so a human-made odd tag such as "<base>-forgeguard.5-hotfix1" is
+          # skipped instead of crashing jq's tonumber and blocking every future
+          # release under set -euo pipefail.
+          LAST_CUT="$(gh release list --repo "${{ github.repository }}" --limit 200 --json tagName \
+            | jq -r --arg base "$SEMVER_BASE" '
+                [ .[].tagName
+                  | if . == $base then 1
+                    elif (startswith($base + "-forgeguard.") and test("-forgeguard\\.[0-9]+$"))
+                    then (capture("-forgeguard\\.(?<n>[0-9]+)$").n | tonumber)
+                    else empty
+                    end
+                ] | (if length > 0 then max else 0 end)
+              ')"
+          if [ "$LAST_CUT" -eq 0 ]; then
+            VERSION="$SEMVER_BASE"
+          else
+            VERSION="${SEMVER_BASE}-forgeguard.$((LAST_CUT + 1))"
+            echo "::notice::Product version ${SEMVER_BASE} already released — cutting re-release ${VERSION}."
+          fi
+
+          echo "base_tag=$BASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "hermes_version=$HERMES_VERSION" >> "$GITHUB_OUTPUT"
+          echo "::notice::Computed release version: $VERSION (Hermes Agent v$HERMES_VERSION)"
+
+  build-desktop:
+    name: Build desktop installers
+    needs: compute-version
+    if: needs.compute-version.outputs.should_release == 'true'
+    uses: ./.github/workflows/build-desktop-client.yml
+    with:
+      upload: true
+
+  build-images:
+    name: Build runtime images
+    needs: compute-version
+    if: needs.compute-version.outputs.should_release == 'true'
+    uses: ./.github/workflows/build-runtime-images.yml
+    with:
+      push: true
+      version: ${{ needs.compute-version.outputs.version }}
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [compute-version, build-desktop, build-images]
+    if: needs.compute-version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Linux installers
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: hermes-desktop-linux
+          path: release-assets
+
+      - name: Download macOS installers
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: hermes-desktop-macos
+          path: release-assets
+
+      - name: Download Windows installers
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: hermes-desktop-windows
+          path: release-assets
+
+      - name: Write release notes
+        env:
+          VERSION: ${{ needs.compute-version.outputs.version }}
+          BASE_TAG: ${{ needs.compute-version.outputs.base_tag }}
+          HERMES_VERSION: ${{ needs.compute-version.outputs.hermes_version }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          cat <<'NOTES' > /tmp/release-notes.md
+          Fork release automatically built on merge of __PR_LINK__ into `main`.
+
+          **Hermes Agent version:** v__HERMES_VERSION__
+          **Upstream release:** [__BASE_TAG__](https://github.com/NousResearch/hermes-agent/releases/tag/__BASE_TAG__)
+
+          Tracks upstream base `__BASE_TAG__`. See `docs/site/` for the fork's
+          image guide, versioning scheme, and how this fork stays current with
+          [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent).
+
+          ### Docker
+
+          ```bash
+          # Full supervised server image (dashboard + gateways):
+          docker pull ghcr.io/forgeguard-ai/hermes-agent:runtime-__VERSION__
+          # Rolling tag: runtime-latest
+          ```
+
+          > [!IMPORTANT]
+          > **Remote deployments need an auth provider as of `v2026.7.1`.** Upstream's
+          > June-2026 hardening means a gateway bound to a non-loopback address (the
+          > container binds `0.0.0.0`) now **refuses to start** unless an auth provider
+          > is configured — `HERMES_DASHBOARD_INSECURE` / `--insecure` and static-token
+          > mode no longer open a public dashboard. Set one of:
+          > - **Password:** `HERMES_DASHBOARD_BASIC_AUTH_USERNAME` + `HERMES_DASHBOARD_BASIC_AUTH_PASSWORD`
+          > - **OAuth:** `HERMES_DASHBOARD_OAUTH_CLIENT_ID`
+          >
+          > If the desktop client can't reach an upgraded deployment, check the container
+          > log for `Refusing to bind dashboard to 0.0.0.0` — that means no provider is
+          > set. The desktop connection dialog signs in against either provider.
+
+          ### Desktop installers
+
+          Linux (`.AppImage`, `.deb`, `.rpm`), macOS (`.dmg`, `.zip`) and Windows
+          (`-setup.exe` installer, `-portable.exe`) installers are attached below. None
+          is signed with a paid certificate (no Apple Developer or Windows code-signing
+          credentials on this fork); the macOS build is ad-hoc signed, the Windows
+          builds are unsigned.
+
+          **Linux:** no extra step.
+
+          **Windows:** SmartScreen shows *"Windows protected your PC"* on first launch of
+          an unsigned binary — click **More info → Run anyway**. The `-setup.exe` installs
+          per-user (no administrator prompt); the `-portable.exe` runs from wherever it is
+          saved. x64 only.
+
+          **macOS:** because the app isn't notarized, Gatekeeper quarantines it on
+          download and shows *"Hermes is damaged and can't be opened"* — right-click →
+          Open does **not** clear this. After copying Hermes.app to /Applications, strip
+          the quarantine flag once:
+
+          ```bash
+          xattr -cr /Applications/Hermes.app
+          ```
+
+          Then open it normally. (Alternatively, download the `.zip` with
+          `curl -L -o hermes.zip <asset-url>` — a curl download never sets the
+          quarantine attribute, so no `xattr` step is needed.)
+          NOTES
+          sed -i \
+            -e "s/__VERSION__/${VERSION}/g" \
+            -e "s/__BASE_TAG__/${BASE_TAG}/g" \
+            -e "s/__HERMES_VERSION__/${HERMES_VERSION}/g" \
+            -e "s/__PR_LINK__/#${PR_NUMBER}/g" \
+            /tmp/release-notes.md
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.compute-version.outputs.version }}
+          HERMES_VERSION: ${{ needs.compute-version.outputs.hermes_version }}
+        run: |
+          gh release create "$VERSION" \
+            release-assets/* \
+            --repo "${{ github.repository }}" \
+            --title "Hermes Agent ${VERSION}" \
+            --notes-file /tmp/release-notes.md

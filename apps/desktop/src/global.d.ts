@@ -192,7 +192,12 @@ declare global {
       }
       sshConfigHosts: () => Promise<DesktopSshHostsResult>
       sshResolveHost: (host: string) => Promise<DesktopSshResolveResult>
-      probeConnectionConfig: (remoteUrl: string) => Promise<DesktopConnectionProbeResult>
+      // ForgeGuard fork: probe carries the opt-in TLS bypass for self-signed
+      // certificates alongside the endpoint URL.
+      probeConnectionConfig: (
+        remoteUrl: string,
+        allowInvalidCertificate?: boolean
+      ) => Promise<DesktopConnectionProbeResult>
       oauthLoginConnectionConfig: (remoteUrl: string) => Promise<DesktopOauthLoginResult>
       oauthLogoutConnectionConfig: (remoteUrl: string) => Promise<DesktopOauthLogoutResult>
       // Hermes Cloud: one portal login powers discovery + silent per-agent
@@ -213,6 +218,12 @@ declare global {
         // backend under the new HERMES_HOME (reloads the window). Pass null to
         // clear the preference.
         set: (name: string | null) => Promise<DesktopActiveProfile>
+      }
+      // First-run local-vs-remote choice. `get` reports whether the chooser
+      // should block boot; `complete` records the pick so the app stops asking.
+      firstRunChoice?: {
+        get: () => Promise<DesktopFirstRunChoiceStatus>
+        complete: (choice: DesktopFirstRunChoice) => Promise<DesktopFirstRunChoiceResult>
       }
       api: <T>(request: HermesApiRequest) => Promise<T>
       notify: (payload: HermesNotification) => Promise<boolean>
@@ -788,6 +799,9 @@ export interface DesktopConnectionConfig {
   // The profile this config describes, or null for the global/default
   // connection. Per-profile entries let a profile point at its own backend.
   profile: null | string
+  // Opt-in: skip TLS certificate verification for this remote gateway. For a
+  // self-signed / untrusted certificate on a server the user controls.
+  remoteAllowInvalidCertificate: boolean
   remoteAuthMode: 'oauth' | 'token'
   remoteOauthConnected: boolean
   remoteTokenPreview: string | null
@@ -811,6 +825,29 @@ export interface DesktopConnectionConfig {
   sshKeyPath: string
   sshRemoteHermesPath: string
   sshRemoteProfile: string
+  // Previously used remote endpoints (metadata only — each entry's token stays
+  // in the main process and is re-attached when its URL is saved again).
+  // (ForgeGuard fork)
+  savedRemotes: DesktopSavedRemote[]
+}
+
+export interface DesktopSavedRemote {
+  allowInvalidCertificate: boolean
+  authMode: 'oauth' | 'token'
+  lastUsedAt: number
+  tokenSet: boolean
+  url: string
+}
+
+export type DesktopFirstRunChoice = 'local' | 'remote'
+
+export interface DesktopFirstRunChoiceStatus {
+  required: boolean
+}
+
+export interface DesktopFirstRunChoiceResult {
+  ok: boolean
+  required: boolean
 }
 
 export interface DesktopConnectionConfigInput {
@@ -818,6 +855,8 @@ export interface DesktopConnectionConfigInput {
   // When set, the save/apply/test targets this profile's per-profile remote
   // override instead of the global connection.
   profile?: null | string
+  // Opt-in TLS bypass for a self-signed / untrusted gateway certificate.
+  remoteAllowInvalidCertificate?: boolean
   remoteAuthMode?: 'oauth' | 'token'
   remoteToken?: string
   // When true and secure (OS-keychain) storage is unavailable, persist the
@@ -884,6 +923,8 @@ export interface DesktopRegistryConnection {
   // header VALUES are secrets and never cross the IPC boundary. Optional so
   // fixtures/older payloads without the field remain valid.
   headerNames?: string[]
+  // ForgeGuard fork: the per-gateway "Allow self-signed certificate" opt-in.
+  allowInvalidCertificate?: boolean
   // Last-known stable backend identity (the /api/status `install_id`).
   // Present once a roster enumeration or connection test has seen it; two
   // connections sharing it are one physical backend registered under two
@@ -922,6 +963,8 @@ export interface DesktopRegistryConnectionInput {
   // plaintext value (encrypted at rest), or null to keep the stored secret
   // for that name. Omit the field entirely to keep the saved set unchanged.
   headers?: Record<string, null | string>
+  // ForgeGuard fork: the per-gateway "Allow self-signed certificate" opt-in.
+  allowInvalidCertificate?: boolean
   org?: string
   host?: string
   user?: string

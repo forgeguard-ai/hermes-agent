@@ -1,0 +1,26 @@
+version: 1
+enabled: true
+
+project:
+  slug: hermes-agent
+  title: ForgeGuard Hermes Agent
+  kind: maintained-fork
+  summary: A maintained Hermes Agent distribution with ForgeGuard runtime images, desktop artifacts, and reproducible release overlays.
+
+repository:
+  owner: forgeguard-ai
+  name: hermes-agent
+  default_branch: main
+
+source:
+  content_root: docs/site
+  entrypoint: index.md
+
+publishing:
+  route: /projects/hermes-agent/docs
+  versions: both
+  include_generated: false
+
+upstream:
+  repository: NousResearch/hermes-agent
+  tracking_policy: tagged-releases

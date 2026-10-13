@@ -1,0 +1,281 @@
+name: Build Desktop Client
+
+# Fork-oriented desktop artifact builder. Produces Linux, macOS and Windows
+# installers for the Electron desktop app (apps/desktop) so users have a
+# downloadable client that can connect to a remote/self-hosted Hermes
+# deployment via Client Mode (or run a local backend).
+#
+# No Developer ID / notarization credentials exist on the fork
+# (scripts/notarize.cjs no-ops without Apple API key env vars), so macOS
+# builds are AD-HOC signed (scripts/after-pack.cjs) rather than fully
+# unsigned: on Apple Silicon a completely unsigned quarantined app fails
+# Gatekeeper with "damaged and can't be opened" and never launches at all
+# (shipped that way in v2026.7.1-forgeguard.1). Ad-hoc-signed installs still
+# need a one-time `xattr -cr /Applications/Hermes.app` after download — the
+# release notes and website/docs/user-guide/desktop.md carry the instructions.
+# Windows builds (added for v0.20.4) are unsigned NSIS + portable .exe files;
+# SmartScreen's "More info → Run anyway" is the expected first-launch step.
+#
+# The desktop workspace resolves its dependencies from the ROOT install (npm
+# workspaces + staged native deps), so this always runs `npm ci` at the repo
+# root, never a package-local install.
+#
+# Triggers: release-on-merge.yml (workflow_call) is the ONE merge-time
+# builder — this file deliberately has NO push trigger so a merge can't build
+# the same installers twice. workflow_dispatch remains as the manual escape
+# hatch.
+
+on:
+  workflow_call:
+    inputs:
+      upload:
+        description: "Upload the built installers as workflow artifacts"
+        type: boolean
+        default: true
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: "Upload the built installers as workflow artifacts"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+# Collapse rapid manual re-dispatches; never cancel a
+# release-on-merge-triggered call.
+concurrency:
+  group: desktop-client-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' }}
+
+jobs:
+  build-linux:
+    name: Build Linux desktop installers
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # electron-builder's rpm target shells out to rpmbuild, which isn't on the
+      # ubuntu-latest image by default. AppImage + deb work out of the box.
+      - name: Install rpm tooling
+        run: sudo apt-get update && sudo apt-get install -y rpm
+
+      # Root install (with scripts): the desktop build stages native deps
+      # (node-pty) and depends on workspace hoisting. retry covers registry blips.
+      - name: Install dependencies (root)
+        uses: ./.github/actions/retry
+        with:
+          command: npm ci
+
+      # Gate the artifact on the same fast checks a contributor runs locally,
+      # so a broken main-process/renderer change fails before the slow package.
+      - name: Desktop main-process tests
+        run: npm run --prefix apps/desktop test:desktop:platforms
+
+      # Non-blocking: apps/desktop's vitest suite (test:ui) has pre-existing
+      # failures unrelated to fork changes (jsdom-environment gaps —
+      # missing canvas/CSS.escape polyfills — not real product bugs; verified
+      # the same failures occur outside this fork too). This step has never
+      # been a validated CI gate anywhere in this project's history — ci.yml's
+      # own TypeScript job only runs typecheck + build, never test:ui. Kept
+      # here (continue-on-error) for visibility rather than dropped outright,
+      # so the results stay tracked without blocking desktop releases on
+      # pre-existing test debt. Revisit once that debt is paid down.
+      - name: Desktop renderer tests
+        continue-on-error: true
+        run: npm run --prefix apps/desktop test:ui
+
+      - name: Typecheck desktop
+        run: npm run --prefix apps/desktop typecheck
+
+      - name: Build renderer + main
+        run: npm run --prefix apps/desktop build
+
+      # Package the unsigned Linux installers. dist:linux runs the build again
+      # internally, but keeping the explicit build step above means a renderer
+      # break surfaces with a clearer log before the heavyweight packager runs.
+      - name: Package Linux installers
+        run: npm run --prefix apps/desktop dist:linux
+
+      # NOTE: github.event_name inside a called (workflow_call) workflow is
+      # always the CALLER's triggering event (e.g. `pull_request` for
+      # release-on-merge.yml) — it is never literally "workflow_call". Gate
+      # on `inputs.upload` itself (default true for both workflow_call and
+      # workflow_dispatch) rather than trying to detect the call type via
+      # event name, or this step silently no-ops for every caller. (Found
+      # 2026-07-02: this bug meant release-on-merge.yml never actually
+      # attached installers to a release.)
+      - name: Upload Linux installers
+        if: inputs.upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hermes-desktop-linux
+          path: |
+            apps/desktop/release/*.AppImage
+            apps/desktop/release/*.deb
+            apps/desktop/release/*.rpm
+          if-no-files-found: error
+          retention-days: 14
+
+  build-macos:
+    name: Build macOS desktop installers
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies (root)
+        uses: ./.github/actions/retry
+        with:
+          command: npm ci
+
+      - name: Desktop main-process tests
+        run: npm run --prefix apps/desktop test:desktop:platforms
+
+      # See the matching step in build-linux for why this is non-blocking.
+      - name: Desktop renderer tests
+        continue-on-error: true
+        run: npm run --prefix apps/desktop test:ui
+
+      - name: Typecheck desktop
+        run: npm run --prefix apps/desktop typecheck
+
+      - name: Build renderer + main
+        run: npm run --prefix apps/desktop build
+
+      # Package the macOS installers (dmg + zip, per apps/desktop's
+      # electron-builder "mac.target" config). Not notarized (no Apple
+      # credentials on the fork — scripts/notarize.cjs no-ops), but ALWAYS at
+      # least ad-hoc signed via scripts/after-pack.cjs.
+      #
+      # CSC_FOR_PULL_REQUEST: release-on-merge.yml calls this workflow from a
+      # pull_request event, and electron-builder skips its entire signing pass
+      # for PR builds as a fork-secret-safety heuristic (that skip shipped the
+      # fully unsigned, Gatekeeper-"damaged" v2026.7.1-forgeguard.1 dmg). The
+      # heuristic guards CSC_LINK-style cert secrets, which this repo does not
+      # have, so opting out of the skip is safe here and lets electron-builder
+      # run its normal (identity-less → ad-hoc) signing flow.
+      - name: Package macOS installers
+        env:
+          CSC_FOR_PULL_REQUEST: "true"
+        run: npm run --prefix apps/desktop dist:mac
+
+      # Fail the build if the packed bundle somehow regresses to unsigned —
+      # an unsigned arm64 app cannot launch on Apple Silicon once quarantined,
+      # so this is a correctness gate, not a nicety. appOutDir is
+      # release/mac-arm64 on arm64 runners and release/mac on x64; glob both.
+      - name: Verify macOS app signature
+        run: |
+          set -euo pipefail
+          app=$(find apps/desktop/release -maxdepth 2 -name "*.app" -type d | head -1)
+          if [ -z "$app" ]; then
+            echo "No .app bundle found under apps/desktop/release" >&2
+            exit 1
+          fi
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign --display --verbose=2 "$app"
+
+      # See the matching NOTE on "Upload Linux installers" above.
+      - name: Upload macOS installers
+        if: inputs.upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hermes-desktop-macos
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  build-windows:
+    name: Build Windows desktop installers
+    runs-on: windows-latest
+    timeout-minutes: 45
+    # Every `run:` below is bash on purpose: the desktop scripts (assert-root-
+    # install, stage-native-deps, run-electron-builder) are POSIX-shaped node
+    # invocations that behave the same under Git Bash as on the other two
+    # runners, and the retry action is a bash composite already.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Root install, never package-local: apps/desktop/scripts/assert-root-
+      # install.mjs hard-fails the build unless vite/react resolve from the
+      # workspace root (same rule as the Linux and macOS jobs).
+      - name: Install dependencies (root)
+        uses: ./.github/actions/retry
+        with:
+          command: npm ci
+
+      # Non-blocking on Windows ON PURPOSE. This is the same electron vitest
+      # project the Linux and macOS jobs above run — and gate on — so it is
+      # already enforced twice per build. On windows-latest ~30 of its tests are
+      # not Windows-portable (POSIX 0600 chmod assertions, 8.3 short-path
+      # RUNNER~1 vs runneradmin mismatches, symlink plants) and would fail every
+      # run for reasons unrelated to the installers this job exists to produce.
+      # Upstream itself runs only a curated Windows subset (tests-os.yml). Kept
+      # visible rather than skipped so a Windows-portability pass has a signal.
+      - name: Desktop main-process tests (informational on Windows)
+        continue-on-error: true
+        run: npm run --prefix apps/desktop test:desktop:platforms
+
+      # See the matching step in build-linux for why this is non-blocking.
+      - name: Desktop renderer tests
+        continue-on-error: true
+        run: npm run --prefix apps/desktop test:ui
+
+      - name: Typecheck desktop
+        run: npm run --prefix apps/desktop typecheck
+
+      - name: Build renderer + main
+        run: npm run --prefix apps/desktop build
+
+      # Package the Windows installers per apps/desktop's electron-builder
+      # "win.target": an NSIS per-user installer (no UAC — perMachine is false)
+      # and a portable single .exe, each with its own artifactName so the two
+      # .exe outputs cannot clobber each other. UNSIGNED: build.win
+      # .signAndEditExecutable is false on purpose (it keeps electron-builder's
+      # signtool step — and its 7-Zip-hostile winCodeSign download — out of the
+      # build; PE identity is stamped by scripts/set-exe-identity.mjs in
+      # afterPack instead), and no code-signing certificate exists on the fork.
+      # SmartScreen will show "Windows protected your PC" until the binaries
+      # accrue reputation; the release notes and desktop-artifacts.md say so.
+      # x64 only: get-windows publishes no win32-arm64 prebuild.
+      - name: Package Windows installers
+        run: npm run --prefix apps/desktop dist:win
+
+      # See the matching NOTE on "Upload Linux installers" above. The glob
+      # excludes *.exe.blockmap (electron-builder's differential-update
+      # sidecar) by construction — it does not end in .exe.
+      - name: Upload Windows installers
+        if: inputs.upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hermes-desktop-windows
+          path: apps/desktop/release/*.exe
+          if-no-files-found: error
+          retention-days: 14
