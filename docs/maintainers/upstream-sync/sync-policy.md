@@ -109,11 +109,28 @@ before opening the PR.
 
 ```bash
 echo "<TAG>" > FORK_UPSTREAM_BASE
-git add FORK_UPSTREAM_BASE
+echo "<UPSTREAM_COMMIT>" > FORK_UPSTREAM_COMMIT
+git add FORK_UPSTREAM_BASE FORK_UPSTREAM_COMMIT
 git commit -m "chore: bump FORK_UPSTREAM_BASE to <TAG>"
 ```
 
-This file is read by `release-on-merge.yml`'s version-computation step for the
+`FORK_UPSTREAM_COMMIT` holds the full SHA of the upstream commit step 3
+actually merged, and nothing else. It is usually `<TAG>^{commit}`, but not
+always: when an upstream release tag sits off upstream `main`, the sync merges
+a tree-identical commit instead, and this file records that commit. Check it
+with `git merge-base HEAD <UPSTREAM_COMMIT>`, which must print
+`<UPSTREAM_COMMIT>` back. The release notes show it beside the upstream
+release; the file is optional to the workflow, but a sync should always write
+it.
+
+**Which release scheme the marker selects.** When `<TAG>` is a plain upstream
+semver release (`v0.22.2`), the release is named from it:
+`v0.22.2-forgeguard.<N>`, N starting at 1 for each upstream release, and the
+version files are not read. Any other marker (the calendar-shaped bases such as
+`v2026.8.31`) keeps the legacy scheme described below. See the
+[Release process](../release/release-process.md#version-scheme).
+
+For the legacy scheme, this file is read by `release-on-merge.yml`'s version-computation step for the
 "Upstream release" traceability line in the release notes. Since Hermes 0.19.0
 it no longer names the release — release tags are the `pyproject.toml` version,
 which since `v0.20.4` is the **fork's own patch line** (bumped by one on every
