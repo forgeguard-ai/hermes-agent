@@ -200,10 +200,35 @@ evolves.
       in its two label assertions — the fork is client-mode-first, so upstream's
       wording (re-)appearing here means an auto-merge silently restored
       upstream's string; re-adapt the assertions, not the fork's i18n.
-- [ ] **`apps/desktop/package.json`** has a top-level `"homepage"` field
-      (`https://github.com/forgeguard-ai/hermes-agent#readme`) — required by
-      electron-builder's Linux `deb` target; its absence fails `dist:linux` with
-      `Please specify project homepage`.
+- [ ] **Desktop packaging overlay** — every fork electron-builder setting
+      lives in `apps/desktop/electron-builder.forgeguard.cjs`, applied on top
+      of upstream's base config (`apps/desktop/electron-builder.config.cjs`
+      when it exists, else `package.json`'s `"build"` block). It sets the
+      installer set (Linux AppImage + deb + rpm, Windows NSIS + portable,
+      macOS dmg + zip), the `hermes-desktop-client-*` artifact names (NSIS
+      `-setup`, portable `-portable`), the full `nsis` block, the Linux icon
+      set, `win.signAndEditExecutable: false`, `publish: null` (platform-level
+      `publish` keys too), `electronVersion` from the electron devDependency,
+      and `extraMetadata.homepage`
+      (`https://github.com/forgeguard-ai/hermes-agent#readme`), which the deb
+      and rpm targets require (`Please specify project homepage` otherwise).
+      `apps/desktop/scripts/forgeguard-dist.mjs` is the packaging entry point
+      (`build-desktop-client.yml` calls it directly; the `builder` npm script
+      points at it); it runs electron-builder with
+      `--config electron-builder.forgeguard.cjs`, bypassing upstream's
+      `run-electron-builder.mjs`, whose 0.22 version admits only dmg, zip,
+      msix, AppImage, deb and rpm. The fork's macOS ad-hoc signing is
+      `apps/desktop/scripts/forgeguard-after-pack.mjs`, which runs upstream's
+      `after-pack.mjs` first. **At a sync:** take upstream's side for
+      `after-pack.mjs`, the `"build"` block and the packaging scripts in
+      `package.json` (re-point `builder` at `forgeguard-dist.mjs` if local
+      `npm run dist:*` should keep the fork's installer set), then run
+      `node apps/desktop/scripts/forgeguard-dist.mjs --print-config` and check
+      the targets and names. Also check what upstream's wrapper does that a
+      direct electron-builder call would skip (prepared packaging inputs,
+      preload patches such as `patch-electron-builder-mac-binary.mjs`) and
+      carry what the fork's builds need into `forgeguard-dist.mjs`. Tests:
+      `apps/desktop/scripts/forgeguard-dist.test.mjs`.
 - [ ] **`apps/desktop/electron/managed-ssh-update.test.ts`** resolves its
       stand-in hermes binary (`TRUE_BINARY`: `/bin/true` else `/usr/bin/true`)
       instead of hard-coding `/bin/true`. macOS ships `true` at `/usr/bin/true`
@@ -358,13 +383,13 @@ IS the verification hook — run it on the merged branch instead of eyeballing:
       `tests/hermes_cli/test_web_server_speak_stream.py`
       (`test_paragraphs_chunking_*`, `test_none_chunking_*`),
       `apps/desktop/src/app/settings/voice-field-visible.test.ts`.
-- [ ] **Linux app icon set** (fork v0.20.7) — `build.linux.icon` in
-      `apps/desktop/package.json` points at `assets/icons/` (new, fork-only:
+- [ ] **Linux app icon set** (fork v0.20.7) — `linux.icon` in
+      `apps/desktop/electron-builder.forgeguard.cjs` points at `assets/icons/` (new, fork-only:
       16→512 PNGs) instead of inheriting the top-level single-PNG
       `assets/icon`. electron-builder returns a one-entry icon set for a single
       PNG, so the 1024x1024 master installed to
       `hicolor/1024x1024/apps/Hermes.png`, which no icon theme indexes. Keep
-      this key if upstream rewrites the `linux` block. Tests:
+      this key in the overlay. Tests:
       `apps/desktop/scripts/linux-icons.test.mjs`.
 - [ ] **Security dependency pins ahead of upstream** (fork v0.20.8; re-verified
       v2026.8.31) — the fork pins `electron` **40.10.6**

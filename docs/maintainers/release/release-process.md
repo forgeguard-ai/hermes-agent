@@ -99,8 +99,8 @@ description of the image and how to run it.
 ## macOS installer signing
 
 The fork has no Apple Developer credentials, so macOS builds are ad-hoc signed
-(NOT notarized). `scripts/notarize.cjs` no-ops without Apple API-key env vars;
-`scripts/after-pack.cjs` performs ad-hoc signing. The build sets
+(NOT notarized). `scripts/notarize.mjs` no-ops without Apple API-key env vars;
+`scripts/forgeguard-after-pack.mjs` performs ad-hoc signing. The build sets
 `CSC_FOR_PULL_REQUEST: "true"` so ad-hoc signing runs even though the reusable
 workflow is invoked from a `pull_request` event, and a `codesign --verify` gate
 fails the build if the bundle regresses to unsigned. Gatekeeper still quarantines
