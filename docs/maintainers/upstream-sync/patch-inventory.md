@@ -224,15 +224,24 @@ IS the verification hook — run it on the merged branch instead of eyeballing:
       `"no-key-required"` deliberately stays out. Verified NOT upstream as of
       v2026.8.16 (the fork test fails on a clean upstream checkout).
       Test: `tests/hermes_cli/test_auth_usable_secret.py`.
-- [ ] **custom:`<name>` slug handling** (fork v0.19.3):
-      `hermes_cli/providers.py::canonicalize_provider_slug`, the
-      `custom:custom` bare-bucket collapse in `hermes_cli/web_server.py`'s
-      `_normalize_main_model_assignment` (upstream preserves *named* unresolved
-      slugs verbatim — keep both behaviors), `resolve_provider`'s bare-slug
-      resolution in `auth.py`, and the `/api/providers/validate`
-      custom-endpoint key probe. `canonicalize_provider_slug` does not exist
-      upstream (the fork test file cannot even import there).
-      Test: `tests/hermes_cli/test_custom_provider_slug_canonicalization.py`.
+- [ ] **custom:`<name>` slug handling** (fork v0.19.3): the logic lives in
+      the fork-owned `hermes_cli/custom_provider_slugs.py`
+      (`canonicalize_provider_slug`, `collapse_unresolved_custom_slug`,
+      `same_custom_endpoint`, `user_provider_entry`,
+      `model_endpoint_credential_for_entry`, `custom_endpoint_key_probe`);
+      upstream files carry one-to-five-line calls: `hermes_cli/web_server.py`
+      (`_normalize_main_model_assignment` — upstream preserves *named*
+      unresolved slugs verbatim, keep both behaviors —
+      `_apply_main_model_assignment`'s `provider_changed`,
+      `_apply_model_assignment_sync`'s entry lookup, entry credential and aux
+      canonicalization, and the `/api/providers/validate` custom-endpoint key
+      probe), `tui_gateway/server.py::_persist_model_switch`, and
+      `resolve_provider`'s `custom:custom` equality in `auth.py` (a patch, not
+      a hook; the module docstring says why it must stay an equality).
+      Upstream moved the `web_server.py` sites to `web_server_config.py` and
+      `web_routers/config_env.py`: re-add the calls there.
+      Tests: `tests/hermes_cli/test_custom_provider_slug_canonicalization.py`,
+      `tests/fork/test_custom_provider_slugs.py`.
 - [ ] **mem0 embedder-bearer scoping** (fork v0.19.1):
       `plugins/memory/mem0/_backend.py` (scoped Ollama-client Authorization
       patch), `_oss_providers.py`, `_setup.py`. Verified NOT upstream as of
@@ -326,35 +335,41 @@ IS the verification hook — run it on the merged branch instead of eyeballing:
       Tests: `tests/agent/test_output_reservation.py`.
 - [ ] **OpenAI streaming-TTS hardening** (fork v0.20.7) — four sites in
       upstream-owned files: `tools/tts_streaming.py::OpenAIStreamer.stream`
+      calls the fork-owned `tools/tts_openai_stream_request.py`
       (endpoint is `tts.openai.base_url` or `DEFAULT_OPENAI_BASE_URL`, never
       `OPENAI_BASE_URL`; `speed`/`lang_code` parity with
       `_generate_openai_tts`), `hermes_cli/doctor_live.py::_audio_provider_probe`
-      (`openai_cfg=` — probes `<tts.openai.base_url>/models` with
-      `tts.openai.api_key` or the `_openai_audio_key()` seam),
+      (`openai_cfg=` → the fork-owned `hermes_cli/doctor_audio_openai.py`:
+      probes `<tts.openai.base_url>/models` with `tts.openai.api_key` or the
+      `_openai_audio_key()` seam),
       `hermes_cli/web_server.py::speak_stream_ws` (`{"type":"error"}` instead of
       `end` when the producer raised), and
       `apps/desktop/src/lib/voice-playback.ts::openSpeechStream` (`error` frame
       → `'fallback'` before audio / drain-then-`'done'` after). Verified NOT
       upstream as of v2026.8.16.2. Tests: `tests/tools/test_tts_streaming.py`
-      (`test_openai_streamer_*`), `tests/hermes_cli/test_doctor_live.py`
+      (`test_openai_streamer_*`), `tests/fork/test_tts_openai_stream_request.py`,
+      `tests/hermes_cli/test_doctor_live.py`
       (`test_tts_openai_probe_*`),
       `tests/hermes_cli/test_web_server_speak_stream.py`
       (`test_provider_failure_*`), `apps/desktop/src/lib/voice-playback.test.ts`.
 - [ ] **TTS chunking modes** (fork v0.20.8) —
       `tts.streaming.chunking` (`punctuation` | `paragraphs` | `none`)
-      across upstream-owned files:
-      `tools/tts_streaming.py` (`SentenceChunker` `mode=` +
-      `PARAGRAPH_BOUNDARY_RE` + `resolve_chunking_mode`),
+      — logic in the fork-owned `tools/tts_chunking_modes.py`
+      (`resolve_chunking_mode`, `PARAGRAPH_BOUNDARY_RE`, `apply_chunking_mode`,
+      `chunker_for_config`, `chunker_for_mode`); one line in
+      `tools/tts_streaming.py::SentenceChunker.feed` reads the chunker's
+      optional `boundary` attribute. Call sites: `tools/tts_tool.py` +
+      `gateway/streaming_tts_consumer.py` (`chunker_for_config(tts_config)`,
+      which prefers upstream's `SentenceChunker.from_config` once it exists),
       `hermes_cli/web_server.py::speak_stream_ws` (`_resolve` returns the
       profile-scoped mode, `_produce` builds the chunker with it, `none`
-      skips the idle flush), `hermes_cli/config_defaults.py` (default
-      `tts.streaming.chunking: punctuation` block), `tools/tts_tool.py` +
-      `gateway/streaming_tts_consumer.py` (mode threading), and the desktop
+      skips the idle flush — upstream moved it to `web_routers/audio.py`),
+      `hermes_cli/config_defaults.py` (default
+      `tts.streaming.chunking: punctuation` block), and the desktop
       settings surface (`apps/desktop/src/app/settings/constants.ts` — voice
       key, enum, `TTS_CHUNKING_LABELS`, field copy; `config-settings.tsx` —
       `voiceFieldVisible` early return + option labels). Tests:
-      `tests/tools/test_tts_streaming.py` (`TestSentenceChunkerModes`,
-      `TestResolveChunkingMode`),
+      `tests/fork/test_tts_chunking_modes.py`,
       `tests/hermes_cli/test_web_server_speak_stream.py`
       (`test_paragraphs_chunking_*`, `test_none_chunking_*`),
       `apps/desktop/src/app/settings/voice-field-visible.test.ts`.
@@ -393,7 +408,10 @@ IS the verification hook — run it on the merged branch instead of eyeballing:
       copies resolve to the patched 3.3.18. Take upstream's versions when they
       pass these CVEs.
 - [ ] **Models dashboard identity**:
-      - `hermes_cli/web_server.py::_fold_custom_provider_spellings` merges bare
+      - `hermes_cli/models_analytics_identity.py::fold_custom_provider_spellings`
+        (fork-owned; `hermes_cli/web_server.py` imports it as
+        `_fold_custom_provider_spellings` and calls it on the raw rows; upstream
+        moved `_get_models_analytics` to `web_routers/analytics.py`) merges bare
         `custom` rows into the single named `custom:<name>` row per
         (model, aux task). An agent built from config records the runtime id
         `custom`; a mid-session switch records the named slug; one endpoint
@@ -401,14 +419,33 @@ IS the verification hook — run it on the merged branch instead of eyeballing:
       - `_get_models_analytics` returns each row's `aux_task`; upstream
         computes it and drops it.
       - `totals.distinct_models` counts the models the cards name, aux-only
-        ones included.
+        ones included (`models_analytics_identity.count_shown_models`).
       - `web/src/pages/ModelsPage.tsx`: an `aux usage · <task>` badge, MAIN
         never on an aux-usage card, MAIN matching through
         `web/src/lib/model-identity.ts::sameMainProvider` (bare `custom` equals
         a named slug), and a card key that includes the task.
 
       Tests: `tests/hermes_cli/test_models_analytics_identity.py`,
+      `tests/fork/test_models_analytics_identity_module.py`,
       `web/src/lib/model-identity.test.ts`.
+- [ ] **Per-session model pin** — the rules live in the fork-owned
+      `tui_gateway/session_model_pin.py` (`model_source` `user`/`default` on
+      the session row, legacy-row handling, the resume adoption notice).
+      Hooks in `tui_gateway/server.py`: `_ensure_session_db_row` stamps
+      `model_source`; `_stored_session_runtime_overrides` restores only a pin
+      (`_stored_model_is_pinned` wrapper); `_stored_model_adoption_notice`
+      wrapper; `_persist_live_session_runtime(model_source=)` from
+      `_apply_model_switch`; `_sync_agent_model_with_config` emits the parked
+      `pending_model_notice`. `tui_gateway/methods_session.py` parks the notice
+      on all three resume paths. Upstream moved these functions to
+      `session_workdir.py`, `model_switch.py` and a rewritten resume handler.
+      Tests: `tests/tui_gateway/test_session_model_source.py`,
+      `tests/fork/test_session_model_pin.py`.
+- [ ] **Banner fork identity** — `hermes_cli/fork_identity.py`
+      (`fork_upstream_base`, `with_fork_identity`); `hermes_cli/banner.py`
+      imports `fork_upstream_base` as `_fork_upstream_base` and wraps the
+      version label in one line of `format_banner_version_label`. Re-apply that
+      line on upstream's rebuilt label. Tests: `tests/fork/test_fork_identity.py`.
 
 ## Docs / instructions
 

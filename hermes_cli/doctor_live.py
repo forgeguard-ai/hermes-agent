@@ -132,23 +132,7 @@ def _launch_browser_probe(timeout: float) -> tuple:
     return (True, "launched + about:blank + closed")
 
 
-def _openai_audio_key() -> str:
-    """OpenAI key for the TTS probe when ``tts.openai.api_key`` is unset.
-
-    ``tts.openai.api_key`` is checked by the caller; this resolves
-    ``VOICE_TOOLS_OPENAI_KEY`` > ``OPENAI_API_KEY`` via the shared audio
-    resolver (env/.env/credential pool) — the same chain the openai TTS
-    provider and streamer authenticate with, so the probe tests the key the
-    voice path will actually use. Lazy import: ``tools.tool_backend_helpers``
-    is light; ``tools.tts_tool`` / ``tools.tts_streaming`` are not.
-    """
-    try:
-        from tools.tool_backend_helpers import resolve_openai_audio_api_key
-
-        return resolve_openai_audio_api_key() or ""
-    except Exception:
-        return (os.getenv("VOICE_TOOLS_OPENAI_KEY")
-                or os.getenv("OPENAI_API_KEY") or "").strip()
+from hermes_cli.doctor_audio_openai import audio_probe_target, openai_audio_key as _openai_audio_key  # noqa: E402  (fork)
 
 
 def _probe_mcp_server(name: str, config: dict, timeout: float):
@@ -209,15 +193,11 @@ def _audio_provider_probe(kind: str, provider: str,
                           openai_cfg: Optional[dict] = None) -> ProbeResult:
     """Shared TTS/STT metadata probe (voices/models list GET only).
 
-    ``openai_cfg`` is the ``tts.openai`` section (TTS only): an
-    OpenAI-compatible server configured via ``tts.openai.base_url`` is probed
-    at ``<base_url>/models`` with ``tts.openai.api_key`` — the endpoint and
-    credential the voice path actually uses — instead of api.openai.com with
-    ``OPENAI_API_KEY``.
+    ``openai_cfg`` is the ``tts.openai`` section (TTS only; ForgeGuard fork,
+    see hermes_cli/doctor_audio_openai.py).
     """
     name = kind.upper()
     provider = (provider or "").strip().lower()
-    openai_cfg = openai_cfg or {}
     if provider in _LOCAL_AUDIO_PROVIDERS:
         return ProbeResult(name, "skip",
                            f"(provider '{provider or 'local'}' — no remote "
@@ -234,17 +214,8 @@ def _audio_provider_probe(kind: str, provider: str,
                            f"(provider '{provider}' — no live probe "
                            "implemented)")
     url, env_var, scheme = entry
-    base_url = ""
-    if provider == "openai":
-        base_url = str(openai_cfg.get("base_url") or "").rstrip("/")
-        if base_url:
-            url = f"{base_url}/models"
-        key_hint = "tts.openai.api_key / VOICE_TOOLS_OPENAI_KEY / OPENAI_API_KEY"
-        key = (str(openai_cfg.get("api_key") or "").strip()
-               or _openai_audio_key())
-    else:
-        key_hint = env_var
-        key = os.getenv(env_var, "").strip()
+    url, key, key_hint, base_url = audio_probe_target(  # fork: hermes_cli/doctor_audio_openai.py
+        provider, url, env_var, openai_cfg, lambda: _openai_audio_key())
     if not key:
         return ProbeResult(name, "warn",
                            f"(provider '{provider}' configured but "

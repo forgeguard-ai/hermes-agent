@@ -21,6 +21,11 @@ reserve?", so the compressor and the transport agree from the first turn.
 It deliberately does NOT write to ``agent.max_tokens``: a non-None value
 there reads as "the user set it" downstream (session init snapshot,
 model-switch restore, gateway resolution) and must keep meaning that.
+
+``agent/agent_init.py`` seeds the compressor's ``_compressor_max_tokens``
+from :func:`resolve_agent_output_reservation`; upstream's native-Gemini
+fallback there still applies when the profile has no default (that
+adapter's cap is an adapter constant, not a profile default).
 """
 
 from __future__ import annotations

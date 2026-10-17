@@ -2792,13 +2792,7 @@ def init_agent(
         # default so the reservation matches what is actually sent. The
         # generic provider-default gap is #63839; this wires only the native
         # Gemini path, where the default is a documented constant.
-        #
-        # ForgeGuard fork: seed from the reservation the transport will
-        # actually send — user tier or the provider profile's default, not
-        # agent.max_tokens alone (#43547, agent/output_reservation.py). The
-        # Gemini-native fallback below still applies when the profile has no
-        # default (that adapter's cap is an adapter constant, not a profile
-        # default).
+        # ForgeGuard fork: seed from agent/output_reservation.py (#43547).
         _compressor_max_tokens = _resolve_agent_output_reservation(agent)
         if _compressor_max_tokens is None:
             try:
