@@ -176,7 +176,17 @@ evolves.
       *individual step* conclusions, not the job conclusion.
 - [ ] **New upstream workflows audited** — on every sync, before the PR, list
       what upstream added or changed under `.github/workflows/` and check it for
-      the fork's runner and trigger rules:
+      the fork's runner and trigger rules. The audit script checks all of it
+      and must exit 0 on the merged branch (run it on the target's tree first
+      for the to-do list):
+
+      ```bash
+      python .github/scripts/audit_fork_workflows.py
+      git archive <COMMIT> .github | tar -x -C /tmp/target-gh \
+        && python .github/scripts/audit_fork_workflows.py --root /tmp/target-gh
+      ```
+
+      By hand, the same checks are:
 
       ```bash
       git grep -nE 'runs-on:.*-core' -- .github/workflows
