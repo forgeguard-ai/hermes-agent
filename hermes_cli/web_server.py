@@ -5786,7 +5786,8 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
     loop = asyncio.get_running_loop()
 
     def _resolve():
-        from tools.tts_streaming import resolve_chunking_mode, resolve_streaming_provider
+        from tools.tts_chunking_modes import resolve_chunking_mode  # fork: tts.streaming.chunking
+        from tools.tts_streaming import resolve_streaming_provider
         from tools.tts_tool import _get_provider, _load_tts_config, _resolve_max_text_length
 
         with _config_profile_scope(profile):
@@ -5817,10 +5818,10 @@ async def speak_stream_ws(ws: "WebSocket") -> None:
     failure: list = []  # provider exception text, if synthesis raised
 
     def _produce():
-        from tools.tts_streaming import SentenceChunker
+        from tools.tts_chunking_modes import chunker_for_mode  # fork: tts.streaming.chunking
         from tools.tts_tool import _strip_markdown_for_tts
 
-        chunker = SentenceChunker(mode=mode)
+        chunker = chunker_for_mode(mode)
 
         # The session stays open for a whole agent turn, and the client only
         # sends `done` when the turn ends. During tool execution no text

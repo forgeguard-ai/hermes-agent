@@ -4065,11 +4065,7 @@ def stream_tts_to_speaker(
 
         # Prefer a chunked streamer for low time-to-first-audio; fall back to
         # per-sentence sync synthesis (universal — edge + every non-streamer).
-        from tools.tts_streaming import (
-            SentenceChunker,
-            resolve_chunking_mode,
-            resolve_streaming_provider,
-        )
+        from tools.tts_streaming import SentenceChunker, resolve_streaming_provider
         streamer = resolve_streaming_provider(tts_config, preferred=provider)
 
         # No chunked streamer: per-sentence sync synthesis, pipelined so the
@@ -4108,7 +4104,8 @@ def stream_tts_to_speaker(
                     logger.warning("sounddevice OutputStream failed: %s", exc)
                     output_stream = None
 
-        chunker = SentenceChunker(mode=resolve_chunking_mode(tts_config))
+        from tools.tts_chunking_modes import chunker_for_config  # fork: tts.streaming.chunking
+        chunker = chunker_for_config(tts_config)
         long_flush_len = 100
         queue_timeout = 0.5
         _spoken_sentences: list[str] = []  # track spoken sentences to skip duplicates
