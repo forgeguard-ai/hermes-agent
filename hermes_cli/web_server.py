@@ -16054,62 +16054,10 @@ async def get_usage_analytics(
     return await asyncio.to_thread(_get_usage_analytics, days, profile)
 
 
-_ANALYTICS_USAGE_KEYS = (
-    "input_tokens",
-    "output_tokens",
-    "cache_read_tokens",
-    "reasoning_tokens",
-    "estimated_cost",
-    "actual_cost",
-    "sessions",
-    "api_calls",
-    "tool_calls",
+from hermes_cli.models_analytics_identity import (  # noqa: E402 — fork: Models-card identity
+    count_shown_models,
+    fold_custom_provider_spellings as _fold_custom_provider_spellings,
 )
-
-
-def _fold_custom_provider_spellings(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Fold bare ``custom`` rows into the one named ``custom:<name>`` row.
-
-    The same custom endpoint is recorded under two spellings: an agent built
-    from config stores ``billing_provider="custom"`` (the runtime provider),
-    while a mid-session model switch stores the picker's named slug
-    (``custom:<name>``). Grouping by billing_provider then gives the Models
-    page two cards for one model on one endpoint. Within one (model, task)
-    group, bare ``custom`` rows merge into the named row when exactly one
-    named ``custom:`` row exists; two or more named rows are different
-    endpoints, so the bare rows are ambiguous and stay as they are.
-    """
-    groups: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
-    for row in rows:
-        key = (row.get("model") or "", row.get("aux_task") or "")
-        groups.setdefault(key, []).append(row)
-
-    out: List[Dict[str, Any]] = []
-    for group in groups.values():
-        named = [
-            r for r in group
-            if str(r.get("billing_provider") or "").startswith("custom:")
-        ]
-        if len(named) != 1:
-            out.extend(group)
-            continue
-        target = named[0]
-        for row in group:
-            if row is target:
-                continue
-            if row.get("billing_provider") != "custom":
-                out.append(row)
-                continue
-            for k in _ANALYTICS_USAGE_KEYS:
-                target[k] = (target.get(k) or 0) + (row.get(k) or 0)
-            target["last_used_at"] = max(
-                target.get("last_used_at") or 0, row.get("last_used_at") or 0
-            )
-        sessions = target.get("sessions") or 0
-        total = (target.get("input_tokens") or 0) + (target.get("output_tokens") or 0)
-        target["avg_tokens_per_session"] = total / sessions if sessions else 0
-        out.append(target)
-    return out
 
 
 def _get_models_analytics(days: int = 30, profile: Optional[str] = None):
@@ -16264,10 +16212,7 @@ def _get_models_analytics(days: int = 30, profile: Optional[str] = None):
                 "tool_calls": row["tool_calls"],
                 "last_used_at": row["last_used_at"],
                 "avg_tokens_per_session": row["avg_tokens_per_session"],
-                # Non-empty on a row that is one auxiliary task's usage
-                # (compression, vision, ...) rather than the main loop's, so
-                # the page can say which task a card is.
-                "aux_task": row.get("aux_task") or "",
+                "aux_task": row.get("aux_task") or "",  # fork: names an aux-usage card's task
                 "capabilities": caps,
             })
 
@@ -16284,10 +16229,7 @@ def _get_models_analytics(days: int = 30, profile: Optional[str] = None):
             FROM sessions WHERE started_at > ? AND model IS NOT NULL AND model != ''
         """, (cutoff,))
         totals = dict(totals_cur.fetchone())
-        # Count the models the page shows: main-loop and auxiliary-only models
-        # alike. The sessions query above sees main-loop models only, so the
-        # header could read "3 models used" over cards naming more.
-        totals["distinct_models"] = len({m["model"] for m in models})
+        totals["distinct_models"] = count_shown_models(models)  # fork: aux-only models count too
 
         return {
             "models": models,
