@@ -677,15 +677,7 @@ _PLACEHOLDER_SECRET_VALUES = {
     "dummy",
     "null",
     "none",
-    # Deployment managers ship "no-key" as the
-    # profile default for an endpoint with no credential. Treating it as
-    # usable let it pass the env-var provider checks and route a request to
-    # an aggregator with no real credential attached (OpenRouter's
-    # "HTTP 401: Missing Authentication header"). "no-key-required" stays
-    # OUT of this set on purpose: the credential resolver substitutes it as
-    # the deliberate non-empty bearer for no-auth endpoints, and the
-    # AuthError guard in resolve_provider_credentials relies on it passing.
-    "no-key",
+    "no-key",  # ForgeGuard fork; "no-key-required" stays out (hermes_cli/custom_provider_slugs.py)
 }
 
 
@@ -2292,27 +2284,8 @@ def resolve_provider(
     if normalized == "openrouter":
         return "openrouter"
     if normalized == "custom" or normalized == "custom:custom":
-        # "custom:custom" is the BARE custom endpoint's UI row slug: the
-        # desktop settings namespace every provider row as custom:<name>, and
-        # for `model.provider: custom` + base_url (no declared entry) that
-        # yields custom:custom, which matches nothing and used to raise —
-        # bricking agent init on a config the settings UI had just written
-        # (2026-08-12, live). It names the bare endpoint, so resolving it to
-        # the bare provider is exact, not a guess.
-        #
-        # Deliberately NOT a `startswith("custom:")` prefix match, though the
-        # live error made that tempting. A namespaced slug for a DECLARED
-        # entry (custom:mimo-v2.5-pro) must keep raising here: three call
-        # sites in runtime_provider.py use `resolve_provider(x) == "custom"`
-        # as the signal to collapse `requested_norm` to bare "custom", so
-        # resolving a named slug would DESTROY the entry identity they exist
-        # to recover — the legacy-row healing path in
-        # tests/tui_gateway/test_custom_provider_session_persistence.py drops
-        # back to placeholder "no-key-required" credentials instead of the
-        # entry's real key. Their `except AuthError: pass` is load-bearing.
-        # Equality also sidesteps `.startswith` on a non-str `normalized`
-        # (YAML `provider: 123`, or a mock), which returns a TRUTHY object
-        # and swallowed every provider into the custom branch.
+        # ForgeGuard fork: "custom:custom" is the bare endpoint's UI row slug.
+        # Equality, never a prefix match (hermes_cli/custom_provider_slugs.py).
         return "custom"
     if normalized in PROVIDER_REGISTRY:
         return normalized

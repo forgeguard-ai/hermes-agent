@@ -1918,11 +1918,7 @@ def _normalize_main_model_assignment(provider: str, model: str) -> tuple[str, st
     from hermes_cli.config import get_compatible_custom_providers
     from hermes_cli.models import _KNOWN_PROVIDER_NAMES, normalize_provider
     from hermes_cli.model_normalize import normalize_model_for_provider
-    from hermes_cli.providers import (
-        canonicalize_provider_slug,
-        resolve_custom_provider,
-        resolve_user_provider,
-    )
+    from hermes_cli.providers import resolve_custom_provider, resolve_user_provider
 
     prov_in = (provider or "").strip()
     model_in = (model or "").strip()
@@ -1960,40 +1956,11 @@ def _normalize_main_model_assignment(provider: str, model: str) -> tuple[str, st
     # happen to start with "custom" (e.g. "customproxy").
     is_custom_provider_slug = canonical == "custom" or canonical.startswith("custom:")
 
-    # ForgeGuard fork: the BARE custom endpoint's UI row is the one namespaced
-    # slug that must never be persisted verbatim. ``custom:custom`` is what the
-    # pickers hand around for ``model.provider: custom`` + base_url with no
-    # declared entry (the shape deployment managers write) — it resolves to no
-    # entry above, and writing it to config bricks the next agent init with
-    # "Unknown provider 'custom:custom'" (2026-08-12, live). Collapse exactly
-    # that slug back to the bare provider id. A named ``custom:<name>`` that
-    # missed resolution keeps its durable slug (upstream behavior directly
-    # above): preserving the name keeps the config actionable — the resolver's
-    # AuthError/healing path reports the missing entry by name instead of
-    # silently rebinding the model to the bare endpoint.
-    if canonical == "custom:custom":
-        return canonicalize_provider_slug(prov_in, cfg if isinstance(cfg, dict) else {}), model_in
-    # ForgeGuard fork (2026-08-19): a named ``custom:<name>`` that resolves to
-    # NO entry (the deployment manager rewrote config.yaml and dropped it, or
-    # the desktop's cached row outlived it) must not be persisted verbatim
-    # when the bare endpoint is ROUTABLE — ``model.base_url`` is set — because
-    # agent init then dies with "Unknown provider 'custom:<name>'" for every
-    # new session while the URL it should use sits right there. Collapse it to
-    # ``custom`` and let the log carry the name. With no base_url there is
-    # nothing to route to, so the slug stays (upstream behaviour: the resolver
-    # reports the missing entry by name).
-    if canonical.startswith("custom:"):
-        model_block = cfg.get("model") if isinstance(cfg, dict) else None
-        routable = isinstance(model_block, dict) and bool(str(model_block.get("base_url") or "").strip())
-        if routable:
-            collapsed = canonicalize_provider_slug(prov_in, cfg if isinstance(cfg, dict) else {})
-            if collapsed != canonical:
-                _log.warning(
-                    "model.provider %r names no configured custom endpoint; storing %r "
-                    "(model.base_url routes the bare endpoint)",
-                    canonical, collapsed,
-                )
-            return collapsed, model_in
+    # ForgeGuard fork: an unresolved custom:* slug that names the bare endpoint
+    # is never persisted verbatim (hermes_cli/custom_provider_slugs.py).
+    from hermes_cli.custom_provider_slugs import collapse_unresolved_custom_slug
+    if (collapsed := collapse_unresolved_custom_slug(canonical, prov_in, cfg, _log)) is not None:
+        return collapsed, model_in
 
     if (
         canonical not in _KNOWN_PROVIDER_NAMES
@@ -2064,21 +2031,12 @@ def _apply_main_model_assignment(
         model_cfg = {}
     prev_provider = str(model_cfg.get("provider") or "").strip().lower()
     new_provider = provider.strip().lower()
+    # ForgeGuard fork: bare custom -> custom:<name> on the same base_url is the
+    # same endpoint, not a switch (hermes_cli/custom_provider_slugs.py).
+    from hermes_cli.custom_provider_slugs import same_custom_endpoint
     prev_base_url = str(model_cfg.get("base_url") or "").strip().rstrip("/")
-    # ForgeGuard fork: bare ``custom`` and ``custom:<name>`` are the SAME
-    # endpoint when they name the same base_url — the desktop's Model settings
-    # goes bare-custom → named row for the URL it already had (its first Apply
-    # auto-registers the entry, the second selects it). Treating that as a
-    # provider switch cleared model.api_key and the next request went out
-    # with a placeholder bearer (HTTP 401, 2026-08-18). Same endpoint ⇒ same
-    # credentials.
-    same_custom_endpoint = (
-        _is_custom_class(prev_provider)
-        and _is_custom_class(new_provider)
-        and bool(prev_base_url)
-        and (base_url.strip().rstrip("/") or prev_base_url) == prev_base_url
-    )
-    provider_changed = new_provider != prev_provider and not same_custom_endpoint
+    provider_changed = new_provider != prev_provider and not same_custom_endpoint(
+        prev_provider, new_provider, prev_base_url, base_url)
     model_cfg["provider"] = provider
     model_cfg["default"] = model
     if base_url.strip():
@@ -2106,38 +2064,6 @@ def _apply_main_model_assignment(
         clear_model_endpoint_credentials(model_cfg, clear_api_key=False)
     model_cfg.pop("context_length", None)
     return model_cfg
-
-
-def _is_custom_class(provider: str) -> bool:
-    """Bare ``custom`` and any ``custom:<name>`` slug — one endpoint class."""
-    p = (provider or "").strip().lower()
-    return p == "custom" or p.startswith("custom:")
-
-
-def _model_endpoint_credential_for_entry() -> tuple[str, str]:
-    """(api_key, key_env) a ``custom_providers`` entry auto-registered for the
-    CURRENT ``model.*`` endpoint should carry. Reads the RAW config so a
-    ``${HERMES_LLM_API_KEY}``-style reference (the shape deployment managers
-    write) is preserved as ``key_env`` rather than expanded and written to
-    config.yaml as a literal secret."""
-    try:
-        from hermes_cli.config import _env_ref_var_name, read_raw_config_readonly
-
-        raw_model = read_raw_config_readonly().get("model")
-        raw_key = ""
-        if isinstance(raw_model, dict):
-            raw_key = str(raw_model.get("api_key") or raw_model.get("api") or "").strip()
-        if not raw_key:
-            return "", ""
-        import re as _re
-
-        ref = _re.fullmatch(r"\$\{([^}]+)\}", raw_key)
-        if ref:
-            var = _env_ref_var_name(ref.group(1))
-            return ("", var) if var else ("", "")
-        return raw_key, ""
-    except Exception:
-        return "", ""
 
 
 _GATEWAY_HEALTH_URL = os.getenv("GATEWAY_HEALTH_URL")
@@ -7896,13 +7822,8 @@ def _apply_model_assignment_sync(
             raise HTTPException(status_code=400, detail="provider and model required for main")
         provider, model = _normalize_main_model_assignment(provider, model)
         providers_cfg = cfg.get("providers")
-        provider_entry = None
-        if isinstance(providers_cfg, dict):
-            # ``providers:`` entries are keyed by bare name; the slug the UI
-            # hands back is ``custom:<name>``. Look both up (ForgeGuard fork).
-            provider_entry = providers_cfg.get(provider)
-            if provider_entry is None and provider.lower().startswith("custom:"):
-                provider_entry = providers_cfg.get(provider.split(":", 1)[1])
+        from hermes_cli.custom_provider_slugs import user_provider_entry  # fork: custom:<name> keys
+        provider_entry = user_provider_entry(providers_cfg, provider)
         if not base_url and isinstance(provider_entry, dict) and provider_entry.get("base_url"):
             base_url = str(provider_entry.get("base_url") or "").strip()
         model_cfg = _apply_main_model_assignment(
@@ -7984,16 +7905,11 @@ def _apply_model_assignment_sync(
             try:
                 from hermes_cli.main import _auto_provider_name, _save_custom_provider
 
-                # ForgeGuard fork: the desktop never sends the endpoint key
-                # (secrets do not cross the settings wire), so this used to
-                # register a KEYLESS entry for an endpoint that requires auth
-                # — selecting that row next was HTTP 401 on every request.
-                # Carry the credential model.* already holds: a ${VAR}
-                # reference becomes the entry's key_env (never the literal),
-                # a literal key is copied.
+                # ForgeGuard fork: carry model.*'s credential into the entry.
+                from hermes_cli.custom_provider_slugs import model_endpoint_credential_for_entry
                 entry_key, entry_key_env = api_key, ""
                 if not entry_key:
-                    entry_key, entry_key_env = _model_endpoint_credential_for_entry()
+                    entry_key, entry_key_env = model_endpoint_credential_for_entry()
                 _save_custom_provider(
                     base_url,
                     entry_key,
@@ -8024,9 +7940,7 @@ def _apply_model_assignment_sync(
                 if not isinstance(slot_cfg, dict):
                     continue
                 slot_provider = str(slot_cfg.get("provider", "") or "").strip()
-                # "main" is the runtime alias for the configured main provider
-                # (auxiliary_client._normalize_aux_provider) — it follows the
-                # switch like "auto" and is not a stale pin (ForgeGuard fork).
+                # "main" follows the switch like "auto" (ForgeGuard fork).
                 if (
                     slot_provider
                     and slot_provider.lower() not in {"auto", "main", ""}
@@ -8086,12 +8000,8 @@ def _apply_model_assignment_sync(
     if not provider:
         raise HTTPException(status_code=400, detail="provider required for auxiliary")
 
-    # The main branch canonicalizes through _normalize_main_model_assignment;
-    # this branch wrote the caller's string verbatim, so a desktop row slug
-    # (``custom:custom``) landed in EVERY slot when no task was named — and,
-    # because it compares unequal to "custom", the block below also wrongly
-    # cleared each slot's base_url and credentials. Canonicalize first.
-    from hermes_cli.providers import canonicalize_provider_slug
+    # ForgeGuard fork: canonicalize the UI slug like the main branch does.
+    from hermes_cli.custom_provider_slugs import canonicalize_provider_slug
 
     provider = canonicalize_provider_slug(provider, cfg)
 
@@ -9015,36 +8925,16 @@ async def validate_provider_credential(body: EnvVarUpdate, request: Request):
         except Exception:
             return {"ok": False, "reachable": False, "message": f"Could not reach {url}."}
 
-    # OPENAI_API_KEY doubles as the CUSTOM endpoint's credential: on a config
-    # whose model provider is custom (a vLLM / llama.cpp / any self-hosted
-    # OpenAI-compatible server), the key authenticates against model.base_url,
-    # not api.openai.com. The fixed-table probe below would send that key to
-    # OpenAI and report its 401 as "That API key was rejected" — a false
-    # rejection of a perfectly good key (2026-08-12, live). Probe the
-    # configured endpoint instead, with the same response contract.
+    # ForgeGuard fork: OPENAI_API_KEY on a custom-endpoint config is probed
+    # against model.base_url, not api.openai.com (custom_provider_slugs.py).
     if key == "OPENAI_API_KEY":
-        custom_base = ""
-        try:
+        def _profile_cfg():
             with _profile_scope(body.profile):
-                cfg = load_config()
-            model_cfg = cfg.get("model", {}) if isinstance(cfg, dict) else {}
-            prov = str(model_cfg.get("provider", "") or "").strip().lower()
-            if prov == "custom" or prov.startswith("custom:"):
-                custom_base = str(model_cfg.get("base_url", "") or "").strip()
-        except Exception:
-            custom_base = ""
-        if custom_base:
-            url = custom_base.rstrip("/") + "/models"
-            try:
-                with httpx.Client(timeout=httpx.Timeout(10.0)) as client:
-                    resp = client.get(url, headers={"Authorization": f"Bearer {value}"})
-            except Exception:
-                return {"ok": False, "reachable": False, "message": f"Could not reach {url}."}
-            if resp.status_code in (401, 403):
-                return {"ok": False, "reachable": True, "message": "That API key was rejected. Double-check it and try again."}
-            if resp.status_code == 429 or resp.is_success:
-                return {"ok": True, "reachable": True, "message": ""}
-            return {"ok": False, "reachable": True, "message": f"Provider returned HTTP {resp.status_code} for this key."}
+                return load_config()
+
+        from hermes_cli.custom_provider_slugs import custom_endpoint_key_probe
+        if (custom_probe := custom_endpoint_key_probe(_profile_cfg, value)) is not None:
+            return custom_probe
 
     probe = _CREDENTIAL_PROBES.get(key)
     if not probe:
