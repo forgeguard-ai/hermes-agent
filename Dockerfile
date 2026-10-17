@@ -480,6 +480,15 @@ VOLUME [ "/opt/data" ]
 LABEL com.forgeguard.hermes.prebaked="1"
 LABEL com.forgeguard.hermes.variant="runtime"
 
+# Standard OCI provenance labels. HERMES_GIT_SHA is the stage ARG declared
+# above (the commit the image was built from); HERMES_IMAGE_VERSION is the
+# fork release version without its leading "v" (e.g. 0.22.2-forgeguard.1),
+# passed by .github/workflows/build-runtime-images.yml. Both are empty for a
+# local `docker build` that omits the build args.
+ARG HERMES_IMAGE_VERSION=
+LABEL org.opencontainers.image.version="${HERMES_IMAGE_VERSION}" \
+      org.opencontainers.image.revision="${HERMES_GIT_SHA}"
+
 # Container-level health signal. Only meaningful when the dashboard is
 # enabled: with HERMES_DASHBOARD unset the probe reports healthy (no-op) so
 # plain CLI/one-shot containers don't flap. /api/status is served

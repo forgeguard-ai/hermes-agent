@@ -80,11 +80,12 @@ evolves.
       `.github/workflows/release-on-merge.yml`, calls `build-runtime-images.yml`
       with `version:`, still carries its
       release gating (`no-release` label + release-relevant-paths check in
-      `compute-version`), and still names releases after the `pyproject.toml`
-      product semver (`v<hermes-version>`, `-forgeguard.<n>` suffix only on
-      re-cuts of an already-released version; scheme since Hermes 0.19.0) —
-      `FORK_UPSTREAM_BASE` feeds only the release-notes "Upstream release"
-      line, not the tag.
+      `compute-version`), and still computes the version through
+      `.github/scripts/fork_release_version.py` (tests in
+      `tests/fork/test_release_version.py`): `v<upstream>-forgeguard.<N>` when
+      `FORK_UPSTREAM_BASE` holds a plain upstream semver release, otherwise the
+      legacy `pyproject.toml` product semver — and still refuses `0.0.0`. See
+      the [release process](../release/release-process.md#version-scheme).
 - [ ] **Upstream-only guards on the tag/schedule-triggered workflows** that would
       otherwise fire for real (or just burn scheduled runs) on the fork:
       `.github/workflows/deploy-site.yml` (`deploy-vercel` job),
@@ -431,9 +432,11 @@ IS the verification hook — run it on the merged branch instead of eyeballing:
 
 ## Marker
 
-- [ ] **`FORK_UPSTREAM_BASE`** — not a merge-conflict risk (you rewrite it in
-      step 6 of the [sync policy](./sync-policy.md#6-update-fork_upstream_base)),
-      but don't forget it.
+- [ ] **`FORK_UPSTREAM_BASE`** and **`FORK_UPSTREAM_COMMIT`** — not a
+      merge-conflict risk (you rewrite both in step 6 of the
+      [sync policy](./sync-policy.md#6-update-fork_upstream_base)), but don't
+      forget them: the first names the release, the second the exact upstream
+      commit in its notes.
 
 ## Related
 

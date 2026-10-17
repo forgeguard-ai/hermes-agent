@@ -30,6 +30,10 @@ on:
         description: "Optional release version stamped as an extra tag (e.g. v0.20.7 → runtime-v0.20.7)"
         type: string
         default: ""
+    outputs:
+      runtime_digest:
+        description: "Registry digest (sha256:…) of the pushed runtime image; empty when nothing was pushed"
+        value: ${{ jobs.build-amd64.outputs.runtime_digest }}
   workflow_dispatch:
     inputs:
       push:
@@ -67,6 +71,10 @@ jobs:
     name: Build ${{ matrix.target }} image (amd64)
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # One matrix entry today (runtime); a second published target would need
+    # its own output, since matrix legs overwrite each other's job outputs.
+    outputs:
+      runtime_digest: ${{ steps.push.outputs.digest }}
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -78,6 +86,16 @@ jobs:
         run: |
           owner="$(printf '%s' "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
           echo "name=ghcr.io/${owner}/hermes-agent" >> "$GITHUB_OUTPUT"
+
+      # OCI image.version label: the release version without its leading "v"
+      # (v0.22.2-forgeguard.1 → 0.22.2-forgeguard.1); empty for an
+      # unversioned manual build.
+      - name: Compute image version label
+        id: label
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          echo "version=${VERSION#v}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -106,12 +124,12 @@ jobs:
           load: true
           platforms: linux/amd64
           tags: ${{ steps.image.outputs.name }}:test-${{ matrix.target }}
-          # Bake the revision label here so the tested image already carries it
-          # and the publish step can retag-and-push these exact bytes.
-          labels: |
-            org.opencontainers.image.revision=${{ github.sha }}
+          # The Dockerfile turns these into the org.opencontainers.image.revision
+          # and .version labels, so the tested image already carries them and
+          # the publish step can retag-and-push these exact bytes.
           build-args: |
             HERMES_GIT_SHA=${{ github.sha }}
+            HERMES_IMAGE_VERSION=${{ steps.label.outputs.version }}
           cache-from: type=registry,ref=${{ steps.image.outputs.name }}:buildcache-${{ matrix.target }}-amd64
           cache-to: type=registry,ref=${{ steps.image.outputs.name }}:buildcache-${{ matrix.target }}-amd64,mode=max
 
@@ -173,11 +191,17 @@ jobs:
       # second build. A second build-push-action invocation rebuilds from cache
       # and could publish an image the integration/smoke tests never ran
       # against; docker tag + push guarantees tested == published.
+      #
+      # The digest is read back from the registry (not the local daemon) so it
+      # is the one a `docker pull <image>@<digest>` resolves; the release
+      # notes record it.
       - name: Push image to GHCR
+        id: push
         if: inputs.push
         env:
           SRC: ${{ steps.image.outputs.name }}:test-${{ matrix.target }}
           TAGS: ${{ steps.tags.outputs.list }}
+          SHA_TAG: ${{ steps.image.outputs.name }}:${{ matrix.target }}-${{ github.sha }}
         run: |
           set -euo pipefail
           while IFS= read -r tag; do
@@ -185,3 +209,13 @@ jobs:
             docker tag "$SRC" "$tag"
             docker push "$tag"
           done <<< "$TAGS"
+          # The images are already pushed: a failed read-back only costs the
+          # release notes their digest line, so warn rather than fail.
+          digest="$(docker buildx imagetools inspect "$SHA_TAG" --format '{{json .Manifest}}' | jq -r '.digest' || true)"
+          case "$digest" in
+            sha256:*)
+              echo "digest=$digest" >> "$GITHUB_OUTPUT"
+              echo "::notice::Pushed ${SHA_TAG} at ${digest}"
+              ;;
+            *) echo "::warning::Could not read the pushed image digest for ${SHA_TAG} (got '${digest}')." ;;
+          esac
