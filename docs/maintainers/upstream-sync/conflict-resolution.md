@@ -30,6 +30,35 @@ before resolving**. It likely means one of:
    restructures the `Dockerfile`, re-apply their change inside the matching
    fork stage rather than reverting the multi-target split.
 
+### When upstream splits or moves a file the fork patches
+
+Upstream periodically splits a large module into several (a web server's routes
+into a `web_routers/` package, a session handler into per-method modules), or
+moves code to a new path. Git reports a conflict in the old file, or none at
+all, while the fork's change belongs in a file that only exists on upstream's
+side.
+
+- **Never resolve a split file to upstream's side without porting the fork's
+  change** into the module where the code now lives. Resolving to upstream
+  silently drops the fork patch, and the tests that cover it may have moved or
+  been deleted too.
+- If the port can't be done inside the merge commit, resolve to upstream, list
+  the file as *pending port* in the merge commit message (sync-policy step 3),
+  and port it in its own commit on `dev` before the PR. The PR description
+  repeats the list with each port's commit.
+- Prefer the fork's own modules: fork logic that lives in a fork-owned file
+  (`tests/fork/`, a fork helper module called from one line upstream) survives
+  splits untouched, and only the one-line hook needs re-placing. When a port is
+  large, move the fork logic into such a module as part of the port.
+
+### Files upstream deletes
+
+A modify/delete conflict means upstream removed a file the fork changed. Find
+out why (`git log --diff-filter=D -1 <COMMIT> -- <path>` on upstream's side),
+then either accept the deletion, re-homing any fork cases first (fork tests
+belong in `tests/fork/`), or port the fork behaviour to wherever upstream moved
+the code. Never resurrect a deleted upstream file by accident.
+
 ## Re-verify after resolving
 
 A clean auto-merge can silently keep the wrong side. Regardless of the conflict

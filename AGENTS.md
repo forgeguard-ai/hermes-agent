@@ -1824,13 +1824,13 @@ in this repo:
 
 Before starting implementation of any non-trivial, multi-step plan in this
 repo (fork or upstream), **step 0 is to save a detailed, checkbox-tracked copy
-of the approved plan** to `docs/agent-plans/` (create the directory if it
-doesn't exist yet; it is git-ignored, so plans stay local and are never
-committed), named `YYYY-MM-DD-<short-slug>-plan.md`. This applies
-regardless of which coding agent is doing the work (Cursor, Claude Code,
-GitHub Copilot, Codex, etc.) — the point is a durable, human-readable record
-that survives a paused session, a crashed agent, or a handoff to a different
-agent/tool.
+of the approved plan** in the maintainer's planning location **outside this
+repository**, named `YYYY-MM-DD-<short-slug>-plan.md`. This repo is public, and
+plans routinely hold deployment context that does not belong in it; ask the
+maintainer where plans go if you don't know. This applies regardless of which
+coding agent is doing the work (Cursor, Claude Code, GitHub Copilot, Codex,
+etc.) — the point is a durable, human-readable record that survives a paused
+session, a crashed agent, or a handoff to a different agent/tool.
 
 The saved plan file should include, at minimum:
 
@@ -1841,10 +1841,10 @@ The saved plan file should include, at minimum:
   system state discovered during research) that a fresh agent session could
   pick the file up cold and know exactly what's done and what's left.
 
-`docs/agent-plans/` is local, git-ignored scratch space for this workflow —
-never commit or force-add anything under it. It is distinct from the upstream-inherited `docs/plans/` directory (which holds
-upstream's own historical fix/feature plans) so the two never collide during
-a sync.
+Never commit a plan here. `docs/agent-plans/` stays git-ignored only as a
+guard against committing one by accident; do not create it. It is distinct
+from the upstream-inherited `docs/plans/` directory (which holds upstream's
+own historical fix/feature plans).
 
 ### Code-Review & Codebase-Map Skills
 
