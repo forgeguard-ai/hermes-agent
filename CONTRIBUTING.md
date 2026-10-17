@@ -1019,5 +1019,5 @@ When you change the ForgeGuard documentation overlay, the docs validation in
 matter, links, and the manifest valid. Maintainer procedures (release process,
 artifact verification, upstream sync) are documented under
 [`docs/maintainers/`](docs/maintainers/). Non-trivial multi-step work should
-save a local plan under the git-ignored `docs/agent-plans/` per the
-"Plan-Saving Rule" in `AGENTS.md`.
+save a plan outside this repository per the "Plan-Saving Rule" in
+`AGENTS.md`; plans are never committed here.
