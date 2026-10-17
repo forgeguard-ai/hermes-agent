@@ -263,7 +263,12 @@ IS the verification hook — run it on the merged branch instead of eyeballing:
       Since v2026.8.31 upstream's shared `JsonRpcGateway` owns the heartbeat
       (interval + inbound deadline, sends `gateway.ping`) and the hook
       re-attempts whole boots with jittered backoff, so the fork carries no
-      hook-level heartbeat or connect retries. The fork's server-side
+      hook-level heartbeat. It does carry one renderer-side retry:
+      `INITIAL_CONNECT_ATTEMPTS` re-mints the WS ticket and re-dials up to four
+      times on the initial boot, which the main process cannot flag as
+      retryable. Upstream 0.22 rewrites that region with its own dial retry
+      and a boot retry while the stage is `dialing`; at that sync, drop the
+      fork loop if upstream's covers the gateway-restart window. The fork's server-side
       `@method("gateway.ping")` in `tui_gateway/server.py` stays: upstream's
       ws fast-path (`tui_gateway/ws.py`) answers before dispatch, and the
       dispatch method keeps non-ws transports answerable.
