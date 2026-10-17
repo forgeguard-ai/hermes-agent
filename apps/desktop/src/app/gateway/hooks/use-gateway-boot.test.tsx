@@ -1170,11 +1170,51 @@ describe('useGatewayBoot remote reconnect loop (real hook, fake socket)', () => 
     ;(window as { hermesDesktop?: unknown }).hermesDesktop = desktop
 
     render(<Harness />)
+    // The first flush settles the async first-run check (the gate opens on the
+    // next commit); the second runs the boot it unblocks.
+    await flushAsync()
     await flushAsync()
 
     expect(desktop.getConnection).toHaveBeenCalled()
     expect($connectionModeDialog.get().open).toBe(false)
     expect($gatewayState.get()).toBe('open')
+  })
+
+  it('first-run sentinel from main mid-boot: tears the gateway down and opens the chooser, not the failure overlay', async () => {
+    const desktop = fakeDesktop()
+
+    // The upfront check said "not required", but main still rejects the backend
+    // call with its first-run sentinel (wrapped the way an IPC invoke wraps it).
+    desktop.getConnection.mockRejectedValue(
+      new Error(
+        "Error invoking remote method 'hermes:connection': Error: FIRST_RUN_CHOICE_REQUIRED: waiting for the first-run connection choice"
+      )
+    )
+    ;(window as { hermesDesktop?: unknown }).hermesDesktop = desktop
+
+    render(<Harness />)
+    await flushAsync()
+
+    expect(desktop.getConnection).toHaveBeenCalledTimes(1)
+    expect(desktop.onBootProgress).toHaveBeenCalled()
+    // Parked on the blocking chooser, boot splash stood down, no failure.
+    expect($connectionModeDialog.get().open).toBe(true)
+    expect($connectionModeDialog.get().firstRun).toBe(true)
+    expect($desktopBoot.get().error).toBeNull()
+    expect($desktopBoot.get().visible).toBe(false)
+    expect(notifyError).not.toHaveBeenCalled()
+    // The gateway machinery was torn down: no primary gateway, and the boot
+    // progress subscription no longer reaches the boot store.
+    expect(activeGateway()).toBeNull()
+    desktop.emitBootProgress({ error: 'late progress', phase: 'x', progress: 10, running: false })
+    expect($desktopBoot.get().error).toBeNull()
+
+    // Nothing retries behind the chooser.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000)
+    })
+    expect(desktop.getConnection).toHaveBeenCalledTimes(1)
+    expect(FakeWebSocket.instances).toHaveLength(0)
   })
 
   it('FIX: a successful reconnect after a prolonged drop restores the open gateway', async () => {

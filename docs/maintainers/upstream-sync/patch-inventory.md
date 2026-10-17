@@ -250,10 +250,16 @@ IS the verification hook — run it on the merged branch instead of eyeballing:
       re-threaded on sync — plus `fetchConnectionStatus`'s 5th arg and the
       flag in `createPrimaryRemoteConnection`), the 401/403 native-token drop
       in `mintGatewayWsTicket`, and the first-run choice IPC + gates in
-      `apps/desktop/electron/main.ts` + the first-run gate wrapper
-      (`initGatewayBoot` + `enterFirstRunChoice` + the
-      `FIRST_RUN_CHOICE_REQUIRED` safety net) in
-      `apps/desktop/src/app/gateway/hooks/use-gateway-boot.ts`.
+      `apps/desktop/electron/main.ts` + the renderer first-run gate. The gate
+      lives in the fork-owned `apps/desktop/src/hooks/use-first-run-gate.ts`
+      (`useFirstRunGate`, `enterFirstRunChoice`,
+      `isFirstRunChoiceRequiredError`); `use-gateway-boot.ts` carries only
+      three small seams, all marked `ForgeGuard fork`: the
+      `useFirstRunGate()` call + `if (!firstRunReady) return` at the top of
+      the boot effect, the `FIRST_RUN_CHOICE_REQUIRED` guard at the top of
+      `boot()`'s catch, and the effect deps
+      `[firstRunReady, requireFirstRunChoice]` (upstream: `[]`). The upstream
+      effect body is not wrapped or re-indented; keep it that way on sync.
       Since v2026.8.31 upstream's shared `JsonRpcGateway` owns the heartbeat
       (interval + inbound deadline, sends `gateway.ping`) and the hook
       re-attempts whole boots with jittered backoff, so the fork carries no
@@ -262,7 +268,8 @@ IS the verification hook — run it on the merged branch instead of eyeballing:
       ws fast-path (`tui_gateway/ws.py`) answers before dispatch, and the
       dispatch method keeps non-ws transports answerable.
       Tests: `apps/desktop/src/app/gateway/hooks/use-gateway-boot.test.tsx`
-      (fork cases), `apps/desktop/electron/first-run-choice.test.ts`,
+      (fork cases), `apps/desktop/src/hooks/use-first-run-gate.test.tsx`,
+      `apps/desktop/electron/first-run-choice.test.ts`,
       `apps/desktop/electron/connection-config.test.ts`,
       `tests/tui_gateway/test_gateway_ping.py`.
       **Registry threading (fork, 2026-09-22):** the TLS opt-in now also rides
