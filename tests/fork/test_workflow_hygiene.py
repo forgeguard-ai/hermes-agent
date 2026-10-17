@@ -501,3 +501,187 @@ def test_local_reusable_workflow_passes(tmp_path):
         """,
     )
     assert _rules(tmp_path) == []
+
+
+# ---------------------------------------------------------------------------
+# Rule 6: release triggers
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "on",
+    [
+        "\n  release:\n    types: [published]\n",
+        "\n  release:\n",
+        "[release, workflow_dispatch]",
+        "release",
+    ],
+)
+def test_release_trigger_is_flagged(tmp_path, on):
+    _write(tmp_path, "sandbox-image.yml", f"on: {on}\njobs: {{}}\n")
+    violations = audit_mod.audit(tmp_path)
+    assert [v.rule for v in violations] == ["release-trigger"]
+
+
+def test_release_trigger_detail_names_types(tmp_path):
+    _write(
+        tmp_path,
+        "w.yml",
+        """
+        on:
+          release:
+            types: [published, prereleased]
+        jobs: {}
+        """,
+    )
+    (violation,) = audit_mod.audit(tmp_path)
+    assert "published, prereleased" in violation.detail
+
+
+def test_release_trigger_allowlist(tmp_path, monkeypatch):
+    monkeypatch.setitem(audit_mod.RELEASE_TRIGGER_ALLOWLIST, "w.yml", "test entry")
+    _write(tmp_path, "w.yml", "on:\n  release:\n    types: [published]\njobs: {}\n")
+    assert _rules(tmp_path) == []
+    _write(tmp_path, "other.yml", "on:\n  release:\n    types: [published]\njobs: {}\n")
+    assert _rules(tmp_path) == ["release-trigger"]
+
+
+def test_workflow_call_from_release_pipeline_passes(tmp_path):
+    _write(
+        tmp_path,
+        "w.yml",
+        """
+        on:
+          workflow_call:
+            inputs:
+              release:
+                type: boolean
+          workflow_dispatch:
+        jobs: {}
+        """,
+    )
+    assert _rules(tmp_path) == []
+
+
+# ---------------------------------------------------------------------------
+# Composite actions go through the action allowlist
+# ---------------------------------------------------------------------------
+
+
+def _write_action(root: Path, rel: str, body: str) -> Path:
+    path = root / ".github" / "actions" / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(textwrap.dedent(body).lstrip(), encoding="utf-8")
+    return path
+
+
+def test_repository_composite_actions_are_scanned():
+    names = [
+        p.relative_to(_REPO / ".github").as_posix()
+        for p in audit_mod.composite_action_files(_REPO)
+    ]
+    assert names, "no composite actions found to audit"
+    assert all(n.startswith("actions/") for n in names)
+
+
+def test_composite_action_with_allowed_steps_passes(tmp_path):
+    _write_action(
+        tmp_path,
+        "setup/action.yml",
+        """
+        name: Setup
+        runs:
+          using: composite
+          steps:
+            - uses: actions/cache/restore@v4
+            - uses: ./.github/actions/retry
+            - run: echo ok
+              shell: bash
+        """,
+    )
+    assert _rules(tmp_path) == []
+
+
+def test_composite_action_with_unlisted_action_is_flagged(tmp_path):
+    _write_action(
+        tmp_path,
+        "lint/action.yaml",
+        """
+        name: Lint
+        runs:
+          using: composite
+          steps:
+            - name: hadolint
+              uses: hadolint/hadolint-action@v3
+        """,
+    )
+    violations = audit_mod.audit(tmp_path)
+    assert [(v.file, v.rule, v.where) for v in violations] == [
+        ("actions/lint/action.yaml", "action-not-allowed", "runs step 'hadolint'")
+    ]
+
+
+def test_nested_composite_action_is_scanned(tmp_path):
+    _write_action(
+        tmp_path,
+        "setup-pm/prune/action.yml",
+        """
+        runs:
+          using: composite
+          steps:
+            - uses: azure/login@v2
+        """,
+    )
+    violations = audit_mod.audit(tmp_path)
+    assert [(v.file, v.rule) for v in violations] == [
+        ("actions/setup-pm/prune/action.yml", "action-not-allowed")
+    ]
+
+
+def test_composite_only_in_scoping(tmp_path):
+    body = """
+    runs:
+      using: composite
+      steps:
+        - uses: DeterminateSystems/nix-installer-action@v22
+        - uses: cachix/cachix-action@v17
+    """
+    _write_action(tmp_path, "nix-setup/action.yml", body)
+    assert _rules(tmp_path) == []
+    _write_action(tmp_path, "other/action.yml", body)
+    assert _rules(tmp_path) == ["action-not-allowed", "action-not-allowed"]
+
+
+def test_composite_scoped_entry_does_not_leak_into_workflows(tmp_path):
+    _write(
+        tmp_path,
+        "nix.yml",
+        """
+        on: workflow_dispatch
+        jobs:
+          a:
+            runs-on: ubuntu-latest
+            steps:
+              - uses: cachix/cachix-action@v17
+        """,
+    )
+    assert _rules(tmp_path) == ["action-not-allowed"]
+
+
+def test_non_composite_action_without_steps_passes(tmp_path):
+    _write_action(
+        tmp_path,
+        "node-tool/action.yml",
+        """
+        name: Node tool
+        runs:
+          using: node20
+          main: dist/index.js
+        """,
+    )
+    assert _rules(tmp_path) == []
+
+
+def test_unparseable_composite_action_is_a_violation(tmp_path):
+    _write_action(tmp_path, "broken/action.yml", "runs: [\n")
+    assert _rules(tmp_path) == ["parse-error"]

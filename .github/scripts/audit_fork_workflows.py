@@ -10,6 +10,10 @@ or does something the fork never wants (a cron job that tags and drafts
 releases). An upstream merge can re-introduce any of them, so this audit runs
 on every sync and in the test suite.
 
+Workflow files are named by file name (``tests.yml``); composite actions by
+their path under ``.github/`` (``actions/nix-setup/action.yml``). Both forms
+are what ``only_in`` and the allowlists match against.
+
 Rules (each violation is reported per file and job; any violation exits 1):
 
   runner-core        a ``runs-on`` that names a ``*-core`` runner label. Literal
@@ -24,8 +28,12 @@ Rules (each violation is reported per file and job; any violation exits 1):
                      or tag filter (GitHub runs that on every tag push too).
                      The fork cuts releases from its own pipeline, and its
                      release tags would match upstream's tag patterns.
-  action-not-allowed a step ``uses:`` of an action outside ACTION_ALLOWLIST.
-                     Local actions (``./...``) are always allowed.
+  release-trigger    an ``on: release`` trigger outside RELEASE_TRIGGER_ALLOWLIST.
+                     It would fire on the fork's own GitHub Releases.
+  action-not-allowed a step ``uses:`` of an action outside ACTION_ALLOWLIST, in
+                     a workflow or in a local composite action
+                     (``.github/actions/**/action.yml``). Local actions
+                     (``./...``) are always allowed.
   external-reusable  a job-level ``uses:`` of a reusable workflow that is not
                      ``./.github/workflows/...`` in this repository.
 
@@ -56,6 +64,11 @@ import yaml
 SCHEDULE_ALLOWLIST: dict[str, str] = {
     "osv-scanner.yml": "the fork's weekly dependency vulnerability scan",
 }
+
+# Workflow file names allowed to keep an ``on: release`` trigger. None today:
+# the fork's release pipeline calls its build workflows with workflow_call.
+RELEASE_TRIGGER_ALLOWLIST: dict[str, str] = {}
+
 
 @dataclass(frozen=True)
 class AllowedAction:
@@ -89,6 +102,15 @@ ACTION_ALLOWLIST: dict[str, AllowedAction] = {
     "nix-community/cache-nix-action": AllowedAction(
         "nix.yml only: same as cachix/install-nix-action above",
         only_in=frozenset({"nix.yml"}),
+    ),
+    "DeterminateSystems/nix-installer-action": AllowedAction(
+        "nix-setup composite only: inherited from upstream, referenced by no "
+        "fork workflow; the org policy would block it if one did",
+        only_in=frozenset({"actions/nix-setup/action.yml"}),
+    ),
+    "cachix/cachix-action": AllowedAction(
+        "nix-setup composite only: same as DeterminateSystems/nix-installer-action",
+        only_in=frozenset({"actions/nix-setup/action.yml"}),
     ),
 }
 
@@ -224,6 +246,16 @@ def _check_triggers(name: str, on: Any) -> list[Violation]:
         detail += "; scheduled runs are not allowed on the fork"
         out.append(Violation(name, "schedule", "on", detail))
 
+    if "release" in triggers and name not in RELEASE_TRIGGER_ALLOWLIST:
+        types = []
+        if isinstance(on, dict) and isinstance(on.get("release"), dict):
+            types = [str(t) for t in (on["release"].get("types") or [])]
+        detail = "release trigger"
+        if types:
+            detail += f" ({', '.join(types)})"
+        detail += "; it would fire on the fork's own GitHub Releases"
+        out.append(Violation(name, "release-trigger", "on.release", detail))
+
     if "push" in triggers:
         push = on.get("push") if isinstance(on, dict) else None
         if not isinstance(push, dict):
@@ -310,36 +342,61 @@ def _check_uses(name: str, job_id: str, job: dict[str, Any]) -> list[Violation]:
             )
         )
 
-    steps = job.get("steps")
-    if isinstance(steps, list):
-        for i, step in enumerate(steps):
-            if not isinstance(step, dict) or not isinstance(step.get("uses"), str):
-                continue
-            ref = step["uses"].strip()
-            if ref.startswith("./"):
-                continue
-            action = _action_name(ref)
-            if not _allowed_action(action, name):
-                label = step.get("name") or step.get("id") or f"steps[{i}]"
-                out.append(
-                    Violation(
-                        name,
-                        "action-not-allowed",
-                        f"{where} step '{label}'",
-                        f"action '{action}' is not in ACTION_ALLOWLIST",
-                    )
-                )
+    out.extend(_check_steps(name, where, job.get("steps")))
     return out
+
+
+def _check_steps(name: str, where: str, steps: Any) -> list[Violation]:
+    out: list[Violation] = []
+    if not isinstance(steps, list):
+        return out
+    for i, step in enumerate(steps):
+        if not isinstance(step, dict) or not isinstance(step.get("uses"), str):
+            continue
+        ref = step["uses"].strip()
+        if ref.startswith("./"):
+            continue
+        action = _action_name(ref)
+        if not _allowed_action(action, name):
+            label = step.get("name") or step.get("id") or f"steps[{i}]"
+            out.append(
+                Violation(
+                    name,
+                    "action-not-allowed",
+                    f"{where} step '{label}'",
+                    f"action '{action}' is not in ACTION_ALLOWLIST",
+                )
+            )
+    return out
+
+
+def _load(path: Path, name: str) -> tuple[dict[str, Any] | None, list[Violation]]:
+    try:
+        doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        return None, [Violation(name, "parse-error", "", str(exc).splitlines()[0])]
+    if not isinstance(doc, dict):
+        return None, [Violation(name, "parse-error", "", "not a YAML mapping")]
+    return doc, []
+
+
+def audit_composite(path: Path, root: Path) -> list[Violation]:
+    """Check a local composite action's ``runs.steps[].uses``."""
+    name = path.relative_to(root / ".github").as_posix()
+    doc, errors = _load(path, name)
+    if doc is None:
+        return errors
+    runs = doc.get("runs")
+    if not isinstance(runs, dict):
+        return []
+    return _check_steps(name, "runs", runs.get("steps"))
 
 
 def audit_file(path: Path) -> list[Violation]:
     name = path.name
-    try:
-        doc = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except yaml.YAMLError as exc:
-        return [Violation(name, "parse-error", "", str(exc).splitlines()[0])]
-    if not isinstance(doc, dict):
-        return [Violation(name, "parse-error", "", "not a YAML mapping")]
+    doc, errors = _load(path, name)
+    if doc is None:
+        return errors
 
     on = _triggers(doc)
     out = _check_triggers(name, on)
@@ -362,10 +419,23 @@ def workflow_files(root: Path) -> list[Path]:
     )
 
 
+def composite_action_files(root: Path) -> list[Path]:
+    actions_dir = root / ".github" / "actions"
+    if not actions_dir.is_dir():
+        return []
+    return sorted(
+        p
+        for p in actions_dir.rglob("action.y*ml")
+        if p.is_file() and p.name in ("action.yml", "action.yaml")
+    )
+
+
 def audit(root: Path) -> list[Violation]:
     out: list[Violation] = []
     for path in workflow_files(root):
         out.extend(audit_file(path))
+    for path in composite_action_files(root):
+        out.extend(audit_composite(path, root))
     return out
 
 
@@ -384,9 +454,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"no workflow files under {args.root / '.github' / 'workflows'}", file=sys.stderr)
         return 2
 
+    composites = composite_action_files(args.root)
+    scanned = f"{len(files)} workflow files and {len(composites)} composite actions"
     violations = audit(args.root)
     if not violations:
-        print(f"fork workflow audit: {len(files)} workflow files, no violations")
+        print(f"fork workflow audit: {scanned}, no violations")
         return 0
 
     by_file: dict[str, list[Violation]] = {}
@@ -404,7 +476,7 @@ def main(argv: list[str] | None = None) -> int:
     summary = ", ".join(f"{rule}={n}" for rule, n in sorted(counts.items()))
     print(
         f"\nfork workflow audit FAILED: {len(violations)} violation(s) in "
-        f"{len(by_file)} of {len(files)} workflow files ({summary})"
+        f"{len(by_file)} files; scanned {scanned} ({summary})"
     )
     return 1
 
