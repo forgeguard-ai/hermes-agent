@@ -5,7 +5,6 @@
   "version": "0.21.1",
   "description": "Native desktop shell for Hermes Agent.",
   "author": "Nous Research",
-  "homepage": "https://github.com/forgeguard-ai/hermes-agent#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/forgeguard-ai/hermes-agent.git"
@@ -32,7 +31,7 @@
     "build": "node scripts/assert-root-install.mjs && node scripts/write-build-stamp.mjs && vite build && node scripts/bundle-electron-main.mjs && node scripts/stage-native-deps.mjs",
     "postbuild": "node scripts/assert-dist-built.mjs",
     "prebuilder": "node scripts/patch-electron-builder-mac-binary.mjs",
-    "builder": "cross-env NODE_OPTIONS=--max-old-space-size=16384 node scripts/run-electron-builder.mjs",
+    "builder": "cross-env NODE_OPTIONS=--max-old-space-size=16384 node scripts/forgeguard-dist.mjs",
     "pack": "npm run build && npm run builder -- --dir --publish never",
     "dist": "npm run build && npm run builder -- --publish never",
     "dist:mac": "npm run build && npm run builder -- --mac --publish never",
@@ -199,7 +198,7 @@
         ]
       }
     ],
-    "artifactName": "hermes-desktop-client-${version}-${os}-${arch}.${ext}",
+    "artifactName": "Hermes-${version}-${os}-${arch}.${ext}",
     "icon": "assets/icon",
     "directories": {
       "output": "release"
@@ -282,13 +281,12 @@
       "legalTrademarks": "Hermes",
       "target": [
         "nsis",
-        "portable"
+        "msi"
       ],
       "signAndEditExecutable": false
     },
     "linux": {
       "category": "Development",
-      "icon": "assets/icons",
       "maintainer": "Nous Research <support@nousresearch.com>",
       "synopsis": "Native desktop shell for Hermes Agent.",
       "target": [
@@ -298,16 +296,12 @@
       ]
     },
     "nsis": {
-      "artifactName": "hermes-desktop-client-${version}-win-${arch}-setup.${ext}",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "perMachine": false,
       "shortcutName": "Hermes",
       "uninstallDisplayName": "Hermes",
       "warningsAsErrors": false
-    },
-    "portable": {
-      "artifactName": "hermes-desktop-client-${version}-win-${arch}-portable.${ext}"
     }
   }
 }

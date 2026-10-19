@@ -6,8 +6,8 @@ name: Build Desktop Client
 # deployment via Client Mode (or run a local backend).
 #
 # No Developer ID / notarization credentials exist on the fork
-# (scripts/notarize.cjs no-ops without Apple API key env vars), so macOS
-# builds are AD-HOC signed (scripts/after-pack.cjs) rather than fully
+# (scripts/notarize.mjs no-ops without Apple API key env vars), so macOS
+# builds are AD-HOC signed (scripts/forgeguard-after-pack.mjs) rather than fully
 # unsigned: on Apple Silicon a completely unsigned quarantined app fails
 # Gatekeeper with "damaged and can't be opened" and never launches at all
 # (shipped that way in v2026.7.1-forgeguard.1). Ad-hoc-signed installs still
@@ -15,6 +15,13 @@ name: Build Desktop Client
 # release notes and website/docs/user-guide/desktop.md carry the instructions.
 # Windows builds (added for v0.20.4) are unsigned NSIS + portable .exe files;
 # SmartScreen's "More info → Run anyway" is the expected first-launch step.
+#
+# Packaging goes through apps/desktop/scripts/forgeguard-dist.mjs, which runs
+# electron-builder with apps/desktop/electron-builder.forgeguard.cjs: upstream's
+# base config plus the fork's overlay (installer set, artifact names, Linux
+# icon set, homepage, publish: null, ad-hoc macOS signing). It calls
+# electron-builder directly, not through upstream's run-electron-builder.mjs,
+# so the NSIS/portable targets keep working whatever that wrapper admits.
 #
 # The desktop workspace resolves its dependencies from the ROOT install (npm
 # workspaces + staged native deps), so this always runs `npm ci` at the repo
@@ -99,11 +106,10 @@ jobs:
       - name: Build renderer + main
         run: npm run --prefix apps/desktop build
 
-      # Package the unsigned Linux installers. dist:linux runs the build again
-      # internally, but keeping the explicit build step above means a renderer
-      # break surfaces with a clearer log before the heavyweight packager runs.
+      # Package the unsigned Linux installers from the build above, through
+      # the fork's packaging entry point (see the header comment).
       - name: Package Linux installers
-        run: npm run --prefix apps/desktop dist:linux
+        run: node apps/desktop/scripts/forgeguard-dist.mjs --linux AppImage deb rpm
 
       # NOTE: github.event_name inside a called (workflow_call) workflow is
       # always the CALLER's triggering event (e.g. `pull_request` for
@@ -158,10 +164,10 @@ jobs:
       - name: Build renderer + main
         run: npm run --prefix apps/desktop build
 
-      # Package the macOS installers (dmg + zip, per apps/desktop's
-      # electron-builder "mac.target" config). Not notarized (no Apple
-      # credentials on the fork — scripts/notarize.cjs no-ops), but ALWAYS at
-      # least ad-hoc signed via scripts/after-pack.cjs.
+      # Package the macOS installers (dmg + zip, per the overlay's
+      # "mac.target"). Not notarized (no Apple credentials on the fork —
+      # scripts/notarize.mjs no-ops), but ALWAYS at least ad-hoc signed via
+      # scripts/forgeguard-after-pack.mjs.
       #
       # CSC_FOR_PULL_REQUEST: release-on-merge.yml calls this workflow from a
       # pull_request event, and electron-builder skips its entire signing pass
@@ -173,7 +179,7 @@ jobs:
       - name: Package macOS installers
         env:
           CSC_FOR_PULL_REQUEST: "true"
-        run: npm run --prefix apps/desktop dist:mac
+        run: node apps/desktop/scripts/forgeguard-dist.mjs --mac
 
       # Fail the build if the packed bundle somehow regresses to unsigned —
       # an unsigned arm64 app cannot launch on Apple Silicon once quarantined,
@@ -207,7 +213,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     # Every `run:` below is bash on purpose: the desktop scripts (assert-root-
-    # install, stage-native-deps, run-electron-builder) are POSIX-shaped node
+    # install, stage-native-deps, forgeguard-dist) are POSIX-shaped node
     # invocations that behave the same under Git Bash as on the other two
     # runners, and the retry action is a bash composite already.
     defaults:
@@ -254,19 +260,19 @@ jobs:
       - name: Build renderer + main
         run: npm run --prefix apps/desktop build
 
-      # Package the Windows installers per apps/desktop's electron-builder
-      # "win.target": an NSIS per-user installer (no UAC — perMachine is false)
-      # and a portable single .exe, each with its own artifactName so the two
-      # .exe outputs cannot clobber each other. UNSIGNED: build.win
-      # .signAndEditExecutable is false on purpose (it keeps electron-builder's
-      # signtool step — and its 7-Zip-hostile winCodeSign download — out of the
-      # build; PE identity is stamped by scripts/set-exe-identity.mjs in
-      # afterPack instead), and no code-signing certificate exists on the fork.
-      # SmartScreen will show "Windows protected your PC" until the binaries
-      # accrue reputation; the release notes and desktop-artifacts.md say so.
+      # Package the Windows installers per the overlay's "win.target": an NSIS
+      # per-user installer (no UAC — perMachine is false) and a portable single
+      # .exe, each with its own artifactName so the two .exe outputs cannot
+      # clobber each other. UNSIGNED: win.signAndEditExecutable is false on
+      # purpose (it keeps electron-builder's signtool step — and its
+      # 7-Zip-hostile winCodeSign download — out of the build; PE identity
+      # is stamped by scripts/set-exe-identity.mjs in afterPack instead), and
+      # no code-signing certificate exists on the fork. SmartScreen will show
+      # "Windows protected your PC" until the binaries accrue reputation; the
+      # release notes and desktop-artifacts.md say so.
       # x64 only: get-windows publishes no win32-arm64 prebuild.
       - name: Package Windows installers
-        run: npm run --prefix apps/desktop dist:win
+        run: node apps/desktop/scripts/forgeguard-dist.mjs --win
 
       # See the matching NOTE on "Upload Linux installers" above. The glob
       # excludes *.exe.blockmap (electron-builder's differential-update

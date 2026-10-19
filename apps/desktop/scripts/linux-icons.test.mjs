@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -38,17 +39,21 @@ function readPngSize(file) {
 }
 
 function iconDir() {
-  const pkg = JSON.parse(readFileSync(join(DESKTOP_ROOT, 'package.json'), 'utf8'))
-  const configured = pkg.build?.linux?.icon
+  // The fork's packaging config is the upstream base plus the overlay in
+  // electron-builder.forgeguard.cjs; read the icon from what actually builds.
+  const { resolveForgeguardConfig } = createRequire(import.meta.url)(
+    join(DESKTOP_ROOT, 'electron-builder.forgeguard.cjs')
+  )
+  const configured = resolveForgeguardConfig(DESKTOP_ROOT).linux?.icon
   assert.ok(
     configured,
-    'build.linux.icon must be set: without it electron-builder falls back to the top-level ' +
+    'linux.icon must be set: without it electron-builder falls back to the top-level ' +
       'single-PNG icon and installs one unusable hicolor/1024x1024 entry'
   )
   return join(DESKTOP_ROOT, configured)
 }
 
-test('build.linux.icon points at a directory of icons, not a single PNG', () => {
+test('linux.icon points at a directory of icons, not a single PNG', () => {
   const dir = iconDir()
   assert.ok(statSync(dir).isDirectory(), `${dir} must be a directory (a lone PNG yields a one-size icon set)`)
 })
