@@ -10,8 +10,46 @@ this doc describes the release automation specifically.
 
 ## Version scheme
 
-Since Hermes 0.19.0, fork releases are tagged with the Hermes Agent product
-semver, e.g. `v0.19.0`:
+`compute-version` runs `.github/scripts/fork_release_version.py`, which picks
+one of two modes from the `FORK_UPSTREAM_BASE` marker (rules unit-tested in
+`tests/fork/test_release_version.py`):
+
+| Marker | Mode | Release tag | Read from |
+| --- | --- | --- | --- |
+| plain upstream semver release, e.g. `v0.22.2` | upstream-release | `v0.22.2-forgeguard.<N>` | the marker, plus the remote's tags (`git ls-remote`) |
+| anything else, e.g. the calendar base `v2026.8.31` | legacy | `v0.21.1`, then `v0.21.1-forgeguard.<n>` on a re-cut | `pyproject.toml`, plus `gh release list` |
+
+**Upstream-release mode** is the scheme from the sync to upstream's
+release-based versioning onward. Upstream's version files are `0.0.0` there,
+and the real version comes from a build-time install stamp, so the workflow
+does not read them. N is one more than the highest `v<base>-forgeguard.<n>`
+tag already on the remote, so it starts at 1 for each new upstream release.
+Counting tags rather than GitHub Releases means pruned releases cannot reset
+the counter. `FORK_UPSTREAM_COMMIT`, written by the sync, names the exact
+upstream commit merged. It is optional: when present the release notes show it
+beside the upstream release, and when absent the run logs a warning.
+
+**Either mode refuses** an empty version or one whose core is `0.0.0`. That
+stops a version-file read from ever releasing `v0.0.0` after the sync.
+
+**Dry run.** `release-on-merge.yml` also has a `workflow_dispatch` trigger
+whose `dry_run` input defaults to true. A dry run computes the version, tag and
+release notes and writes them to the run summary; it builds, tags and publishes
+nothing. A manual run with `dry_run=false` is a real release, refused unless it
+runs on `main`. Use the dry run after a sync, before merging anything that
+releases.
+
+**Image digest.** `build-runtime-images.yml` returns the pushed runtime
+image's registry digest as the `runtime_digest` output, and the release notes
+record it as a pin (`ghcr.io/forgeguard-ai/hermes-agent@sha256:…`). The image
+also carries `org.opencontainers.image.version` (the release version without
+its `v`) and `org.opencontainers.image.revision` (the commit), set from build
+args in the `Dockerfile`.
+
+### Legacy mode
+
+Since Hermes 0.19.0, and until the sync to upstream's semver releases, fork
+releases are tagged with the Hermes Agent product semver, e.g. `v0.19.0`:
 
 - `<hermes-version>` is read from `pyproject.toml` by `compute-version` —
   aligning fork releases with ForgeGuard project versioning conventions.
@@ -49,10 +87,9 @@ release-relevant. It skips (no release, no builds) when the PR carries the
 `docs/*`, `website/*`, `tests/*`, `.github/*`, and `*.md`, so docs-only and
 CI-only merges don't produce releases. For qualifying merges it:
 
-1. Computes the release version (`compute-version` job): the product semver
-   from `pyproject.toml` (e.g. `v0.19.0`), with a `-forgeguard.<n>` suffix only
-   on a re-cut; `FORK_UPSTREAM_BASE` feeds only the release-notes traceability
-   line.
+1. Computes the release version (`compute-version` job) as described under
+   [Version scheme](#version-scheme), and previews the release notes in the
+   run summary.
 2. Calls `build-desktop-client.yml` with `upload: true` → unsigned Linux
    installers (`.AppImage`, `.deb`, `.rpm`), ad-hoc-signed macOS installers
    (`.dmg`, `.zip`) and unsigned Windows installers (`-setup.exe`,
@@ -63,7 +100,8 @@ CI-only merges don't produce releases. For qualifying merges it:
    to `ghcr.io/forgeguard-ai/hermes-agent` with tags `runtime-<sha>` /
    `runtime-latest` / `runtime-<version>`.
 4. Publishes a GitHub Release with the installers attached and the image pull
-   commands in the notes.
+   commands and digest in the notes. The notes come from
+   `.github/release-notes-template.md`.
 
 Those two build workflows have no triggers of their own besides `workflow_call`
 and `workflow_dispatch` (the manual escape hatch — e.g. validating a branch's
@@ -119,9 +157,10 @@ After a merge that should release, confirm:
 - `release-on-merge.yml` fired, completed fully green, and — checking individual
   **step** conclusions — actually uploaded installers and pushed both runtime
   images rather than silently skipping.
-- The GitHub Release is tagged with the product semver (plus the `-forgeguard.<n>`
-  re-cut suffix when that version had already released), its notes carry the
-  expected "Upstream release" line, and it has all seven installers attached
+- The GitHub Release is tagged as [Version scheme](#version-scheme) describes
+  for the marker's mode, its notes carry the expected "Upstream release" line
+  (with the upstream commit when `FORK_UPSTREAM_COMMIT` exists) and the runtime
+  image digest, and it has all seven installers attached
   (`*.deb`, `*.AppImage`, `*.rpm`, `*.dmg`, `*.zip`, `*-setup.exe`,
   `*-portable.exe`).
 
@@ -163,7 +202,8 @@ Two things to know before running it:
   (a packages `403` is the usual cause — set `GHCR_CLEANUP_TOKEN` to a PAT with
   `read:packages` + `delete:packages`), it aborts rather than pruning releases
   while silently leaving images behind.
-- Pruning releases changes what `compute-version` sees. It derives the next
+- Pruning releases changes what legacy-mode `compute-version` sees
+  (upstream-release mode counts tags and is unaffected). It derives the next
   `-forgeguard.<n>` from `gh release list`, so a **deleted** version line's
   counter resets while its git tag still exists — re-cutting `v0.19.x` or
   `v2026.7.1` would compute a suffix whose tag is already taken and fail to
