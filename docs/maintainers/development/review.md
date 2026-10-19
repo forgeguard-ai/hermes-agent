@@ -113,8 +113,8 @@ A change lacking the validation its surface requires is itself a finding.
 - **Never** propose opening a PR against `NousResearch/hermes-agent` — this fork
   merges to `ForgeGuard/hermes-agent:main` unless a human explicitly authorizes an
   upstream PR ("Fork PR Policy").
-- Non-trivial multi-step work must have a saved local plan under the
-  git-ignored `docs/agent-plans/` ("Plan-Saving Rule").
+- Non-trivial multi-step work must have a saved plan, kept outside this
+  repository and never committed ("Plan-Saving Rule").
 - Upstream syncs follow [`../upstream-sync/sync-policy.md`](../upstream-sync/sync-policy.md).
 
 ## 7. Using Graphify to improve the review

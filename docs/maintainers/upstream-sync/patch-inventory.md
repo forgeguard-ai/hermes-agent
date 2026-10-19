@@ -174,6 +174,35 @@ evolves.
       upload and image push for two releases before it was caught (2026-07-02) —
       the jobs report "success" either way, so this only surfaces by checking the
       *individual step* conclusions, not the job conclusion.
+- [ ] **New upstream workflows audited** — on every sync, before the PR, list
+      what upstream added or changed under `.github/workflows/` and check it for
+      the fork's runner and trigger rules. The audit script checks all of it
+      and must exit 0 on the merged branch (run it on the target's tree first
+      for the to-do list):
+
+      ```bash
+      python .github/scripts/audit_fork_workflows.py
+      git archive <COMMIT> .github | tar -x -C /tmp/target-gh \
+        && python .github/scripts/audit_fork_workflows.py --root /tmp/target-gh
+      ```
+
+      By hand, the same checks are:
+
+      ```bash
+      git grep -nE 'runs-on:.*-core' -- .github/workflows
+      git grep -nhE '^\s*(- )?uses:' -- .github/workflows \
+        | sed -E 's/.*uses:[[:space:]]*//' | sort -u \
+        | grep -vE '^(actions|github)/|^\./'
+      git grep -nlE '^\s*schedule:' -- .github/workflows
+      ```
+
+      Every `*-core` (paid larger) runner is remapped to a standard runner;
+      every `schedule:`, `push: tags:` and upstream-infrastructure trigger is
+      stripped or guarded on `github.repository == 'NousResearch/hermes-agent'`
+      (the OSV scan is the one scheduled workflow the fork keeps); every
+      `uses:` outside `actions/*` and `github/*` is either allowed by the
+      forgeguard-ai actions policy or replaced with a direct invocation (see the
+      `docker-lint.yml` and `osv-scanner.yml` entries above).
 
 ## Docker / build structure
 
@@ -529,14 +558,19 @@ the fork had added cases to, so those cases moved here ahead of the sync:
       intact (`AGENTS.md` is the source of truth; the other two are thin pointers
       to it), and their runbook links point at
       `docs/maintainers/upstream-sync/sync-policy.md`.
+- [ ] **`AGENTS.md` "Plan-Saving Rule"** still says plans are saved outside
+      this repository and never committed. Keep `docs/agent-plans/` in the fork
+      block at the **top** of `.gitignore` (the block sits at the top so
+      upstream's appends at the end of the file merge cleanly).
 
 ## Marker
 
-- [ ] **`FORK_UPSTREAM_BASE`** and **`FORK_UPSTREAM_COMMIT`** — not a
-      merge-conflict risk (you rewrite both in step 6 of the
-      [sync policy](./sync-policy.md#6-update-fork_upstream_base)), but don't
-      forget them: the first names the release, the second the exact upstream
-      commit in its notes.
+- [ ] **`FORK_UPSTREAM_BASE` and `FORK_UPSTREAM_COMMIT`** — not merge-conflict
+      risks (you rewrite both in step 6 of the
+      [sync policy](./sync-policy.md#6-update-the-upstream-markers)), but don't
+      forget them: the release version is computed from `FORK_UPSTREAM_BASE`,
+      and `FORK_UPSTREAM_COMMIT` must name the commit actually merged (the
+      tree-identical one when the tag sits off-branch).
 
 ## Related
 

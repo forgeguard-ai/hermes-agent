@@ -35,19 +35,46 @@ worked through as part of every sync:
 
 ## Step-by-step
 
-### 1. Fetch upstream and pick the target tag
+### 1. Fetch upstream without its tags, and pick the target release
+
+The fork syncs to **upstream releases only** — a version upstream has published
+as a GitHub Release — never to the moving `upstream/main` tip or a pre-release.
+
+Upstream's tags share a namespace with the fork's own release tags, so never
+let them into `refs/tags`. Fetch them into a separate namespace instead:
 
 ```bash
-git fetch upstream --tags
-git tag -l 'v20*' --sort=-creatordate | head -5   # see recent upstream release tags
+git fetch upstream --no-tags \
+  '+refs/heads/main:refs/remotes/upstream/main' \
+  '+refs/heads/release/*:refs/remotes/upstream/release/*' \
+  '+refs/tags/*:refs/upstream-tags/*'
+gh release list --repo NousResearch/hermes-agent --limit 5   # the published releases
 ```
 
-Pick the **newest tagged release** you want to sync to (not `upstream/main`
-directly — that moves under you mid-sync). Confirm it looks right:
+Never run `git fetch upstream --tags` or `git push --tags` from a clone used
+for syncing.
+
+**Pick the commit to merge — the tree-identical rule.** Usually the release
+tag's commit is on an upstream branch, and you merge the tag. Upstream
+sometimes tags a release commit that sits *off* every branch (a release cut
+from a release branch with a version-bump commit of its own). Merging such a
+commit drags a dead-end history into the fork. Instead, merge the commit on the
+release branch whose **tree is byte-identical** to the tag's tree:
 
 ```bash
-git log -1 <TAG> --format="%H %s %ci"
+TAG=v0.22.2
+TAG_TREE=$(git rev-parse "refs/upstream-tags/${TAG}^{tree}")
+git branch -r --contains "refs/upstream-tags/${TAG}"     # empty => off-branch tag
+git log --format='%H %T' 'upstream/release/*' upstream/main \
+  | awk -v t="$TAG_TREE" '$2 == t {print $1}'           # tree-identical commits
 ```
+
+Use the tag itself when it is on a branch; otherwise the tree-identical
+release-branch commit. Then confirm `git rev-parse <COMMIT>^{tree}` equals
+`$TAG_TREE`, and that `<COMMIT>` does not contain releases the tag itself
+excludes (`git log --oneline refs/upstream-tags/${TAG}..<COMMIT>` should be
+empty or only merge commits). Record both in the PR body; step 6 writes them
+to the marker files.
 
 ### 2. Reset the `dev` branch off fork `main`
 
@@ -67,13 +94,18 @@ git push -u origin dev
 `main` at the start of a sync and lands back into `main` via the sync PR at
 the end. Don't stack unrelated feature work on it mid-sync.
 
-### 3. Merge the upstream tag (real merge, never squash/rebase)
+### 3. Merge the upstream release (real merge, never squash/rebase)
 
 ```bash
-git merge <TAG> --no-edit -m "Merge upstream <TAG> into fork dev"
+git merge <COMMIT> --no-ff -m "Merge upstream <TAG> (<COMMIT>) into fork dev"
 ```
 
-A real merge commit (two parents: fork `main` + the upstream tag) is required —
+`<COMMIT>` is the tag, or the tree-identical commit from step 1. List in the
+merge commit message every fork-patched file you resolved to upstream's side
+pending a port (see [Conflict resolution](./conflict-resolution.md)), so none
+is forgotten.
+
+A real merge commit (two parents: fork `main` + the upstream release) is required —
 it's what lets a *future* sync's `git merge` correctly compute the three-way diff
 against the last sync point. Squashing or rebasing here would make every
 subsequent sync re-resolve the same conflicts from scratch. See
@@ -94,6 +126,12 @@ merged branch — a clean auto-merge can silently keep the wrong side, and those
 are exactly the places most likely to matter to the fork's own CI/release
 behaviour.
 
+**Lockfiles are regenerated, never hand-merged.** Resolve `pyproject.toml`
+first, then regenerate the Python lock with upstream's package manager
+(`hermes pm lock`, since upstream 0.22; it pins the Python, uv and Node
+versions it uses) and the npm lock with `npm install --package-lock-only`.
+Take upstream's lockfile side in the conflict, then regenerate on top.
+
 ### 5. Run the test suite
 
 ```bash
@@ -105,40 +143,34 @@ pre-existing upstream debt is noted in the PR and not blocked on; a failure that
 reproduces only on the merged branch is a real merge regression and must be fixed
 before opening the PR.
 
-### 6. Update `FORK_UPSTREAM_BASE`
+### 6. Update the upstream markers
 
 ```bash
 echo "<TAG>" > FORK_UPSTREAM_BASE
-echo "<UPSTREAM_COMMIT>" > FORK_UPSTREAM_COMMIT
+echo "<COMMIT full sha>" > FORK_UPSTREAM_COMMIT
 git add FORK_UPSTREAM_BASE FORK_UPSTREAM_COMMIT
-git commit -m "chore: bump FORK_UPSTREAM_BASE to <TAG>"
+git commit -m "chore: record upstream <TAG> (<COMMIT>) as the fork base"
 ```
 
-`FORK_UPSTREAM_COMMIT` holds the full SHA of the upstream commit step 3
-actually merged, and nothing else. It is usually `<TAG>^{commit}`, but not
-always: when an upstream release tag sits off upstream `main`, the sync merges
-a tree-identical commit instead, and this file records that commit. Check it
-with `git merge-base HEAD <UPSTREAM_COMMIT>`, which must print
-`<UPSTREAM_COMMIT>` back. The release notes show it beside the upstream
-release; the file is optional to the workflow, but a sync should always write
-it.
-
-**Which release scheme the marker selects.** When `<TAG>` is a plain upstream
-semver release (`v0.22.2`), the release is named from it:
-`v0.22.2-forgeguard.<N>`, N starting at 1 for each upstream release, and the
-version files are not read. Any other marker (the calendar-shaped bases such as
-`v2026.8.31`) keeps the legacy scheme described below. See the
-[Release process](../release/release-process.md#version-scheme).
-
-For the legacy scheme, this file is read by `release-on-merge.yml`'s version-computation step for the
-"Upstream release" traceability line in the release notes. Since Hermes 0.19.0
-it no longer names the release — release tags are the `pyproject.toml` version,
-which since `v0.20.4` is the **fork's own patch line** (bumped by one on every
-fork release; hand-set during a sync rather than taken upstream byte-identical —
-see the release process) — but the marker must still be correct: without
-it, that workflow falls back to `git describe --tags --abbrev=0`, which can
-pick an unrelated or stale tag. See the
-[Release process](../release/release-process.md).
+- `FORK_UPSTREAM_BASE` names the upstream release. `release-on-merge.yml`
+  computes the fork's release version from it: `v<upstream version>-forgeguard.<N>`,
+  where N starts at 1 for each upstream release and counts the fork's releases on
+  top of it (e.g. `v0.22.2-forgeguard.1`, then `v0.22.2-forgeguard.2`).
+- `FORK_UPSTREAM_COMMIT` is the exact commit merged. It differs from the tag's
+  commit whenever step 1's tree-identical rule applied.
+- Check `FORK_UPSTREAM_COMMIT` with `git merge-base HEAD <COMMIT>`, which must
+  print `<COMMIT>` back. The release notes show it beside the upstream release.
+- Any marker that is not a plain upstream semver release (the calendar-shaped
+  bases such as `v2026.8.31`) keeps the legacy version scheme. See the
+  [Release process](../release/release-process.md#version-scheme).
+- **Never hand-set a version.** Since upstream 0.22 the version files
+  (`pyproject.toml`, `package.json`) say `0.0.0`, and the real version comes from
+  the build-time install stamp (`scripts/write_install_stamp.py`) that the
+  release and image workflows write. Keep the version files exactly as upstream
+  ships them.
+- Syncs before the 0.22 line used calendar tags (`v2026.8.31`) and
+  hand-set the version in `pyproject.toml`. See the
+  [Release process](../release/release-process.md) for that history.
 
 ### 7. Push and open the PR
 
@@ -171,10 +203,10 @@ After merging, confirm:
   so the release gate lets it through), completes fully green, and — check
   individual **step** conclusions, not just job conclusions — actually uploads
   installers and pushes both runtime images rather than silently skipping.
-- The resulting GitHub Release is tagged with the product version on the merged
-  branch — e.g. `v0.19.0`; a sync normally bumps the product version, so expect
-  the plain tag, or the next `-forgeguard.<n>` re-cut suffix if that version
-  had already released — its notes' "Upstream release" line shows `<TAG>`, and
+- The resulting GitHub Release is tagged `v<upstream version>-forgeguard.<N>`
+  (e.g. `v0.22.2-forgeguard.1` for the first fork release on upstream v0.22.2),
+  `hermes --version` in the built image reports the same version, its notes'
+  "Upstream release" line shows `<TAG>` and `<COMMIT>`, and
   it has all 7 installers attached (`*.deb`, `*.AppImage`, `*.rpm`, `*.dmg`,
   `*.zip`, `*-setup.exe`, `*-portable.exe`).
 
