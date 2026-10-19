@@ -18,7 +18,7 @@ import asyncio
 import pytest
 
 from hermes_cli.auth import AuthError, resolve_provider
-from hermes_cli.providers import canonicalize_provider_slug
+from hermes_cli.custom_provider_slugs import canonicalize_provider_slug
 
 
 CUSTOM_PROVIDERS = [
