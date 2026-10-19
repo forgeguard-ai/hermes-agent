@@ -248,7 +248,8 @@ IS the verification hook — run it on the merged branch instead of eyeballing:
       (fork v0.19.2). `"no-key"` in the placeholder-secret set;
       `"no-key-required"` deliberately stays out. Verified NOT upstream as of
       v2026.8.16 (the fork test fails on a clean upstream checkout).
-      Test: `tests/hermes_cli/test_auth_usable_secret.py`.
+      Test: `tests/fork/test_auth_no_key_sentinel.py` (see "Fork-owned test
+      homes" below).
 - [ ] **custom:`<name>` slug handling** (fork v0.19.3): the logic lives in
       the fork-owned `hermes_cli/custom_provider_slugs.py`
       (`canonicalize_provider_slug`, `collapse_unresolved_custom_slug`,
@@ -483,6 +484,31 @@ IS the verification hook — run it on the merged branch instead of eyeballing:
       imports `fork_upstream_base` as `_fork_upstream_base` and wraps the
       version label in one line of `format_banner_version_label`. Re-apply that
       line on upstream's rebuilt label. Tests: `tests/fork/test_fork_identity.py`.
+
+## Fork-owned test homes (`tests/fork/`)
+
+`tests/fork/` holds tests for fork-owned behavior that must survive upstream
+syncs (see `tests/fork/README.md`). Upstream deleted two test files
+the fork had added cases to, so those cases moved here ahead of the sync:
+
+- [ ] **`tests/fork/test_auth_no_key_sentinel.py`** — the "no-key" deploy
+      sentinel cases (plus the two upstream baseline placeholder cases they
+      sit beside), copied from `tests/hermes_cli/test_auth_usable_secret.py`.
+      Upstream purged that file as low-value.
+- [ ] **`tests/fork/test_banner_fork_identity.py`** — the banner
+      fork-identity cases (`_fork_upstream_base()` and the "ForgeGuard fork
+      (tracks <tag>)" element in `format_banner_version_label()`), copied from
+      `tests/hermes_cli/test_banner_git_state.py`. Upstream deleted that file
+      when it rebuilt the banner label around a build-time install stamp.
+      **Re-port at that sync:** re-apply the fork-identity element to
+      upstream's rebuilt `format_banner_version_label()` and update these
+      cases with it (the rebuilt label no longer uses `banner.VERSION`, and it
+      returns early for a desktop install stamp or a non-main update channel).
+
+**Rule:** at a sync, accept upstream's deletion of
+`tests/hermes_cli/test_auth_usable_secret.py` and
+`tests/hermes_cli/test_banner_git_state.py`; the fork's cases live in
+`tests/fork/`. Run `tests/fork/` on the merged branch.
 
 ## Docs / instructions
 
